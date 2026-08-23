@@ -2902,6 +2902,23 @@
       if (!u.data || !u.data.user) return null;
       var res = await client.from('profiles').select('*').eq('id', u.data.user.id).maybeSingle();
       return res.data || null;
+    },
+
+    // Pre-authorizes an email for a staff role (muni officer or JCF staff)
+    // before that person has signed up. See supabase_schema.sql's
+    // atd_handle_new_user trigger, which reads this table by email at
+    // signup time to assign the right role/agency/branch/permissions
+    // instead of defaulting to a public 'poa' applicant account.
+    inviteStaff: async function (invite) {
+      if (!client) return { error: new Error('Backend not configured') };
+      return client.from('staff_invites').upsert({
+        email: (invite.email || '').toLowerCase(),
+        role: invite.role,
+        agency_id: invite.agency_id || null,
+        jcf_branch_id: invite.jcf_branch_id || null,
+        permissions: invite.permissions || {},
+        display_name: invite.display_name || null
+      }, { onConflict: 'email' });
     }
   };
 
@@ -4449,6 +4466,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <button class="btn btn-primary btn-block" onclick="muni_attemptLogin()">Login</button>
 
       <div class="login-demo-hint" id="demoHint">Loading demo accounts…</div>
+      <div class="login-demo-hint" id="muni_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="muni_attemptSignup()">First time signing in? Create your password with this email (your CEO must have added your account first).</div>
     </div>
   </div>
 </div>
@@ -5668,6 +5686,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <button class="btn btn-primary btn-block" onclick="admin_attemptLogin()">Login</button>
 
       <div class="login-demo-hint">Demo access — Email: <strong>admin@gmail.com</strong> &nbsp;|&nbsp; Password: <strong>Admin@123</strong></div>
+      <div class="login-demo-hint" id="admin_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="admin_attemptSignup()">First time with a live backend connected? Create the admin account with this email/password.</div>
     </div>
   </div>
 </div>
@@ -7333,6 +7352,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <button class="btn btn-primary btn-block" onclick="jcfd_attemptLogin()">Login</button>
 
         <div class="login-demo-hint" id="jcfd_demoHint">Loading demo accounts…</div>
+        <div class="login-demo-hint" id="jcfd_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="jcfd_attemptSignup()">First time signing in? Create your password with this email (your Chief must have added your account first).</div>
       </div>
     </div>
   </div>
@@ -7868,8 +7888,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
     } catch(e){ /* not found — safe to continue */ }
 
+    // Phase 1b: with a real Supabase backend configured, the password is
+    // handed to real Auth instead of stored in this profile record. The
+    // profile keeps everything else (name/TRN/phone/photo ID etc.) exactly
+    // as before — Auth only proves who's signing in, not where their
+    // application profile data lives.
+    const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+    if(usingRealAuth){
+      const { error } = await window.ATDBackend.signUp(email, password);
+      if(error){
+        errorBox.textContent = error.message || 'Could not create that account.';
+        errorBox.classList.remove('hidden');
+        return;
+      }
+    }
+
     const profile = {
-      email, password, name,
+      email, name,
+      password: usingRealAuth ? undefined : password,
       trn: '', phone: '', dob: '', addr1: '', addr2: '', district: '', parish: '',
       photoIdFileName: '', photoIdFileData: null,
       createdDate: new Date().toISOString().slice(0,10)
@@ -7896,6 +7932,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       errorBox.classList.remove('hidden');
       return;
     }
+
+    if(window.ATDBackend && window.ATDBackend.isConfigured()){
+      try{
+        const { error } = await window.ATDBackend.signIn(email, password);
+        if(error) throw error;
+        const result = await window.storage.get('accountUser:' + email, true);
+        if(!result || !result.value) throw new Error('no profile record');
+        acct_currentUser = JSON.parse(result.value);
+        acct_showLoggedInUI();
+      }catch(e){
+        errorBox.textContent = 'Incorrect email or password.';
+        errorBox.classList.remove('hidden');
+      }
+      return;
+    }
+
+    // ---- Fallback: original plaintext-password-on-record check ----
     try{
       const result = await window.storage.get('accountUser:' + email, true);
       if(!result || !result.value) throw new Error('not found');
@@ -7915,6 +7968,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.acct_login = acct_login;
 
   function acct_logout(){
+    if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
     acct_currentUser = null;
     document.getElementById('acct_authView').classList.remove('hidden');
     document.getElementById('acct_appView').classList.add('hidden');
@@ -8327,6 +8381,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jcfd_refreshLogin = jcfd_refreshLogin;
   jcfd_refreshLogin();
 
+  async function jcfd_enterShellAsUser(user, branchId){
+    jcfdCurrentUser = user;
+    jcfdCurrentBranch = jcfd_branchById(branchId);
+    jcfdCachedSignature = null;
+    document.getElementById('jcfd_loginScreen').classList.add('hidden');
+    document.getElementById('jcfd_appShell').classList.remove('hidden');
+    document.getElementById('jcfd_sidebarBranch').textContent = jcfdCurrentBranch ? jcfdCurrentBranch.name : '—';
+    document.getElementById('jcfd_sidebarAvatar').textContent = (user.name || '?').charAt(0).toUpperCase();
+    document.getElementById('jcfd_sidebarUserName').textContent = user.name;
+    document.getElementById('jcfd_sidebarUserRole').textContent = user.role;
+    document.getElementById('jcfd_navUsers').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
+    await jcfd_loadRolePermissions();
+    jcfd_applyNavPermissions();
+    jcfd_goPage('dashboard');
+  }
+
   async function jcfd_attemptLogin(){
     const branchId = parseInt(document.getElementById('jcfd_loginBranch').value, 10);
     const email = document.getElementById('jcfd_loginEmail').value.trim().toLowerCase();
@@ -8340,25 +8410,39 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
 
+    // Phase 1b: with a real Supabase backend configured, credentials are
+    // verified against real Auth rather than the shared demo password below.
+    // Business data (name/role/status) still comes from jcfdStaffUsers.
+    if(window.ATDBackend && window.ATDBackend.isConfigured()){
+      try{
+        const { error } = await window.ATDBackend.signIn(email, password);
+        if(error) throw error;
+        const profile = await window.ATDBackend.getProfile();
+        if(!profile || profile.role !== 'jcfd' || String(profile.jcf_branch_id) !== String(branchId)) throw new Error('not provisioned for this division');
+        const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === email);
+        if(!user || user.status !== 'Active') throw new Error('suspended or not found');
+        errorBox.classList.add('hidden');
+        if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, true);
+        if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: branchId });
+        await jcfd_enterShellAsUser(user, branchId);
+        return;
+      }catch(e){
+        if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, false);
+        if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid division, email, or password.' });
+        errorBox.textContent = 'Invalid division, email, or password.';
+        errorBox.classList.remove('hidden');
+        return;
+      }
+    }
+
+    // ---- Fallback: original shared demo password (no backend configured) ----
     const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === email);
 
     if(user && password === JCFD_DEMO_PASSWORD && user.status === 'Active'){
       errorBox.classList.add('hidden');
       if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, true);
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: branchId });
-      jcfdCurrentUser = user;
-      jcfdCurrentBranch = jcfd_branchById(branchId);
-      jcfdCachedSignature = null;
-      document.getElementById('jcfd_loginScreen').classList.add('hidden');
-      document.getElementById('jcfd_appShell').classList.remove('hidden');
-      document.getElementById('jcfd_sidebarBranch').textContent = jcfdCurrentBranch ? jcfdCurrentBranch.name : '—';
-      document.getElementById('jcfd_sidebarAvatar').textContent = (user.name || '?').charAt(0).toUpperCase();
-      document.getElementById('jcfd_sidebarUserName').textContent = user.name;
-      document.getElementById('jcfd_sidebarUserRole').textContent = user.role;
-      document.getElementById('jcfd_navUsers').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
-      await jcfd_loadRolePermissions();
-      jcfd_applyNavPermissions();
-      jcfd_goPage('dashboard');
+      await jcfd_enterShellAsUser(user, branchId);
     } else if(user && user.status !== 'Active'){
       if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, false);
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email, actorRole: user.role, action: 'login.failed', details: `${user.name}'s account is suspended.`, muniId: branchId });
@@ -8372,10 +8456,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
   }
   window.jcfd_attemptLogin = jcfd_attemptLogin;
+
+  // First-time password creation for a division staffer the Chief has
+  // already added (see jcfd_saveUser(), which writes a matching
+  // staff_invites row so this signup is auto-assigned the right division).
+  async function jcfd_attemptSignup(){
+    const errorBox = document.getElementById('jcfd_loginError');
+    const email = document.getElementById('jcfd_loginEmail').value.trim().toLowerCase();
+    const password = document.getElementById('jcfd_loginPassword').value;
+    if(!window.ATDBackend || !window.ATDBackend.isConfigured()){
+      errorBox.textContent = 'This preview environment has no live backend to create an account against.';
+      errorBox.classList.remove('hidden');
+      return;
+    }
+    try{
+      const { error } = await window.ATDBackend.signUp(email, password);
+      if(error) throw error;
+      errorBox.classList.add('hidden');
+      await jcfd_attemptLogin();
+    }catch(e){
+      errorBox.textContent = (e && e.message) || 'Could not create that account.';
+      errorBox.classList.remove('hidden');
+    }
+  }
+  window.jcfd_attemptSignup = jcfd_attemptSignup;
+
   const jcfdPwField = document.getElementById('jcfd_loginPassword');
   if(jcfdPwField) jcfdPwField.addEventListener('keydown', e => { if(e.key === 'Enter') jcfd_attemptLogin(); });
 
   function jcfd_logout(){
+    if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
     jcfdCurrentUser = null;
     jcfdCurrentBranch = null;
     document.getElementById('jcfd_appShell').classList.add('hidden');
@@ -9465,6 +9575,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const role = document.getElementById('jcfd_userRole').value;
     if(!name || !email){ jcfd_showToast('Please enter a name and email.'); return; }
     jcfdStaffUsers.push({ id: jcfdNextUserId++, agencyId: jcfdCurrentBranch.id, name, email, role, status:'Active' });
+    // Phase 1b: pre-authorize this email for the real backend so that when
+    // they sign up (see jcfd_attemptSignup), they're auto-assigned this
+    // division rather than landing as a public applicant.
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.inviteStaff){
+      window.ATDBackend.inviteStaff({ email, role: 'jcfd', jcf_branch_id: String(jcfdCurrentBranch.id), display_name: name }).catch(()=>{});
+    }
     jcfd_closeUserModal();
     jcfd_renderUsers();
     jcfd_showToast('Staff account created.');
@@ -13688,6 +13804,21 @@ muni_initRegistryData();
   } catch(err){ /* if seeding fails partway, dashboard still works from local data */ }
 })();
 
+function muni_enterShellAsUser(user){
+  currentUser = user;
+  document.getElementById('muni_loginScreen').classList.add('hidden');
+  document.getElementById('muni_appShell').classList.remove('hidden');
+  setupSidebarForUser();
+  muni_renderAll();
+  muni_goPage('dashboard');
+  loadSubmittedApplications();
+  cacheSignature();
+  loadVenues();
+  loadAdItems();
+  loadWatchlist();
+  loadPromotions();
+}
+
 async function muni_attemptLogin(){
   const muniId = parseInt(document.getElementById('loginMuni').value, 10);
   const email = document.getElementById('muni_loginEmail').value.trim().toLowerCase();
@@ -13701,29 +13832,47 @@ async function muni_attemptLogin(){
     return;
   }
 
-  const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
   // Defensive check in addition to the login dropdown already only listing
   // Active municipalities (activeMunicipalityIds()/MUNICIPALITIES) — closes
   // the same gap for anyone who could still reach this form with a
   // suspended agency's muniId some other way.
   const municipalityIsActive = MUNICIPALITIES.some(m => m.id === muniId);
 
+  // Phase 1b: with a real Supabase backend configured, credentials are
+  // verified against real Auth rather than the shared demo password below.
+  // Business data (name/phone/role/permissions) still comes from the
+  // existing municipalUsers record — Auth only proves who's signing in;
+  // it isn't where their profile lives.
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    try{
+      if(!municipalityIsActive) throw new Error('municipality suspended');
+      const { error } = await window.ATDBackend.signIn(email, password);
+      if(error) throw error;
+      const profile = await window.ATDBackend.getProfile();
+      if(!profile || profile.role !== 'muni' || String(profile.agency_id) !== String(muniId)) throw new Error('not provisioned for this municipality');
+      const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
+      if(!user || user.status !== 'Active') throw new Error('suspended or not found');
+      errorBox.classList.add('hidden');
+      await window.atdRecordLoginAttempt('muni', email, true);
+      await window.atdLogAudit({ portal: 'muni', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: user.muniId });
+      muni_enterShellAsUser(user);
+      return;
+    }catch(e){
+      await window.atdRecordLoginAttempt('muni', email, false);
+      await window.atdLogAudit({ portal: 'muni', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid municipality, email, or password.' });
+      errorBox.textContent = 'Invalid municipality, email, or password.';
+      errorBox.classList.remove('hidden');
+      return;
+    }
+  }
+
+  // ---- Fallback: original shared demo password (no backend configured) ----
+  const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
   if(user && municipalityIsActive && password === (user.password || DEMO_PASSWORD) && user.status === 'Active'){
     errorBox.classList.add('hidden');
     await window.atdRecordLoginAttempt('muni', email, true);
     await window.atdLogAudit({ portal: 'muni', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: user.muniId });
-    currentUser = user;
-    document.getElementById('muni_loginScreen').classList.add('hidden');
-    document.getElementById('muni_appShell').classList.remove('hidden');
-    setupSidebarForUser();
-    muni_renderAll();
-    muni_goPage('dashboard');
-    loadSubmittedApplications();
-    cacheSignature();
-    loadVenues();
-    loadAdItems();
-    loadWatchlist();
-    loadPromotions();
+    muni_enterShellAsUser(user);
   } else if(user && user.status !== 'Active'){
     await window.atdRecordLoginAttempt('muni', email, false);
     await window.atdLogAudit({ portal: 'muni', actor: email, actorRole: user.role, action: 'login.failed', details: `${user.name}'s account is suspended.`, muniId: user.muniId });
@@ -13741,11 +13890,38 @@ async function muni_attemptLogin(){
     errorBox.classList.remove('hidden');
   }
 }
+window.muni_attemptLogin = muni_attemptLogin;
+
+// First-time password creation for an officer the CEO has already added
+// (see saveUser() below, which writes a matching staff_invites row so this
+// signup is auto-assigned the right role/agency/permissions).
+async function muni_attemptSignup(){
+  const errorBox = document.getElementById('muni_loginError');
+  const email = document.getElementById('muni_loginEmail').value.trim().toLowerCase();
+  const password = document.getElementById('muni_loginPassword').value;
+  if(!window.ATDBackend || !window.ATDBackend.isConfigured()){
+    errorBox.textContent = 'This preview environment has no live backend to create an account against.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  try{
+    const { error } = await window.ATDBackend.signUp(email, password);
+    if(error) throw error;
+    errorBox.classList.add('hidden');
+    await muni_attemptLogin();
+  }catch(e){
+    errorBox.textContent = (e && e.message) || 'Could not create that account.';
+    errorBox.classList.remove('hidden');
+  }
+}
+window.muni_attemptSignup = muni_attemptSignup;
+
 document.getElementById('muni_loginPassword').addEventListener('keydown', e=>{
   if(e.key === 'Enter') muni_attemptLogin();
 });
 
 function muni_logout(){
+  if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
   currentUser = null;
   document.getElementById('muni_appShell').classList.add('hidden');
   document.getElementById('muni_loginScreen').classList.remove('hidden');
@@ -16220,6 +16396,12 @@ async function saveUser(){
     };
     municipalUsers.push(u);
     await window.atdSaveMuniUser(u);
+    // Phase 1b: pre-authorize this email for the real backend so that when
+    // they sign up (see muni_attemptSignup), the officer is auto-assigned
+    // this municipality and role rather than landing as a public applicant.
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.inviteStaff){
+      window.ATDBackend.inviteStaff({ email, role: 'muni', agency_id: String(currentUser.muniId), permissions, display_name: name }).catch(()=>{});
+    }
     await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'user.create', details: `Added ${name} as ${role}.`, muniId: currentUser.muniId });
     muni_showToast(`${name} added as ${role}. Login details sent to ${email}.`);
   }
@@ -18148,6 +18330,21 @@ function agencyNameByMuniId(muniId){
 }
 
 // ---------------- Login ----------------
+// Phase 1b: when a real Supabase backend is configured (see
+// backend/SETUP.md), credentials are verified against real Supabase Auth
+// instead of the hardcoded ADMIN_EMAIL/ADMIN_PASSWORD pair below. That pair
+// remains as the fallback so this app keeps working unmodified in a
+// sandboxed preview (e.g. a claude.ai Artifact) where Supabase isn't
+// reachable. adminActorEmail records whoever actually signed in, real or
+// demo, for audit-log attribution.
+let adminActorEmail = ADMIN_EMAIL;
+
+function admin_showAppShell(){
+  document.getElementById('admin_loginScreen').classList.add('hidden');
+  document.getElementById('admin_appShell').classList.remove('hidden');
+  admin_renderAll();
+}
+
 async function admin_attemptLogin(){
   const email = document.getElementById('admin_loginEmail').value.trim();
   const password = document.getElementById('admin_loginPassword').value;
@@ -18160,13 +18357,34 @@ async function admin_attemptLogin(){
     return;
   }
 
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    try{
+      const { error } = await window.ATDBackend.signIn(email, password);
+      if(error) throw error;
+      const profile = await window.ATDBackend.getProfile();
+      if(!profile || profile.role !== 'admin') throw new Error('This account is not set up as an Admin.');
+      adminActorEmail = profile.email || email;
+      errorBox.classList.add('hidden');
+      await window.atdRecordLoginAttempt('admin', email, true);
+      await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
+      admin_showAppShell();
+      return;
+    }catch(e){
+      await window.atdRecordLoginAttempt('admin', email, false);
+      await window.atdLogAudit({ portal: 'admin', actor: email || '(blank)', actorRole: 'Super Administrator', action: 'login.failed', details: 'Invalid email or password.' });
+      errorBox.textContent = 'Invalid email or password.';
+      errorBox.classList.remove('hidden');
+      return;
+    }
+  }
+
+  // ---- Fallback: original hardcoded demo credential (no backend configured) ----
   if(email === ADMIN_EMAIL && password === ADMIN_PASSWORD){
+    adminActorEmail = ADMIN_EMAIL;
     errorBox.classList.add('hidden');
     await window.atdRecordLoginAttempt('admin', email, true);
-    await window.atdLogAudit({ portal: 'admin', actor: email, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
-    document.getElementById('admin_loginScreen').classList.add('hidden');
-    document.getElementById('admin_appShell').classList.remove('hidden');
-    admin_renderAll();
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
+    admin_showAppShell();
   } else {
     await window.atdRecordLoginAttempt('admin', email, false);
     await window.atdLogAudit({ portal: 'admin', actor: email || '(blank)', actorRole: 'Super Administrator', action: 'login.failed', details: 'Invalid email or password.' });
@@ -18174,11 +18392,40 @@ async function admin_attemptLogin(){
     errorBox.classList.remove('hidden');
   }
 }
+window.admin_attemptLogin = admin_attemptLogin;
+
+// First-time setup of the real admin account: only meaningful once a
+// Supabase backend is configured (see backend/supabase_schema.sql, which
+// pre-seeds a staff_invites row for ADMIN_EMAIL so this signup is
+// auto-assigned the admin role rather than landing as a public applicant).
+async function admin_attemptSignup(){
+  const email = document.getElementById('admin_loginEmail').value.trim();
+  const password = document.getElementById('admin_loginPassword').value;
+  const errorBox = document.getElementById('admin_loginError');
+  if(!window.ATDBackend || !window.ATDBackend.isConfigured()){
+    errorBox.textContent = 'This preview environment has no live backend to create an account against.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  try{
+    const { error } = await window.ATDBackend.signUp(email, password);
+    if(error) throw error;
+    errorBox.classList.add('hidden');
+    await admin_attemptLogin();
+  }catch(e){
+    errorBox.textContent = (e && e.message) || 'Could not create that account.';
+    errorBox.classList.remove('hidden');
+  }
+}
+window.admin_attemptSignup = admin_attemptSignup;
+
 document.getElementById('admin_loginPassword').addEventListener('keydown', e=>{
   if(e.key === 'Enter') admin_attemptLogin();
 });
 
 function admin_logout(){
+  if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
+  adminActorEmail = ADMIN_EMAIL;
   document.getElementById('admin_appShell').classList.add('hidden');
   document.getElementById('admin_loginScreen').classList.remove('hidden');
   document.getElementById('admin_loginEmail').value = '';
@@ -18806,7 +19053,7 @@ async function saveAgency(){
       m.jurisdictionParishes = [parish];
     }
     await window.atdSaveAgency(m);
-    await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'agency.update', details: `Updated ${name}.`, muniId: muniNumber });
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.update', details: `Updated ${name}.`, muniId: muniNumber });
     admin_showToast(`${name} updated.`);
   } else {
     const newId = agencies.length ? Math.max(...agencies.map(m=>m.id)) + 1 : 1;
@@ -18822,7 +19069,7 @@ async function saveAgency(){
     }
     agencies.push(record);
     await window.atdSaveAgency(record);
-    await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'agency.create', details: `Created ${type} agency ${name}.`, muniId: muniNumber });
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.create', details: `Created ${type} agency ${name}.`, muniId: muniNumber });
     if(type === 'Municipal Corporation'){
       const ceo = await window.atdProvisionMuniCeo(record, typedPassword || null);
       admin_showToast(`Agency account created. CEO login ready: ${ceo.email} / ${ceo.password}`);
@@ -18846,7 +19093,7 @@ async function resetAgencyPassword(id){
     if(ceo){
       ceo.password = pw;
       await window.atdSaveMuniUser(ceo);
-      await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'agency.resetPassword', details: `Reset password for ${m.name}'s CEO login (${ceo.email}).`, muniId: m.muniNumber });
+      await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.resetPassword', details: `Reset password for ${m.name}'s CEO login (${ceo.email}).`, muniId: m.muniNumber });
       admin_showToast(`New temporary password for ${m.name}: ${pw} (CEO login: ${ceo.email})`);
       return;
     }
@@ -18858,7 +19105,7 @@ async function toggleAgencyStatus(id){
   const m = agencies.find(m => m.id === id);
   m.status = m.status === 'Active' ? 'Suspended' : 'Active';
   await window.atdSaveAgency(m);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'agency.statusChange', details: `${m.name} is now ${m.status.toLowerCase()}.`, muniId: m.muniNumber });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.statusChange', details: `${m.name} is now ${m.status.toLowerCase()}.`, muniId: m.muniNumber });
   admin_showToast(`${m.name} is now ${m.status.toLowerCase()}.`);
   admin_renderAll();
 }
@@ -18868,7 +19115,7 @@ async function deleteAgency(id){
   if(!(await window.atdConfirm(`Remove ${m.name}? This cannot be undone.`))) return;
   agencies = agencies.filter(m => m.id !== id);
   await window.atdDeleteAgency(id);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'agency.delete', details: `Deleted agency ${m.name}.`, muniId: m.muniNumber });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.delete', details: `Deleted agency ${m.name}.`, muniId: m.muniNumber });
   admin_showToast('Agency account removed.');
   admin_renderAll();
 }
@@ -18945,14 +19192,14 @@ async function saveRole(){
     const r = roles.find(r => r.id === editingRoleId);
     Object.assign(r, { name, permissions });
     await window.storage.set('role:' + r.id, JSON.stringify(r), true);
-    await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'role.update', details: `Updated role ${name}.` });
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'role.update', details: `Updated role ${name}.` });
     admin_showToast(`${name} role updated.`);
   } else {
     const newId = roles.length ? Math.max(...roles.map(r=>r.id)) + 1 : 1;
     const r = { id: newId, name, permissions };
     roles.push(r);
     await window.storage.set('role:' + r.id, JSON.stringify(r), true);
-    await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'role.create', details: `Created role ${name}.` });
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'role.create', details: `Created role ${name}.` });
     admin_showToast(`${name} role created.`);
   }
   closeRoleModal();
@@ -18969,7 +19216,7 @@ async function deleteRole(id){
   if(!(await window.atdConfirm(`Delete the "${r.name}" role?`))) return;
   roles = roles.filter(r => r.id !== id);
   await window.storage.delete('role:' + id);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'role.delete', details: `Deleted role ${r.name}.` });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'role.delete', details: `Deleted role ${r.name}.` });
   admin_showToast('Role deleted.');
   admin_renderAll();
 }
@@ -19024,7 +19271,7 @@ async function admin_saveFeeAdjustments(){
     admin_showToast('Adjustments saved here, but syncing back to the applicant record failed.');
     return;
   }
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(refund)}.`, muniId: a.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(refund)}.`, muniId: a.muniId });
   admin_showToast('Fee adjustments saved.');
   admin_renderNationalOverview();
   admin_renderReports();
@@ -19033,7 +19280,7 @@ async function saveAppStatus(){
   const a = applications.find(a => a.id === activeAppId);
   a.status = document.getElementById('appStatusSelect').value;
   await admin_persistApplicationStatus(a);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'application.statusOverride', details: `${a.appNumber} marked as ${a.status} (admin override).`, muniId: a.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.statusOverride', details: `${a.appNumber} marked as ${a.status} (admin override).`, muniId: a.muniId });
   admin_showToast(`${a.appNumber} marked as ${a.status}.`);
   closeAppModal();
   admin_renderAll();
@@ -19224,7 +19471,7 @@ async function admin_saveVenueOverlay(){
     admin_showToast('Could not save venue details right now.');
     return;
   }
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'venue.overlayUpdate', details: `Updated admin-recorded details for "${v.name}" (${agencyNameByMuniId(v.muniId)}).`, muniId: v.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'venue.overlayUpdate', details: `Updated admin-recorded details for "${v.name}" (${agencyNameByMuniId(v.muniId)}).`, muniId: v.muniId });
   admin_showToast('Venue details saved.');
   renderVenueRegistry();
 }
@@ -19250,7 +19497,7 @@ async function admin_addVenueViolation(){
     admin_showToast('Could not save the violation right now.');
     return;
   }
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'venue.violationAdded', details: `Logged a ${severity.toLowerCase()} violation for "${v.name}": ${description}`, muniId: v.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'venue.violationAdded', details: `Logged a ${severity.toLowerCase()} violation for "${v.name}": ${description}`, muniId: v.muniId });
   document.getElementById('venueFormViolationDate').value = '';
   document.getElementById('venueFormViolationDesc').value = '';
   admin_renderVenueViolations(v);
@@ -19321,7 +19568,7 @@ async function adminResetUserPassword(id){
   for(let i=0;i<10;i++) pw += chars.charAt(Math.floor(Math.random()*chars.length));
   u.password = pw;
   await window.atdSaveMuniUser(u);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'user.resetPassword', details: `Reset password for ${u.name} (${u.email}).`, muniId: u.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'user.resetPassword', details: `Reset password for ${u.name} (${u.email}).`, muniId: u.muniId });
   admin_showToast(`New temporary password for ${u.name} (${u.email}): ${pw}`);
 }
 
@@ -19329,7 +19576,7 @@ async function adminToggleUserStatus(id){
   const u = muniUsers.find(u => u.id === id);
   u.status = u.status === 'Active' ? 'Suspended' : 'Active';
   await window.atdSaveMuniUser(u);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'user.statusChange', details: `${u.name} is now ${u.status.toLowerCase()}.`, muniId: u.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'user.statusChange', details: `${u.name} is now ${u.status.toLowerCase()}.`, muniId: u.muniId });
   admin_showToast(`${u.name} is now ${u.status.toLowerCase()}.`);
   renderAdminUsers();
 }
@@ -19339,7 +19586,7 @@ async function adminDeleteUser(id){
   if(!(await window.atdConfirm(`Remove ${u.name} (${u.role} at ${agencyNameByMuniId(u.muniId)})? This cannot be undone.`))) return;
   muniUsers = muniUsers.filter(u => u.id !== id);
   await window.atdDeleteMuniUser(id);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'user.delete', details: `Deleted staff account ${u.name} (${u.email}).`, muniId: u.muniId });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'user.delete', details: `Deleted staff account ${u.name} (${u.email}).`, muniId: u.muniId });
   admin_showToast('Staff account removed.');
   renderAdminUsers();
 }
@@ -19590,7 +19837,7 @@ async function saveSecurityPolicy(){
     lockoutMinutes: parseInt(document.getElementById('secLockoutMinutes').value, 10) || 15
   };
   await window.atdSaveSecurityPolicy(policy);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'security.policyUpdate', details: `Password min length ${policy.passwordMinLength}; lockout after ${policy.maxFailedAttempts} attempts for ${policy.lockoutMinutes} minute(s).` });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'security.policyUpdate', details: `Password min length ${policy.passwordMinLength}; lockout after ${policy.maxFailedAttempts} attempts for ${policy.lockoutMinutes} minute(s).` });
   admin_showToast('Security policy saved.');
 }
 
@@ -19664,7 +19911,7 @@ async function adminMarkAgencyPaid(id){
   const m = agencies.find(m => m.id === id);
   m.lastBilledDate = new Date().toISOString().slice(0, 10);
   await window.atdSaveAgency(m);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'subscription.markPaid', details: `Marked ${m.name}'s platform subscription as paid.`, muniId: m.muniNumber });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.markPaid', details: `Marked ${m.name}'s platform subscription as paid.`, muniId: m.muniNumber });
   admin_showToast(`${m.name} marked as paid. Next due ${admin_computeNextDue(m.lastBilledDate, m.platformBilling)}.`);
   renderBilling();
 }
@@ -19716,7 +19963,7 @@ async function saveIntegrations(){
     config[i.key] = { enabled: enabledEl ? enabledEl.checked : false, apiKey: keyEl ? keyEl.value.trim() : '' };
   });
   await window.storage.set('platform:integrationsConfig', JSON.stringify(config), true);
-  await window.atdLogAudit({ portal: 'admin', actor: ADMIN_EMAIL, actorRole: 'Super Administrator', action: 'integrations.update', details: 'Updated integrations configuration.' });
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'integrations.update', details: 'Updated integrations configuration.' });
   admin_showToast('Integrations configuration saved. No live connections are made in this prototype.');
   admin_renderNationalOverview();
 }
