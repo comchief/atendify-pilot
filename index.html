@@ -2894,6 +2894,27 @@
     }
     return parts.join('\n');
   }
+  // Appends a short, human-readable summary of a storage.set() payload to
+  // the debug panel's context line — e.g. " [action=agency.create,
+  // portal=admin, actor=...]" for an auditLog write. Without this, an RLS
+  // failure only ever showed which KEY failed, not which action/portal
+  // triggered it, so pinning down a failure like this took a full round
+  // trip of back-and-forth. Best-effort only — never throws.
+  function atdSummarizeValue(parsed){
+    try{
+      if(parsed && typeof parsed === 'object'){
+        var bits = [];
+        if(parsed.action) bits.push('action=' + parsed.action);
+        if(parsed.portal) bits.push('portal=' + parsed.portal);
+        if(parsed.actor) bits.push('actor=' + parsed.actor);
+        if(parsed.agencyId !== undefined) bits.push('agencyId=' + parsed.agencyId);
+        if(parsed.muniId !== undefined) bits.push('muniId=' + parsed.muniId);
+        if(parsed.branchId !== undefined) bits.push('branchId=' + parsed.branchId);
+        if(bits.length) return ' [' + bits.join(', ') + ']';
+      }
+    }catch(e){}
+    return '';
+  }
   window.atdShowDebugError = function(context, err){
     try{
       var panel = atdEnsureDebugPanel();
@@ -2968,19 +2989,20 @@
 
     set: async function (key, value) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
+      var parsed;
       try {
-        var parsed = JSON.parse(value);
+        parsed = JSON.parse(value);
         var offloaded = await offloadLargeFields(key, parsed);
         var res = await atdWithClockSkewRetry(function () {
           return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
         if (res.error) {
-          window.atdShowDebugError('storage.set(' + key + ')', res.error);
+          window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), res.error);
           return Promise.reject(res.error);
         }
         return resolved({ ok: true });
       } catch (e) {
-        window.atdShowDebugError('storage.set(' + key + ')', e);
+        window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), e);
         return Promise.reject(e);
       }
     },
