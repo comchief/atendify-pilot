@@ -3231,11 +3231,25 @@
   function atdSeedAgenciesOnce(){
     if(atdAgenciesSeeded) return atdAgenciesSeeded;
     atdAgenciesSeeded = (async function(){
-      const flag = await window.storage.get('platform:agenciesSeeded');
-      if(flag && flag.value) return;
-      await window.storage.set('platform:agenciesSeeded', '1', true);
-      for(const a of ATD_AGENCY_SEED){
-        await window.storage.set('agency:' + a.id, JSON.stringify(a), true);
+      try{
+        const flag = await window.storage.get('platform:agenciesSeeded');
+        if(flag && flag.value) return;
+        await window.storage.set('platform:agenciesSeeded', '1', true);
+        for(const a of ATD_AGENCY_SEED){
+          await window.storage.set('agency:' + a.id, JSON.stringify(a), true);
+        }
+      }catch(e){
+        // With a real backend configured, this write only succeeds for an
+        // authenticated admin (RLS blocks anyone else, including the
+        // anonymous visitor loading the public landing page for the first
+        // time — which is who normally runs this). Previously an error here
+        // left atdAgenciesSeeded permanently set to a REJECTED promise, so
+        // every later call — including window.atdLoadAgencies(), even once
+        // an admin really was logged in — kept re-throwing that same first
+        // failure forever instead of just reading whatever data exists.
+        // Resetting the memo to null lets a later, better-authenticated
+        // call retry instead of being poisoned for the rest of the page.
+        atdAgenciesSeeded = null;
       }
     })();
     return atdAgenciesSeeded;
@@ -3245,11 +3259,17 @@
   function atdSeedMuniUsersOnce(){
     if(atdMuniUsersSeeded) return atdMuniUsersSeeded;
     atdMuniUsersSeeded = (async function(){
-      const flag = await window.storage.get('platform:muniUsersSeeded');
-      if(flag && flag.value) return;
-      await window.storage.set('platform:muniUsersSeeded', '1', true);
-      for(const u of ATD_MUNI_USER_SEED){
-        await window.storage.set('muniUser:' + u.id, JSON.stringify(u), true);
+      try{
+        const flag = await window.storage.get('platform:muniUsersSeeded');
+        if(flag && flag.value) return;
+        await window.storage.set('platform:muniUsersSeeded', '1', true);
+        for(const u of ATD_MUNI_USER_SEED){
+          await window.storage.set('muniUser:' + u.id, JSON.stringify(u), true);
+        }
+      }catch(e){
+        // See the matching comment in atdSeedAgenciesOnce() above — same
+        // "don't permanently poison every future call" fix.
+        atdMuniUsersSeeded = null;
       }
     })();
     return atdMuniUsersSeeded;
@@ -13850,6 +13870,14 @@ async function muni_attemptLogin(){
       if(error) throw error;
       const profile = await window.ATDBackend.getProfile();
       if(!profile || profile.role !== 'muni' || String(profile.agency_id) !== String(muniId)) throw new Error('not provisioned for this municipality');
+      // municipalUsers was loaded from storage while the visitor was still
+      // anonymous (whoever loads the login page first, page load) — under
+      // RLS, muniUser records are only readable by an authenticated 'muni'
+      // user for their own agency, so that earlier load always came back
+      // empty and this officer's own record was never in it. Re-fetch now
+      // that signIn succeeded: this read runs as them, scoped to their own
+      // agency, and will actually find their record.
+      try{ municipalUsers = await window.atdLoadMuniUsers(); }catch(e){}
       const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
       if(!user || user.status !== 'Active') throw new Error('suspended or not found');
       errorBox.classList.add('hidden');
