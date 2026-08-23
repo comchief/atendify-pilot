@@ -3359,6 +3359,20 @@
     { id: 13, muniId: 14, name: "Sasha-Kay Reid", email: "portmore.admin@gov.jm", phone: "876-988-7300", role: "CEO", permissions: { view:true, payment:true, review:true, approve:true, manageUsers:true }, status: "Active", created: "2026-08-01", password: ATD_DEFAULT_PASSWORD }
   ];
 
+  // The same 7 demo JCF officers formerly hardcoded as jcfdStaffUsers in the
+  // JCF script block — moved here so they can be seeded into the shared
+  // backend the same way ATD_MUNI_USER_SEED already is, instead of only
+  // ever existing in that one browser tab's memory.
+  var ATD_JCFD_USER_SEED = [
+    { id: 1, agencyId: 5, name: "Insp. Rohan Blake", email: "rohan.blake@jcf.gov.jm", role: "Police Chief", status: "Active" },
+    { id: 2, agencyId: 5, name: "Sgt. Michelle Grant", email: "michelle.grant@jcf.gov.jm", role: "Police Supervisor", status: "Active" },
+    { id: 3, agencyId: 5, name: "Const. Andre Douglas", email: "andre.douglas@jcf.gov.jm", role: "Police Officer/Station", status: "Active" },
+    { id: 4, agencyId: 5, name: "Half Way Tree Station", email: "hwt.station@jcf.gov.jm", role: "Police Officer/Station", status: "Active" },
+    { id: 5, agencyId: 7, name: "Insp. Paula Grant", email: "paula.grant@jcf.gov.jm", role: "Police Chief", status: "Active" },
+    { id: 6, agencyId: 7, name: "Sgt. Kemar Wilson", email: "kemar.wilson@jcf.gov.jm", role: "Police Supervisor", status: "Active" },
+    { id: 7, agencyId: 7, name: "Port Maria Station", email: "portmaria.station@jcf.gov.jm", role: "Police Officer/Station", status: "Active" }
+  ];
+
   // Seed-once guards follow the exact "claim the flag FIRST" pattern used by
   // seedDemoDataOnce() elsewhere in this app: the flag is written before any
   // seed record, so an interrupted burst (rate limit, closed tab mid-write)
@@ -3411,6 +3425,26 @@
       }
     })();
     return atdMuniUsersSeeded;
+  }
+
+  var atdJcfdUsersSeeded = null;
+  function atdSeedJcfdUsersOnce(){
+    if(atdJcfdUsersSeeded) return atdJcfdUsersSeeded;
+    atdJcfdUsersSeeded = (async function(){
+      try{
+        const flag = await window.storage.get('platform:jcfdUsersSeeded');
+        if(flag && flag.value) return;
+        await window.storage.set('platform:jcfdUsersSeeded', '1', true);
+        for(const u of ATD_JCFD_USER_SEED){
+          await window.storage.set('jcfdUser:' + u.agencyId + ':' + u.id, JSON.stringify(u), true);
+        }
+      }catch(e){
+        // See the matching comment in atdSeedAgenciesOnce() above — same
+        // "don't permanently poison every future call" fix.
+        atdJcfdUsersSeeded = null;
+      }
+    })();
+    return atdJcfdUsersSeeded;
   }
 
   window.atdLoadAgencies = async function(){
@@ -3475,6 +3509,56 @@
       password: password || ATD_DEFAULT_PASSWORD
     };
     await window.atdSaveMuniUser(record);
+    return record;
+  };
+
+  // JCF's own officer roster — the equivalent of muniUser above, but for
+  // JCF divisions. This never existed until now: JCF staff added via a
+  // Chief's "Add Staff" screen only ever lived in that browser tab's own
+  // memory (jcfdStaffUsers), and a newly created JCF division never got any
+  // officer record provisioned for it at all, which is why it never showed
+  // up in the JCF portal's own login dropdown (see jcfd_activeBranchIds()
+  // in the JCF script block, which reads this same data). Keyed
+  // jcfdUser:{agencyId}:{id} rather than muniUser's value-based scoping, to
+  // match the existing jcfBranch:{id}:... key convention this same RLS
+  // policy family already uses (see supabase_schema.sql Family 5).
+  window.atdLoadJcfdUsers = async function(){
+    await atdSeedJcfdUsersOnce();
+    const list = await window.storage.list('jcfdUser:');
+    const out = [];
+    for(const k of list.keys){
+      const rec = await window.storage.get(k);
+      if(rec && rec.value){ try{ out.push(JSON.parse(rec.value)); }catch(e){} }
+    }
+    out.sort((a,b) => a.id - b.id);
+    return out;
+  };
+
+  window.atdSaveJcfdUser = async function(record){
+    await window.storage.set('jcfdUser:' + record.agencyId + ':' + record.id, JSON.stringify(record), true);
+    return record;
+  };
+
+  // Creates a real, working Police Chief record for a newly-provisioned JCF
+  // division agency, mirroring atdProvisionMuniCeo above. JCF logins have
+  // never used a per-officer password field (see JCFD_DEMO_PASSWORD, a
+  // single shared fallback password) — with a real backend configured, the
+  // Chief still creates their own real password via "Create your password"
+  // on the JCF login screen, the same as any other pre-authorized staff
+  // signup, so this record intentionally carries no password of its own.
+  window.atdProvisionJcfdChief = async function(agencyRecord){
+    const existing = await window.atdLoadJcfdUsers();
+    const newId = existing.length ? Math.max.apply(null, existing.map(u => u.id)) + 1 : 1;
+    const record = {
+      id: newId,
+      agencyId: agencyRecord.id,
+      name: agencyRecord.contact || 'Police Chief',
+      email: agencyRecord.email,
+      role: 'Police Chief',
+      status: 'Active',
+      created: new Date().toISOString().slice(0,10)
+    };
+    await window.atdSaveJcfdUser(record);
     return record;
   };
 
@@ -8487,16 +8571,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   const JCFD_ROLE_SUPERVISOR = 'Police Supervisor';
   const JCFD_ROLE_OFFICER = 'Police Officer/Station';
 
-  let jcfdStaffUsers = [
-    { id:1, agencyId:5, name:'Insp. Rohan Blake', email:'rohan.blake@jcf.gov.jm', role:JCFD_ROLE_CHIEF, status:'Active' },
-    { id:2, agencyId:5, name:'Sgt. Michelle Grant', email:'michelle.grant@jcf.gov.jm', role:JCFD_ROLE_SUPERVISOR, status:'Active' },
-    { id:3, agencyId:5, name:'Const. Andre Douglas', email:'andre.douglas@jcf.gov.jm', role:JCFD_ROLE_OFFICER, status:'Active' },
-    { id:4, agencyId:5, name:'Half Way Tree Station', email:'hwt.station@jcf.gov.jm', role:JCFD_ROLE_OFFICER, status:'Active' },
-    { id:5, agencyId:7, name:'Insp. Paula Grant', email:'paula.grant@jcf.gov.jm', role:JCFD_ROLE_CHIEF, status:'Active' },
-    { id:6, agencyId:7, name:'Sgt. Kemar Wilson', email:'kemar.wilson@jcf.gov.jm', role:JCFD_ROLE_SUPERVISOR, status:'Active' },
-    { id:7, agencyId:7, name:'Port Maria Station', email:'portmaria.station@jcf.gov.jm', role:JCFD_ROLE_OFFICER, status:'Active' }
-  ];
-  let jcfdNextUserId = 8;
+  // Was hardcoded, in-memory-only demo data — lost on every reload, never
+  // shared across devices, and the reason a newly created JCF division
+  // could never appear here at all. Now loaded from the real shared
+  // backend at page load (see jcfd_initRegistryData() below), the same way
+  // municipalUsers already is — see atdSeedJcfdUsersOnce()/
+  // ATD_JCFD_USER_SEED for where these same 7 demo officers get seeded for
+  // a sandboxed preview with no backend configured.
+  let jcfdStaffUsers = [];
   let jcfdCurrentUser = null;
   let jcfdCurrentBranch = null;
   let jcfdActiveAppKey = null;
@@ -8512,7 +8594,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   function jcfd_agencies(){ return (window.admin_getAgencies && window.admin_getAgencies()) || []; }
   function jcfd_branchById(id){ return jcfd_agencies().find(a => a.id === id); }
-  function jcfd_activeBranchIds(){ return [...new Set(jcfdStaffUsers.map(u => u.agencyId))]; }
+  function jcfd_activeBranchIds(){
+    // Used to intersect with jcfdStaffUsers (which agencyIds have at least
+    // one officer record) — but that's exactly the shape of bug that hid a
+    // newly created JCF division from this same dropdown, since nothing
+    // provisioned it a staff record until atdProvisionJcfdChief existed.
+    // Source the branch list directly from the real, publicly-readable
+    // agency directory instead — every Active JCF-type agency shows up
+    // here immediately, whether or not any officer records have loaded yet
+    // (which, under RLS, an anonymous pre-login visitor can't see anyway).
+    return jcfd_agencies().filter(a => a.type === 'JCF' && a.status === 'Active').map(a => a.id);
+  }
 
   function jcfd_populateBranchSelect(){
     const select = document.getElementById('jcfd_loginBranch');
@@ -8537,7 +8629,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_populateDemoHint();
   }
   window.jcfd_refreshLogin = jcfd_refreshLogin;
-  jcfd_refreshLogin();
+
+  // Loads the real, shared officer roster (see atdLoadJcfdUsers) — mirrors
+  // muni_initRegistryData(). The branch dropdown itself doesn't depend on
+  // this (see jcfd_activeBranchIds() above), so refresh once immediately
+  // and again once the officer data (used for the demo-hint Chief emails)
+  // has actually loaded.
+  async function jcfd_initRegistryData(){
+    jcfd_refreshLogin();
+    try{
+      jcfdStaffUsers = await window.atdLoadJcfdUsers();
+    }catch(e){ jcfdStaffUsers = []; }
+    jcfd_refreshLogin();
+  }
+  window.jcfd_initRegistryData = jcfd_initRegistryData;
+  jcfd_initRegistryData();
 
   async function jcfd_enterShellAsUser(user, branchId){
     jcfdCurrentUser = user;
@@ -8577,6 +8683,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         if(error) throw error;
         const profile = await window.ATDBackend.getProfile();
         if(!profile || profile.role !== 'jcfd' || String(profile.jcf_branch_id) !== String(branchId)) throw new Error('not provisioned for this division');
+        // jcfdStaffUsers was loaded (if at all) while this visitor was still
+        // anonymous — under RLS, jcfdUser records are only readable by an
+        // authenticated 'jcfd' user for their own branch, so that earlier
+        // load always came back empty and this officer's own record was
+        // never in it. Re-fetch now that signIn succeeded: this read runs
+        // as them, scoped to their own branch, and will actually find it.
+        // Mirrors the identical fix in muni_attemptLogin().
+        try{ jcfdStaffUsers = await window.atdLoadJcfdUsers(); }catch(e){}
         const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === email);
         if(!user || user.status !== 'Active') throw new Error('suspended or not found');
         errorBox.classList.add('hidden');
@@ -9708,10 +9822,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_renderUsers = jcfd_renderUsers;
 
-  function jcfd_toggleUserStatus(id){
+  async function jcfd_toggleUserStatus(id){
     const u = jcfdStaffUsers.find(x => x.id === id);
     if(!u) return;
     u.status = u.status === 'Active' ? 'Suspended' : 'Active';
+    await window.atdSaveJcfdUser(u);
     jcfd_renderUsers();
   }
   window.jcfd_toggleUserStatus = jcfd_toggleUserStatus;
@@ -9727,12 +9842,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jcfd_closeUserModal(){ document.getElementById('jcfd_userModal').classList.add('hidden'); }
   window.jcfd_closeUserModal = jcfd_closeUserModal;
 
-  function jcfd_saveUser(){
+  async function jcfd_saveUser(){
     const name = document.getElementById('jcfd_userName').value.trim();
     const email = document.getElementById('jcfd_userEmail').value.trim().toLowerCase();
     const role = document.getElementById('jcfd_userRole').value;
     if(!name || !email){ jcfd_showToast('Please enter a name and email.'); return; }
-    jcfdStaffUsers.push({ id: jcfdNextUserId++, agencyId: jcfdCurrentBranch.id, name, email, role, status:'Active' });
+    const newId = jcfdStaffUsers.length ? Math.max(...jcfdStaffUsers.map(u=>u.id)) + 1 : 1;
+    const record = { id: newId, agencyId: jcfdCurrentBranch.id, name, email, role, status:'Active', created: new Date().toISOString().slice(0,10) };
+    jcfdStaffUsers.push(record);
+    await window.atdSaveJcfdUser(record);
     // Phase 1b: pre-authorize this email for the real backend so that when
     // they sign up (see jcfd_attemptSignup), they're auto-assigned this
     // division rather than landing as a public applicant.
@@ -13860,12 +13978,18 @@ let activeAppId = null;
 
 // ==================== Login ====================
 function activeMunicipalityIds(){
-  // Intersect with MUNICIPALITIES (already filtered to Active agencies) so
-  // a suspended agency's staff disappear from the login dropdown even
-  // though their municipalUsers records still exist and are still "Active"
-  // individually — the agency-level suspension now takes precedence.
-  const activeMuniIds = new Set(MUNICIPALITIES.map(m => m.id));
-  return [...new Set(municipalUsers.map(u => u.muniId))].filter(id => activeMuniIds.has(id));
+  // Used to intersect with municipalUsers (which muniIds have at least one
+  // officer record) so a suspended agency's staff would disappear from the
+  // login dropdown — but municipalUsers is loaded while this visitor is
+  // still anonymous, and under RLS an anonymous read of muniUser records
+  // always comes back empty (only an authenticated 'muni' officer can read
+  // their own agency's roster, or admin). That made this dropdown blank for
+  // any visitor who wasn't already signed in as admin in the same tab —
+  // exactly the same bug just found and fixed on the JCF login screen (see
+  // jcfd_activeBranchIds()). MUNICIPALITIES is already the real, publicly-
+  // readable agency directory filtered to Active Municipal Corporations, so
+  // source the dropdown from it directly instead.
+  return MUNICIPALITIES.map(m => m.id);
 }
 
 function populateMuniSelect(){
@@ -19240,6 +19364,13 @@ async function saveAgency(){
     if(type === 'Municipal Corporation'){
       const ceo = await window.atdProvisionMuniCeo(record, typedPassword || null);
       admin_showToast(`Agency account created. CEO login ready: ${ceo.email} / ${ceo.password}`);
+    } else if(type === 'JCF'){
+      // Without this, a newly created JCF division never gets any officer
+      // record at all, and never shows up in the JCF portal's own login
+      // Division dropdown (see jcfd_activeBranchIds()) — this was reported
+      // and is what actually provisions a real, working Chief for it.
+      const chief = await window.atdProvisionJcfdChief(record);
+      admin_showToast(`Agency account created. Chief login ready: ${chief.email} — ask them to click "Create your password" on the JCF login screen.`);
     } else {
       admin_showToast(`Agency account created. Login details sent to ${email}.`);
     }
