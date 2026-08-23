@@ -2924,13 +2924,36 @@
     });
   }
 
+  // PGRST303 ("JWT issued at future") is a known Supabase infrastructure
+  // quirk: PostgREST's own clock is momentarily a few seconds behind the
+  // Auth service's clock right after a token is issued or refreshed, so a
+  // perfectly valid, freshly-issued JWT's "issued at" timestamp looks like
+  // it's in the future to whichever server checks it first. It's not caused
+  // by anything in this app or its RLS policies, and it normally clears up
+  // within a second or two on its own — see
+  // https://github.com/orgs/supabase/discussions/48123. Rather than surface
+  // this as a real failure, retry once after a short pause; if it's still
+  // happening after that, it really is Supabase-side clock drift and needs
+  // a support ticket to Supabase, not a change here.
+  function atdIsClockSkewError(err){ return !!(err && err.code === 'PGRST303'); }
+  async function atdWithClockSkewRetry(queryFn){
+    var res = await queryFn();
+    if (res && res.error && atdIsClockSkewError(res.error)) {
+      await new Promise(function(r){ setTimeout(r, 1500); });
+      res = await queryFn();
+    }
+    return res;
+  }
+
   var ATDBackend = {
     isConfigured: function () { return !!client; },
 
     get: async function (key) {
       if (!client) return resolved({ value: undefined });
       try {
-        var res = await client.from(TABLE).select('value').eq('key', key).maybeSingle();
+        var res = await atdWithClockSkewRetry(function () {
+          return client.from(TABLE).select('value').eq('key', key).maybeSingle();
+        });
         if (res.error || !res.data) {
           if (res.error) window.atdShowDebugError('storage.get(' + key + ')', res.error);
           return resolved({ value: undefined });
@@ -2948,7 +2971,9 @@
       try {
         var parsed = JSON.parse(value);
         var offloaded = await offloadLargeFields(key, parsed);
-        var res = await client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+        var res = await atdWithClockSkewRetry(function () {
+          return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+        });
         if (res.error) {
           window.atdShowDebugError('storage.set(' + key + ')', res.error);
           return Promise.reject(res.error);
@@ -2963,7 +2988,9 @@
     delete: async function (key) {
       if (!client) return resolved({ ok: true });
       try {
-        var res = await client.from(TABLE).delete().eq('key', key);
+        var res = await atdWithClockSkewRetry(function () {
+          return client.from(TABLE).delete().eq('key', key);
+        });
         if (res && res.error) window.atdShowDebugError('storage.delete(' + key + ')', res.error);
       } catch (e) { window.atdShowDebugError('storage.delete(' + key + ')', e); /* mirror the old shim: swallow and report ok */ }
       return resolved({ ok: true });
@@ -2972,9 +2999,11 @@
     list: async function (prefix) {
       if (!client) return resolved({ keys: [] });
       try {
-        var q = client.from(TABLE).select('key');
-        if (prefix) q = q.like('key', prefix + '%');
-        var res = await q;
+        var res = await atdWithClockSkewRetry(function () {
+          var q = client.from(TABLE).select('key');
+          if (prefix) q = q.like('key', prefix + '%');
+          return q;
+        });
         if (res.error || !res.data) {
           if (res.error) window.atdShowDebugError('storage.list(' + prefix + ')', res.error);
           return resolved({ keys: [] });
@@ -3003,7 +3032,12 @@
       var u = await client.auth.getUser();
       if (u.error) window.atdShowDebugError('auth.getUser()', u.error);
       if (!u.data || !u.data.user) return null;
-      var res = await client.from('profiles').select('*').eq('id', u.data.user.id).maybeSingle();
+      // Right after signIn() is exactly when a freshly-issued JWT is most
+      // likely to trip the PGRST303 clock-skew quirk (see the comment above
+      // ATDBackend), so this lookup gets the same retry-once treatment.
+      var res = await atdWithClockSkewRetry(function () {
+        return client.from('profiles').select('*').eq('id', u.data.user.id).maybeSingle();
+      });
       if (res.error) window.atdShowDebugError('getProfile() profiles select', res.error);
       return res.data || null;
     },
