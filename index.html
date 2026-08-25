@@ -3230,6 +3230,23 @@
       });
       if (res.error) { window.atdShowDebugError('countActiveLockouts()', res.error); return 0; }
       return typeof res.data === 'number' ? res.data : 0;
+    },
+    // "Track Application" (see submitTrackApplication() below) has to work for
+    // a guest applicant with no account or session at all, looking up their
+    // own submission by application number + the random trackingCode they
+    // were given at submission. RLS can't express "only if the caller also
+    // supplied the matching secret code" (that's a request argument, not a
+    // column), so this goes through a SECURITY DEFINER function
+    // (atd_track_application, see phase1b_migration.sql Fix #18) that checks
+    // both values together server-side and only returns the row on a match —
+    // the same pattern this file already uses for login lockout, just above.
+    trackApplication: async function (appNumber, trackingCode) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_track_application', { p_app_number: appNumber, p_tracking_code: trackingCode });
+      });
+      if (res.error) { window.atdShowDebugError('trackApplication(' + appNumber + ')', res.error); return null; }
+      return res.data || null;
     }
   };
 
@@ -3691,6 +3708,132 @@
       }
     } catch(e){ /* fall back to defaults */ }
     return templates;
+  };
+
+  // Pass 2 of the same admin feature above: which POA/JCF wizard fields are
+  // mandatory vs optional. Stored as one JSON blob at platform:formFieldConfig,
+  // same load/merge-over-defaults convention as platform:formTemplates just
+  // above. Scope is deliberately limited to ordinary applicant-entered data
+  // fields on the two wizards' top-level steps — NOT the compliance items
+  // (watch-briefing checkboxes, the declaration checkbox, the signature),
+  // which always stay mandatory no matter what's saved here, and NOT fields
+  // inside a repeating sub-form/modal (JCF's DJ/Sound entries, POA's
+  // Director/Security/Parking entries, the per-municipality ad-item table),
+  // which keep whatever validation they already had before this feature.
+  // ATD_DEFAULT_FORM_FIELD_CONFIG intentionally reproduces today's real
+  // behavior exactly: every POA field defaults to NOT required (POA enforces
+  // nothing today beyond the declaration), and every JCF field keeps the
+  // required/optional split it already has today (see the hardcoded
+  // `if(!value)` checks in continueFromStep1/2 and submitJcfApp). So an
+  // install that never opens the new "Required Fields" admin panel behaves
+  // identically to before this feature existed; only fields an admin
+  // actively toggles change behavior.
+  window.ATD_DEFAULT_FORM_FIELD_CONFIG = {
+    poa: {
+      fullName: false, companyName: false, filePhotoId: false, fileLogo: false,
+      phone: false, home: false, email: false, trn: false, poa_dob: false, gender: false,
+      addr1: false, addr2: false, apDistrict: false, parish: false,
+      licenseType: false, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
+      privateSecurity: false, fileFlier: false,
+      adDisplay: false,
+      poa_venueName: false, vAddr1: false, vAddr2: false, district: false, maxCap: false, maxParking: false, useOfVenue: false, fileOwnership: false
+    },
+    jcf: {
+      jcfEventName: true, photoIdFile: true, flyerFile: true,
+      eventType: false, promoterBreached: false, promoterBreachReason: true,
+      promoterName: false, promoterPhone: false, promoterTrn: false, promoterAddr1: false, promoterAddr2: false,
+      promoterDistrict: false, promoterParish: false, dateOfBirth: false, patronsExpected: false,
+      ownerBreached: false, ownerBreachReason: true,
+      venueOwner: false, ownerContact: false, ownerAddr1: false, ownerAddr2: false, ownerDistrict: false, ownerParish: false,
+      jcf_businessType: false, permissionLetterFile: false,
+      spiritLicense: false, communityArrangements: false, parkingArrangements: false, securityArrangements: false
+    }
+  };
+  window.atdLoadFormFieldConfig = async function(){
+    const cfg = { poa: Object.assign({}, window.ATD_DEFAULT_FORM_FIELD_CONFIG.poa), jcf: Object.assign({}, window.ATD_DEFAULT_FORM_FIELD_CONFIG.jcf) };
+    if(!window.storage) return cfg;
+    try{
+      const r = await window.storage.get('platform:formFieldConfig');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        ['poa','jcf'].forEach(form => {
+          if(!saved[form]) return;
+          Object.keys(cfg[form]).forEach(k => { if(typeof saved[form][k] === 'boolean') cfg[form][k] = saved[form][k]; });
+        });
+      }
+    } catch(e){ /* fall back to defaults */ }
+    return cfg;
+  };
+
+  // Human labels + step grouping for the same field keys, used only to
+  // render the admin "Required Fields" checkboxes (see renderRequiredFieldsPanel
+  // in the Admin script) — kept separate from ATD_DEFAULT_FORM_FIELD_CONFIG so
+  // that object stays pure true/false data.
+  window.ATD_FORM_FIELD_LABELS = {
+    poa: {
+      fullName: {label:'Full name', step:'Step 1 — Applicant'},
+      companyName: {label:'Company name', step:'Step 1 — Applicant'},
+      filePhotoId: {label:'Photo ID upload', step:'Step 1 — Applicant'},
+      fileLogo: {label:'Company logo upload', step:'Step 1 — Applicant'},
+      phone: {label:'Phone number', step:'Step 1 — Applicant'},
+      home: {label:'Home number', step:'Step 1 — Applicant'},
+      email: {label:'Email', step:'Step 1 — Applicant'},
+      trn: {label:'TRN', step:'Step 1 — Applicant'},
+      poa_dob: {label:'Date of birth', step:'Step 1 — Applicant'},
+      gender: {label:'Gender', step:'Step 1 — Applicant'},
+      addr1: {label:'Street number', step:'Step 1 — Applicant'},
+      addr2: {label:'Street name', step:'Step 1 — Applicant'},
+      apDistrict: {label:'District', step:'Step 1 — Applicant'},
+      parish: {label:'Parish', step:'Step 1 — Applicant'},
+      licenseType: {label:'License type (Annual/Special)', step:'Step 2 — Amusement'},
+      poa_businessType: {label:'Type of business (Annual license)', step:'Step 2 — Amusement'},
+      eventName: {label:'Name of the event (Special event)', step:'Step 2 — Amusement'},
+      eventDate: {label:'Date of the event (Special event)', step:'Step 2 — Amusement'},
+      eventType: {label:'Type of event (Special event)', step:'Step 2 — Amusement'},
+      patrons: {label:'Expected number of patrons (Special event)', step:'Step 2 — Amusement'},
+      privateSecurity: {label:'Private security (Yes/No)', step:'Step 2 — Amusement'},
+      fileFlier: {label:'Event flier upload', step:'Step 2 — Amusement'},
+      adDisplay: {label:'Advertisement display (Yes/No)', step:'Step 3 — Advertisement'},
+      poa_venueName: {label:'Venue name (manual entry)', step:'Step 4 — Venue'},
+      vAddr1: {label:'Venue street number (manual entry)', step:'Step 4 — Venue'},
+      vAddr2: {label:'Venue street name (manual entry)', step:'Step 4 — Venue'},
+      district: {label:'Venue district (manual entry)', step:'Step 4 — Venue'},
+      maxCap: {label:'Venue max capacity (manual entry)', step:'Step 4 — Venue'},
+      maxParking: {label:'Venue max parking capacity (manual entry)', step:'Step 4 — Venue'},
+      useOfVenue: {label:'Use of venue (manual entry)', step:'Step 4 — Venue'},
+      fileOwnership: {label:'Proof of ownership/authorization upload (manual entry)', step:'Step 4 — Venue'}
+    },
+    jcf: {
+      jcfEventName: {label:'Event name', step:'Step 1 — Event Overview'},
+      photoIdFile: {label:'Photo ID upload', step:'Step 1 — Event Overview'},
+      flyerFile: {label:'Event flyer upload', step:'Step 1 — Event Overview'},
+      eventType: {label:'Type of event (Private/Public)', step:'Step 1 — Event Overview'},
+      promoterBreached: {label:'Has promoter ever breached the Act? (Yes/No answer)', step:'Step 1 — Event Overview'},
+      promoterBreachReason: {label:'Breach details (when answer is Yes)', step:'Step 1 — Event Overview'},
+      promoterName: {label:'Promoter name (when not linked to a POA application)', step:'Step 1 — Event Overview'},
+      promoterPhone: {label:'Promoter phone number', step:'Step 1 — Event Overview'},
+      promoterTrn: {label:'Promoter TRN', step:'Step 1 — Event Overview'},
+      promoterAddr1: {label:'Promoter street number', step:'Step 1 — Event Overview'},
+      promoterAddr2: {label:'Promoter street name', step:'Step 1 — Event Overview'},
+      promoterDistrict: {label:'Promoter district', step:'Step 1 — Event Overview'},
+      promoterParish: {label:'Promoter parish', step:'Step 1 — Event Overview'},
+      dateOfBirth: {label:'Promoter date of birth', step:'Step 1 — Event Overview'},
+      patronsExpected: {label:'Number of patrons expected', step:'Step 1 — Event Overview'},
+      ownerBreached: {label:'Has venue owner ever breached the Act? (Yes/No answer)', step:'Step 2 — Venue Details'},
+      ownerBreachReason: {label:'Breach details (when answer is Yes)', step:'Step 2 — Venue Details'},
+      venueOwner: {label:"Venue's owner name", step:'Step 2 — Venue Details'},
+      ownerContact: {label:"Owner's contact number", step:'Step 2 — Venue Details'},
+      ownerAddr1: {label:"Owner's street number", step:'Step 2 — Venue Details'},
+      ownerAddr2: {label:"Owner's street name", step:'Step 2 — Venue Details'},
+      ownerDistrict: {label:"Owner's district", step:'Step 2 — Venue Details'},
+      ownerParish: {label:"Owner's parish", step:'Step 2 — Venue Details'},
+      jcf_businessType: {label:'Type of business conducted at venue', step:'Step 2 — Venue Details'},
+      permissionLetterFile: {label:"Venue owner's letter of permission upload", step:'Step 2 — Venue Details'},
+      spiritLicense: {label:'Valid spirit license in place? (Yes/No/N-A answer)', step:'Step 2 — Venue Details'},
+      communityArrangements: {label:'Arrangements made with community members? (answer)', step:'Step 2 — Venue Details'},
+      parkingArrangements: {label:'Arrangements made for parking? (answer)', step:'Step 2 — Venue Details'},
+      securityArrangements: {label:'Arrangements made for security? (answer)', step:'Step 2 — Venue Details'}
+    }
   };
 
   // ---- Cross-scope agency & municipal-user registry ----
@@ -4189,6 +4332,15 @@
 })();
 </script>
 
+<!-- Admin "Preview Form" banner — see admin_launchFormPreview/admin_exitFormPreview
+     in the Admin script and window.__atdPreviewMode used as a guard inside
+     submitApp()/submitJcfApp(). Lives outside every app-shell so it stays on
+     screen (fixed position) no matter which shell showHub() reveals under it. -->
+<div id="atd_previewBanner" class="hidden" style="position:fixed; top:0; left:0; right:0; z-index:9999; background:#1f2933; color:#fff; padding:10px 16px; display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+  <span>🔍 <strong>Preview mode</strong> — viewing the live <span id="atd_previewBanner_label">application</span> form as an applicant would. Nothing you enter or submit here is saved.</span>
+  <button class="btn btn-sm" style="background:#fff; color:#1f2933; border:none;" onclick="admin_exitFormPreview()">Exit preview</button>
+</div>
+
 <div id="publicLanding">
   <header class="pl-header">
     <div class="logo">
@@ -4657,7 +4809,7 @@
       <div>
         <div class="col-title">Advertisement Information</div>
         <div class="col-desc">
-          All applicants for an Entertainment/Event License are hereby advised that approval is required from the St. Mary Municipal Corporation to display advertisements for the event being promoted/hosted at the venue for which the application is being made and for the erection of all temporary structures. Failure to obtain this approval will result in any one of the following:
+          All applicants for an Entertainment/Event License are hereby advised that approval is required from <strong id="poa_adDisclaimerMuni">the Municipal Corporation</strong> to display advertisements for the event being promoted/hosted at the venue for which the application is being made and for the erection of all temporary structures. Failure to obtain this approval will result in any one of the following:
           <ul>
             <li>Removal of Advertisement</li>
             <li>Removal of the structures</li>
@@ -6271,6 +6423,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== Admin > Application Forms: document preview modal ===== -->
+<!-- See admin_previewDocument() in the Admin script — renders the exact
+     same document-building code applicants/officers see (printPaymentAdvice,
+     printNoticeOfApplication, poa_buildPermitDocHtml, jcfd_buildPermitDocHtml),
+     fed a hand-built sample record instead of a real application, so nothing
+     here is a real applicant's data. -->
+<div class="modal-overlay hidden" id="adminDocPreviewModal">
+  <div class="modal-box modal-wide">
+    <h3 id="adminDocPreviewTitle">Document preview</h3>
+    <p class="modal-sub">Rendered with sample data for preview purposes only — no real application is involved.</p>
+    <div class="doc-preview-box" id="adminDocPreviewBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAdminDocPreviewModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== Add / Edit User Modal ===== -->
 <div class="modal-overlay hidden" id="userModal">
   <div class="modal-box">
@@ -6872,34 +7041,103 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     </div>
 
     <!-- ===== APPLICATION FORMS PAGE ===== -->
+    <!-- Redesigned as one sub-navigation per form (POA / Noise Abatement),
+         each holding its own declaration, required fields, a live preview of
+         the real applicant wizard, and its associated generated documents
+         (with their own preview) — see admin_showFormTab / admin_launchFormPreview
+         / admin_previewDocument in the Admin script. -->
     <div class="page hidden" id="admin_page-formtemplates">
       <div class="panel">
         <div class="panel-head"><h2>Application Forms</h2></div>
-        <div class="field-hint" style="margin:0 0 16px;">Edit the declaration text applicants attest to before submitting, and the boilerplate wording on the Payment Advice and Notice of Application printouts. This is the shared master template used everywhere — it does not touch any individual Municipal Corporation's own fees, billing, or signature, which stay configured per-agency as before.</div>
+        <div class="field-hint" style="margin:0 0 16px;">Edit each form's declaration text and required fields, preview the live applicant wizard exactly as it runs today, and preview the documents it generates. Municipality-specific fees, billing, and signatures stay configured per-agency as before — nothing here touches those.</div>
 
-        <h3 style="margin:20px 0 6px;">POA Form — Declaration</h3>
-        <div class="field-hint" style="margin:0 0 10px;">Shown on the final review step before an applicant submits a Places of Amusement application. They must check a box agreeing to this text before Submit is enabled.</div>
-        <textarea id="admin_formTpl_poaDeclaration" rows="4"></textarea>
+        <div class="btn-row" style="gap:8px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:0;">
+          <button class="btn btn-primary" id="admin_formTab_btn_poa" onclick="admin_showFormTab('poa')" style="border-radius:8px 8px 0 0;">POA Form</button>
+          <button class="btn" id="admin_formTab_btn_jcf" onclick="admin_showFormTab('jcf')" style="border-radius:8px 8px 0 0;">Noise Abatement (JCF) Form</button>
+        </div>
 
-        <h3 style="margin:24px 0 6px;">Noise Abatement (JCF) Form — Declaration</h3>
-        <div class="field-hint" style="margin:0 0 10px;">Shown on the Final Declaration step before an applicant submits a JCF Noise Abatement Permit application.</div>
-        <textarea id="admin_formTpl_jcfDeclaration" rows="4"></textarea>
+        <!-- ===== POA FORM TAB ===== -->
+        <div id="admin_formTab_poa">
+          <div class="btn-row" style="justify-content:flex-start; margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="admin_launchFormPreview('poa')">▶ Preview live form</button>
+          </div>
 
-        <h3 style="margin:24px 0 6px;">Payment Advice — Notice</h3>
-        <div class="field-hint" style="margin:0 0 10px;">The instructional notice printed at the top of the Payment Advice slip. Applicant, fee, and municipality data on the slip itself is unaffected.</div>
-        <textarea id="admin_formTpl_paymentAdviceNotice" rows="3"></textarea>
+          <h3 style="margin:20px 0 6px;">Declaration</h3>
+          <div class="field-hint" style="margin:0 0 10px;">Shown on the final review step before an applicant submits a Places of Amusement application. They must check a box agreeing to this text before Submit is enabled.</div>
+          <textarea id="admin_formTpl_poaDeclaration" rows="4"></textarea>
 
-        <h3 style="margin:24px 0 6px;">Notice of Application — Opening paragraph</h3>
-        <div class="field-hint" style="margin:0 0 10px;">The paragraph right after "Dear Sirs:" on the Notice of Application letter.</div>
-        <textarea id="admin_formTpl_noaIntro" rows="3"></textarea>
+          <h3 style="margin:24px 0 10px;">Required Fields</h3>
+          <div class="field-hint" style="margin:0 0 10px;">Choose which fields an applicant must fill in before they can continue past that step. Briefing checkboxes, the declaration, and the signature always stay mandatory and aren't listed here. Fields inside a repeating entry (POA's Director/Security/Parking entries) keep their own existing validation and aren't listed either.</div>
+          <div id="admin_reqFields_poa"></div>
 
-        <h3 style="margin:24px 0 6px;">Notice of Application — Closing paragraph</h3>
-        <div class="field-hint" style="margin:0 0 10px;">The paragraph after the permits/approvals list.</div>
-        <textarea id="admin_formTpl_noaClosing" rows="3"></textarea>
+          <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
+            <button class="btn btn-primary" onclick="savePoaFormSettings()">Save POA form settings</button>
+            <button class="btn" onclick="resetFormTemplatesToDefault('poa')">Reset declaration to default text</button>
+          </div>
 
-        <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
-          <button class="btn btn-primary" onclick="saveFormTemplates()">Save form templates</button>
-          <button class="btn" onclick="resetFormTemplatesToDefault()">Reset all to default text</button>
+          <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Associated Documents</h3>
+          <div class="field-hint" style="margin:0 0 16px;">Documents generated from a POA application. Preview uses sample data — no real application is involved.</div>
+
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px;">
+            <strong>Notice of Application</strong>
+            <div class="cell-sub" style="margin:2px 0 10px;">The letter a municipality issues acknowledging a submitted POA application.</div>
+            <div class="field-hint" style="margin:0 0 4px;">Opening paragraph (right after "Dear Sirs:")</div>
+            <textarea id="admin_formTpl_noaIntro" rows="3"></textarea>
+            <div class="field-hint" style="margin:10px 0 4px;">Closing paragraph (after the permits/approvals list)</div>
+            <textarea id="admin_formTpl_noaClosing" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('noticeOfApplication')">👁 Preview document</button>
+            </div>
+          </div>
+
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:12px;">
+            <strong>Payment Advice</strong>
+            <div class="cell-sub" style="margin:2px 0 10px;">The fee slip an applicant prints to pay at the cashier.</div>
+            <div class="field-hint" style="margin:0 0 4px;">Instructional notice at the top of the slip</div>
+            <textarea id="admin_formTpl_paymentAdviceNotice" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('paymentAdvice')">👁 Preview document</button>
+            </div>
+          </div>
+
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
+            <strong>POA Permit</strong>
+            <div class="cell-sub" style="margin:2px 0 10px;">The license certificate issued once a POA application is approved. Preview-only for now — this text isn't editable yet.</div>
+            <div class="btn-row" style="justify-content:flex-start;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('poaPermit')">👁 Preview document</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== NOISE ABATEMENT (JCF) FORM TAB ===== -->
+        <div id="admin_formTab_jcf" class="hidden">
+          <div class="btn-row" style="justify-content:flex-start; margin-bottom:16px;">
+            <button class="btn btn-primary" onclick="admin_launchFormPreview('jcf')">▶ Preview live form</button>
+          </div>
+
+          <h3 style="margin:20px 0 6px;">Declaration</h3>
+          <div class="field-hint" style="margin:0 0 10px;">Shown on the Final Declaration step before an applicant submits a JCF Noise Abatement Permit application.</div>
+          <textarea id="admin_formTpl_jcfDeclaration" rows="4"></textarea>
+
+          <h3 style="margin:24px 0 10px;">Required Fields</h3>
+          <div class="field-hint" style="margin:0 0 10px;">Choose which fields an applicant must fill in before they can continue past that step. Briefing checkboxes, the declaration, and the signature always stay mandatory and aren't listed here. Fields inside a repeating entry (JCF's DJ or Sound System details) keep their own existing validation and aren't listed either.</div>
+          <div id="admin_reqFields_jcf"></div>
+
+          <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
+            <button class="btn btn-primary" onclick="saveJcfFormSettings()">Save Noise Abatement form settings</button>
+            <button class="btn" onclick="resetFormTemplatesToDefault('jcf')">Reset declaration to default text</button>
+          </div>
+
+          <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Associated Documents</h3>
+          <div class="field-hint" style="margin:0 0 16px;">Documents generated from a JCF application. Preview uses sample data — no real application is involved.</div>
+
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
+            <strong>Noise Abatement Permit</strong>
+            <div class="cell-sub" style="margin:2px 0 10px;">The permit certificate issued by the JCF Division once a Noise Abatement application is approved. Preview-only for now — this text isn't editable yet.</div>
+            <div class="btn-row" style="justify-content:flex-start;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('jcfPermit')">👁 Preview document</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -11458,7 +11696,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
-  function jcfd_buildPermitDocHtml(p, signatureDataUrl){
+  // `qrTargetId` (optional, defaults to the id every real call site already
+  // relies on) — parameterized the same way poa_buildPermitDocHtml already
+  // is, so Admin's document-preview feature (see admin_previewDocument) can
+  // render into its own preview modal without an id collision against a
+  // real jcfdPermitPrintArea render elsewhere in the same page.
+  function jcfd_buildPermitDocHtml(p, signatureDataUrl, qrTargetId){
+    qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
     const eventClause = p.eventName
       ? ` to host event "<strong>${acctEscapeHtml(p.eventName.toUpperCase())}</strong>" on the <strong>${acctEscapeHtml(jcfd_formatLongDate(p.eventDate))}</strong>`
@@ -11474,7 +11718,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
           <div class="permit-doc-qr">
-            <div class="qr-box" id="jcfdPermitQrTarget"></div>
+            <div class="qr-box" id="${qrTargetId}"></div>
             <div class="qr-scan-label">SCAN ME</div>
           </div>
         </div>
@@ -11527,6 +11771,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     setTimeout(() => document.body.classList.remove('printing-permit'), 500);
   }
   window.jcfd_printPermit = jcfd_printPermit;
+  window.jcfd_buildPermitDocHtml = jcfd_buildPermitDocHtml;
+  window.jcfd_renderPermitQr = jcfd_renderPermitQr;
 
   const jcfdThemeToggle = document.getElementById('jcfd_themeToggle');
   if(jcfdThemeToggle){
@@ -11891,6 +12137,13 @@ async function startApplication(){
   document.getElementById('poa_infoPage').classList.add('hidden');
   document.getElementById('poa_applicationFlow').classList.remove('hidden');
   document.getElementById('stepHeaderMuni').textContent = selectedMunicipality ? selectedMunicipality.name : '—';
+  // Step 3's advertisement-approval disclaimer used to hardcode "the St.
+  // Mary Municipal Corporation" regardless of which agency the applicant was
+  // actually applying to — found live during this session's smoke test on
+  // St. James Municipal Corporation, where the notice still named St. Mary.
+  // Set from the real selected agency instead.
+  const adDisclaimerMuniEl = document.getElementById('poa_adDisclaimerMuni');
+  if(adDisclaimerMuniEl) adDisclaimerMuniEl.textContent = selectedMunicipality ? ('the ' + selectedMunicipality.name) : 'the relevant Municipal Corporation';
   // Logged-in applicants get their progress auto-saved on every "Next" click
   // (see poa_goStepSaving/poa_saveDraftSilently below), so the button doubles
   // as both "advance" and "save" — hence the different label. A guest has no
@@ -11989,12 +12242,106 @@ function poa_saveDraftSilently(){
   }
 }
 
+// Pass 2 of the Admin > Application Forms feature: per-field required/optional
+// enforcement. See window.atdLoadFormFieldConfig / window.ATD_DEFAULT_FORM_FIELD_CONFIG
+// / window.ATD_FORM_FIELD_LABELS in the shared shim, and the "Required Fields"
+// panel in Admin, for how this is configured. Deliberately out of scope here:
+// the declaration checkbox (always mandatory, enforced separately in
+// submitApp), and fields inside a repeating sub-form/modal (Director/Security/
+// Parking entries, the per-municipality ad-item table) — those keep whatever
+// validation they already had.
+//
+// `id` is used for plain inputs/selects/textareas/file inputs; radio groups
+// use `name` (to read the checked value) plus `visId` (one radio's id, used
+// only to test whether the group's section is currently visible/enabled).
+const POA_FIELD_CHECKS = {
+  1: [
+    { key:'fullName', kind:'text', id:'fullName', label:'Full name' },
+    { key:'companyName', kind:'text', id:'companyName', label:'Company name' },
+    { key:'filePhotoId', kind:'file', id:'filePhotoId', label:'Photo ID' },
+    { key:'fileLogo', kind:'file', id:'fileLogo', label:'Company logo' },
+    { key:'phone', kind:'text', id:'phone', label:'Phone number' },
+    { key:'home', kind:'text', id:'home', label:'Home number' },
+    { key:'email', kind:'text', id:'email', label:'Email' },
+    { key:'trn', kind:'text', id:'trn', label:'TRN' },
+    { key:'poa_dob', kind:'text', id:'poa_dob', label:'Date of birth' },
+    { key:'gender', kind:'text', id:'gender', label:'Gender' },
+    { key:'addr1', kind:'text', id:'addr1', label:'Street number' },
+    { key:'addr2', kind:'text', id:'addr2', label:'Street name' },
+    { key:'apDistrict', kind:'text', id:'apDistrict', label:'District' },
+    { key:'parish', kind:'text', id:'parish', label:'Parish' }
+  ],
+  2: [
+    { key:'licenseType', kind:'radio', name:'licenseType', visId:'licAnnual', label:'License type' },
+    { key:'poa_businessType', kind:'text', id:'poa_businessType', label:'Type of business' },
+    { key:'eventName', kind:'text', id:'eventName', label:'Name of the event' },
+    { key:'eventDate', kind:'text', id:'eventDate', label:'Date of the event' },
+    { key:'eventType', kind:'text', id:'eventType', label:'Type of event' },
+    { key:'patrons', kind:'text', id:'patrons', label:'Expected number of patrons' },
+    { key:'privateSecurity', kind:'radio', name:'privateSecurity', visId:'secYes', label:'Private security' },
+    { key:'fileFlier', kind:'file', id:'fileFlier', label:'Event flier' }
+  ],
+  3: [
+    { key:'adDisplay', kind:'radio', name:'adDisplay', visId:'adYes', label:'Advertisement display' }
+  ],
+  4: [
+    { key:'poa_venueName', kind:'text', id:'poa_venueName', label:'Venue name' },
+    { key:'vAddr1', kind:'text', id:'vAddr1', label:'Venue street number' },
+    { key:'vAddr2', kind:'text', id:'vAddr2', label:'Venue street name' },
+    { key:'district', kind:'text', id:'district', label:'Venue district' },
+    { key:'maxCap', kind:'text', id:'maxCap', label:'Venue max capacity' },
+    { key:'maxParking', kind:'text', id:'maxParking', label:'Venue max parking capacity' },
+    { key:'useOfVenue', kind:'text', id:'useOfVenue', label:'Use of venue' },
+    { key:'fileOwnership', kind:'file', id:'fileOwnership', label:'Proof of ownership/authorization' }
+  ]
+};
+
+// Hidden (display:none, via an ancestor's .hidden class) or disabled fields
+// are always treated as satisfied, regardless of the admin's required
+// setting — this is what makes conditional fields (Company vs Individual,
+// Annual vs Special, security/ad sections, manual-venue entry) work with no
+// extra per-condition code: if the field isn't currently shown to the
+// applicant, it isn't currently enforceable.
+function poa_fieldIsVisible(el){
+  return !!(el && !el.disabled && el.offsetParent !== null);
+}
+
+function poa_fieldHasValue(f){
+  if(f.kind === 'file') return fileHasValue(f.id);
+  if(f.kind === 'radio') return !!document.querySelector(`input[name="${f.name}"]:checked`);
+  const el = document.getElementById(f.id);
+  return !!(el && el.value && el.value.trim());
+}
+
+// Returns the label of the first required-but-missing field for the given
+// step (1-4), or null if the step passes given the already-loaded
+// platform:formFieldConfig object `cfg` (see window.atdLoadFormFieldConfig).
+function poa_findMissingRequiredField(stepNum, cfg){
+  const checks = POA_FIELD_CHECKS[stepNum] || [];
+  for(const f of checks){
+    if(!cfg.poa[f.key]) continue; // not marked required by the admin
+    const visEl = document.getElementById(f.kind === 'radio' ? f.visId : f.id);
+    if(!poa_fieldIsVisible(visEl)) continue; // hidden/disabled right now — not applicable
+    if(!poa_fieldHasValue(f)) return f.label;
+  }
+  return null;
+}
+
 // What every "Next"/"Save and Continue" button now calls (see startApplication()
 // for the label swap). Logged-in applicants save their draft first — this is
 // what used to be the separate "💾 Save & finish later" link/button, now
 // merged into the same click instead of a second control. A guest just
-// advances, same as the old poa_goStep(n) always did.
-function poa_goStepSaving(n){
+// advances, same as the old poa_goStep(n) always did. Now also runs the
+// required-field check (see POA_FIELD_CHECKS above) for the step being left
+// (n-1) before allowing the advance — every "Next" button passes the step
+// it's heading TO as `n`, one past the step it's currently on.
+async function poa_goStepSaving(n){
+  const fieldCfg = await window.atdLoadFormFieldConfig();
+  const missing = poa_findMissingRequiredField(n - 1, fieldCfg);
+  if(missing){
+    poa_showToast(`Please complete "${missing}" before continuing.`);
+    return;
+  }
   poa_saveDraftSilently();
   poa_goStep(n);
 }
@@ -13396,6 +13743,31 @@ async function submitApp(){
     return;
   }
 
+  // Safety-net re-check of every step's required fields (see POA_FIELD_CHECKS
+  // above) — poa_goStepSaving already blocks this per-step on the way
+  // forward, but a resumed draft or direct step navigation could reach
+  // Submit without ever tripping those checks, so submission itself is the
+  // final gate.
+  const poaFieldCfg = await window.atdLoadFormFieldConfig();
+  for(let s = 1; s <= 4; s++){
+    const missingField = poa_findMissingRequiredField(s, poaFieldCfg);
+    if(missingField){
+      errorBox.textContent = `Please complete "${missingField}" before submitting.`;
+      errorBox.classList.remove('hidden');
+      return;
+    }
+  }
+
+  // Admin "Preview Form" mode (see admin_launchFormPreview / the preview
+  // banner in the shared shim) walks through this exact live wizard so an
+  // admin can see precisely what an applicant sees — including every check
+  // above — but must never actually create a stored application record.
+  if(window.__atdPreviewMode){
+    errorBox.textContent = 'Preview mode — every check above passed, but no application was actually submitted. Use "Exit preview" above to return to Admin.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
   if(!window.storage){
     errorBox.textContent = "This preview environment doesn't support saving applications right now. Your application could not be sent to the municipality.";
     errorBox.classList.remove('hidden');
@@ -13661,15 +14033,33 @@ async function submitTrackApplication(){
   btn.disabled = true;
   btn.textContent = 'Looking up…';
   try{
-    const result = await window.storage.get(`application:${appNumber}`, true);
-    if(!result || !result.value){
-      throw new Error('not found');
-    }
-    const record = JSON.parse(result.value);
-    if(record.trackingCode !== code){
-      errorBox.textContent = 'That tracking code does not match this application number.';
-      errorBox.classList.remove('hidden');
-      return;
+    // A plain window.storage.get() here would hit the exact same RLS wall
+    // guest submission did (see phase1b_migration.sql Fix #18): there is no
+    // SELECT policy letting an anonymous caller read an 'application' row it
+    // doesn't own, and RLS has no way to check "did they also supply the
+    // right tracking code" on its own. Where a real backend is configured,
+    // go through the matching SECURITY DEFINER function instead, which
+    // checks both values together server-side. The plain get() is kept as
+    // the fallback for the local-only preview environment, which has no RLS
+    // (and no rpc()) to begin with.
+    const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+    let record = null;
+    if(usingRealAuth){
+      record = await window.ATDBackend.trackApplication(appNumber, code);
+      if(!record){
+        throw new Error('not found');
+      }
+    } else {
+      const result = await window.storage.get(`application:${appNumber}`, true);
+      if(!result || !result.value){
+        throw new Error('not found');
+      }
+      record = JSON.parse(result.value);
+      if(record.trackingCode !== code){
+        errorBox.textContent = 'That tracking code does not match this application number.';
+        errorBox.classList.remove('hidden');
+        return;
+      }
     }
     openMainMenu(record, `application:${appNumber}`);
   } catch(err){
@@ -14413,8 +14803,14 @@ function printDoc(html){
   setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
 }
 
-async function printPaymentAdvice(){
-  const r = currentAppRecord;
+// `previewRecord` (optional) lets Admin's document-preview feature (see
+// admin_previewDocument in the Admin script) call this exact function with a
+// hand-built sample record instead of the real currentAppRecord, and get the
+// rendered HTML back instead of it going straight to window.print() — every
+// real call site still calls this with no argument, so behavior there is
+// unchanged.
+async function printPaymentAdvice(previewRecord){
+  const r = previewRecord || currentAppRecord;
   const isAnnual = r.amusement.licenseType === 'Annual';
   const eventName = isAnnual ? (r.amusement.businessType || 'N/A') : (r.amusement.eventName || 'N/A');
   const eventDate = isAnnual ? 'N/A (Annual License)' : (r.amusement.eventDate || 'N/A');
@@ -14453,6 +14849,7 @@ async function printPaymentAdvice(){
       <div class="doc-breakdown-row total"><span>TOTAL:</span><span>${poa_formatCurrency(r.costs.total)}</span></div>
     </div>
   `;
+  if(previewRecord) return html;
   printDoc(html);
 }
 
@@ -14466,8 +14863,12 @@ async function fetchMuniSignature(muniId){
   }
 }
 
-async function printNoticeOfApplication(){
-  const r = currentAppRecord;
+// `previewRecord` (optional) — same purpose as printPaymentAdvice's own
+// param above: lets Admin's document-preview feature call this with a
+// sample record and get the HTML back instead of printing. Real call sites
+// pass no argument, so behavior there is unchanged.
+async function printNoticeOfApplication(previewRecord){
+  const r = previewRecord || currentAppRecord;
   const isAnnual = r.amusement.licenseType === 'Annual';
   const eventName = isAnnual ? (r.amusement.businessType || 'N/A') : (r.amusement.eventName || 'N/A');
   const eventDate = isAnnual ? 'N/A (Annual License)' : (r.amusement.eventDate || 'N/A');
@@ -14509,6 +14910,7 @@ async function printNoticeOfApplication(){
       </div>
     </div>
   `;
+  if(previewRecord) return html;
   printDoc(html);
 }
 
@@ -14763,6 +15165,8 @@ window.mmDocFileChosen = mmDocFileChosen;
 window.mmGoView = mmGoView;
 window.openMainMenu = openMainMenu;
 window.poa_getCurrentAppRecord = function(){ return currentAppRecord; };
+window.poa_buildPermitDocHtml = poa_buildPermitDocHtml;
+window.poa_renderPermitQr = poa_renderPermitQr;
 window.onApMethodChange = onApMethodChange;
 window.onApplyParishChange = onApplyParishChange;
 window.onLfMethodChange = onLfMethodChange;
@@ -19770,6 +20174,7 @@ function admin_renderAll(){
   renderSecurityPage();
   renderIntegrationsPage();
   renderFormTemplatesPage();
+  renderRequiredFieldsPanel();
 }
 
 function admin_todayIso(){ return new Date().toISOString().slice(0, 10); }
@@ -21353,34 +21758,259 @@ async function renderFormTemplatesPage(){
   });
 }
 
-async function saveFormTemplates(){
-  const templates = {};
-  Object.keys(ATD_FORM_TEMPLATE_FIELD_IDS).forEach(key => {
-    const el = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS[key]);
-    templates[key] = el ? el.value.trim() : '';
-  });
-  // A blank field would mean applicants see no declaration at all (or a
-  // blank boilerplate paragraph) — fall back to the default for any field
-  // left empty rather than saving nothing.
-  Object.keys(templates).forEach(key => {
-    if(!templates[key]) templates[key] = window.ATD_DEFAULT_FORM_TEMPLATES[key];
-  });
+// Saves everything in the POA tab in one shot: its declaration + the two
+// documents nested under it (Payment Advice notice, Notice of Application
+// intro/closing) from platform:formTemplates, plus the POA half of
+// platform:formFieldConfig (the JCF half is read back unchanged and
+// rewritten as-is, so saving one tab never clobbers the other's settings).
+async function savePoaFormSettings(){
+  const templates = await window.atdLoadFormTemplates();
+  const readOrDefault = (id, key) => {
+    const el = document.getElementById(id);
+    return (el && el.value.trim()) || window.ATD_DEFAULT_FORM_TEMPLATES[key];
+  };
+  templates.poaDeclarationText = readOrDefault('admin_formTpl_poaDeclaration', 'poaDeclarationText');
+  templates.paymentAdviceNoticeText = readOrDefault('admin_formTpl_paymentAdviceNotice', 'paymentAdviceNoticeText');
+  templates.noticeOfApplicationIntroText = readOrDefault('admin_formTpl_noaIntro', 'noticeOfApplicationIntroText');
+  templates.noticeOfApplicationClosingText = readOrDefault('admin_formTpl_noaClosing', 'noticeOfApplicationClosingText');
   await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: 'Updated application form templates (declarations, Payment Advice, Notice of Application).' });
-  admin_showToast('Form templates saved. Applicants and staff will see the new wording next time each form/document loads.');
+
+  const fieldCfg = await window.atdLoadFormFieldConfig();
+  document.querySelectorAll('.atd-reqfield[data-form="poa"]').forEach(el => {
+    fieldCfg.poa[el.dataset.key] = el.checked;
+  });
+  await window.storage.set('platform:formFieldConfig', JSON.stringify(fieldCfg), true);
+
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: 'Updated POA form declaration, associated document text, and required fields.' });
+  admin_showToast('POA form settings saved. Applicants and staff will see the new wording/behavior next time each page loads.');
 }
 
-function resetFormTemplatesToDefault(){
-  Object.keys(ATD_FORM_TEMPLATE_FIELD_IDS).forEach(key => {
-    const el = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS[key]);
-    if(el) el.value = window.ATD_DEFAULT_FORM_TEMPLATES[key];
+// Saves everything in the Noise Abatement (JCF) tab: its declaration from
+// platform:formTemplates, plus the JCF half of platform:formFieldConfig
+// (POA's half is read back unchanged and rewritten as-is).
+async function saveJcfFormSettings(){
+  const templates = await window.atdLoadFormTemplates();
+  const jcfDeclEl = document.getElementById('admin_formTpl_jcfDeclaration');
+  templates.jcfDeclarationText = (jcfDeclEl && jcfDeclEl.value.trim()) || window.ATD_DEFAULT_FORM_TEMPLATES.jcfDeclarationText;
+  await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
+
+  const fieldCfg = await window.atdLoadFormFieldConfig();
+  document.querySelectorAll('.atd-reqfield[data-form="jcf"]').forEach(el => {
+    fieldCfg.jcf[el.dataset.key] = el.checked;
   });
-  admin_showToast('Reset to default text below — click "Save form templates" to make this take effect.');
+  await window.storage.set('platform:formFieldConfig', JSON.stringify(fieldCfg), true);
+
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: 'Updated Noise Abatement (JCF) form declaration and required fields.' });
+  admin_showToast('Noise Abatement form settings saved. Applicants will see the new wording/behavior next time each page loads.');
 }
+
+// `which` is 'poa' or 'jcf' — only resets that tab's own declaration
+// textarea (the associated-document texts each have no separate reset,
+// matching their simpler single-purpose editors).
+function resetFormTemplatesToDefault(which){
+  if(which === 'poa'){
+    document.getElementById('admin_formTpl_poaDeclaration').value = window.ATD_DEFAULT_FORM_TEMPLATES.poaDeclarationText;
+  } else if(which === 'jcf'){
+    document.getElementById('admin_formTpl_jcfDeclaration').value = window.ATD_DEFAULT_FORM_TEMPLATES.jcfDeclarationText;
+  }
+  admin_showToast('Reset to default text below — click "Save" to make this take effect.');
+}
+
+// Switches between the two sub-navigation tabs — POA Form / Noise Abatement
+// (JCF) Form — inside the Application Forms page. Purely a visibility +
+// active-state toggle, same pattern as admin_goPage's own page switching.
+function admin_showFormTab(which){
+  document.getElementById('admin_formTab_poa').classList.toggle('hidden', which !== 'poa');
+  document.getElementById('admin_formTab_jcf').classList.toggle('hidden', which !== 'jcf');
+  const poaBtn = document.getElementById('admin_formTab_btn_poa');
+  const jcfBtn = document.getElementById('admin_formTab_btn_jcf');
+  poaBtn.classList.toggle('btn-primary', which === 'poa');
+  jcfBtn.classList.toggle('btn-primary', which === 'jcf');
+}
+
+// ---------------- Application Forms: Required Fields ----------------
+// See window.atdLoadFormFieldConfig / window.ATD_DEFAULT_FORM_FIELD_CONFIG /
+// window.ATD_FORM_FIELD_LABELS in the shared shim for the storage shape,
+// defaults, and per-field labels — this section renders a checkbox per
+// field (grouped by the label registry's `step`) and saves the whole
+// platform:formFieldConfig blob in one shot.
+async function renderRequiredFieldsPanel(){
+  const poaWrap = document.getElementById('admin_reqFields_poa');
+  if(!poaWrap) return;
+  const cfg = await window.atdLoadFormFieldConfig();
+  ['poa','jcf'].forEach(form => {
+    const wrap = document.getElementById(form === 'poa' ? 'admin_reqFields_poa' : 'admin_reqFields_jcf');
+    const labels = window.ATD_FORM_FIELD_LABELS[form];
+    const groups = {};
+    Object.keys(labels).forEach(key => {
+      const step = labels[key].step;
+      (groups[step] = groups[step] || []).push(key);
+    });
+    wrap.innerHTML = Object.keys(groups).map(step => `
+      <div style="margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; color:var(--muted); margin-bottom:6px;">${admin_escapeHtml(step)}</div>
+        ${groups[step].map(key => `
+          <label style="display:flex; align-items:center; gap:8px; padding:4px 0;">
+            <input type="checkbox" class="atd-reqfield" data-form="${form}" data-key="${key}" ${cfg[form][key] ? 'checked' : ''}>
+            ${admin_escapeHtml(labels[key].label)}
+          </label>
+        `).join('')}
+      </div>
+    `).join('');
+  });
+}
+
+// Note: required-field settings are now saved together with each tab's
+// declaration/document text via savePoaFormSettings/saveJcfFormSettings
+// above (one combined "Save" button per tab) rather than a separate action.
 
 function admin_escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// ---------------- Application Forms: document previews ----------------
+// Renders the exact same document-building code applicants/officers see
+// (printPaymentAdvice/printNoticeOfApplication in the POA applicant script,
+// poa_buildPermitDocHtml/jcfd_buildPermitDocHtml) fed a hand-built sample
+// record instead of a real stored application — see admin_previewDocument
+// below and the modal in the Admin HTML (#adminDocPreviewModal). Sample
+// data only, by design: this keeps a real applicant's data from ever
+// surfacing inside a settings page, and means a preview works even before
+// any application has been submitted.
+const ADMIN_SAMPLE_POA_RECORD = {
+  appNumber: 'POA-SAMPLE-0001',
+  trackingCode: 'SAMPLE1234',
+  submittedDate: admin_todayIso(),
+  municipalityName: 'Sample Municipal Corporation',
+  muniId: '__admin_preview__',
+  applicant: { type: 'Individual', name: 'Jane Applicant' },
+  amusement: {
+    licenseType: 'Special',
+    businessType: '',
+    eventName: 'Sample Beach Party',
+    eventDate: '2026-12-15',
+    applicationDate: admin_todayIso(),
+    patrons: '250'
+  },
+  venue: { name: 'Sample Venue Gardens' },
+  costs: { applicationFee: 2500, venueCost: 5000, adTotal: 1000, total: 8500 },
+  regulatoryDocList: ["Fire Safety Certificate", "Food Handler's Permit"]
+};
+
+const ADMIN_SAMPLE_POA_PERMIT = {
+  number: 'POA-2026-000123',
+  permitYear: '2026',
+  permitTypeLabel: 'Special Event License',
+  issuedTo: 'Jane Applicant',
+  applicantAddress: '12 Sample Street, Kingston',
+  venueName: 'Sample Venue Gardens',
+  parish: 'Kingston',
+  municipalityName: 'Sample Municipal Corporation',
+  amusementType: 'Beach Party',
+  eventName: 'Sample Beach Party',
+  eventDate: '2026-12-15',
+  expectedPatrons: '250',
+  issuedDate: admin_todayIso(),
+  expiresDate: '2026-12-16',
+  qrData: 'https://atendifyapp.com/preview/sample-poa-permit'
+};
+
+const ADMIN_SAMPLE_JCF_PERMIT = {
+  number: 'JCF-2026-000456',
+  permitYear: '2026',
+  permitTypeLabel: 'Noise Abatement Permit',
+  divisionName: 'Sample Division',
+  issuedTo: 'Jane Promoter',
+  applicantAddress: '12 Sample Street, Kingston',
+  parish: 'Kingston',
+  eventName: 'Sample Beach Party',
+  eventDate: '2026-12-15',
+  expiresTime12: '11:00 PM',
+  issuedDate: admin_todayIso(),
+  expiresDate: '2026-12-16',
+  expectedPatrons: '250',
+  qrData: 'https://atendifyapp.com/preview/sample-jcf-permit'
+};
+
+const ADMIN_DOC_PREVIEW_QR_ID = 'adminDocPreviewQrTarget';
+
+async function admin_previewDocument(kind){
+  const titleEl = document.getElementById('adminDocPreviewTitle');
+  const bodyEl = document.getElementById('adminDocPreviewBody');
+  let html = '<p>Preview unavailable.</p>';
+  let qr = null; // {render(targetId, data), data}
+
+  if(kind === 'paymentAdvice'){
+    titleEl.textContent = 'Payment Advice — preview';
+    html = await window.printPaymentAdvice(ADMIN_SAMPLE_POA_RECORD);
+  } else if(kind === 'noticeOfApplication'){
+    titleEl.textContent = 'Notice of Application — preview';
+    html = await window.printNoticeOfApplication(ADMIN_SAMPLE_POA_RECORD);
+  } else if(kind === 'poaPermit'){
+    titleEl.textContent = 'POA Permit — preview';
+    if(window.poa_buildPermitDocHtml){
+      html = window.poa_buildPermitDocHtml(ADMIN_SAMPLE_POA_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID);
+      qr = { render: window.poa_renderPermitQr, data: ADMIN_SAMPLE_POA_PERMIT.qrData };
+    }
+  } else if(kind === 'jcfPermit'){
+    titleEl.textContent = 'Noise Abatement Permit — preview';
+    if(window.jcfd_buildPermitDocHtml){
+      html = window.jcfd_buildPermitDocHtml(ADMIN_SAMPLE_JCF_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID);
+      qr = { render: window.jcfd_renderPermitQr, data: ADMIN_SAMPLE_JCF_PERMIT.qrData };
+    }
+  }
+
+  bodyEl.innerHTML = html;
+  document.getElementById('adminDocPreviewModal').classList.remove('hidden');
+  // The QR placeholder div only exists once `html` above is actually in the
+  // DOM (same two-step pattern the real printPermitFromMenu/renderMmPermit
+  // callers already use for poa_buildPermitDocHtml) — render it right after.
+  if(qr && qr.render) qr.render(ADMIN_DOC_PREVIEW_QR_ID, qr.data);
+}
+window.admin_previewDocument = admin_previewDocument;
+
+function closeAdminDocPreviewModal(){
+  document.getElementById('adminDocPreviewModal').classList.add('hidden');
+}
+window.closeAdminDocPreviewModal = closeAdminDocPreviewModal;
+
+// ---------------- Application Forms: live wizard preview ----------------
+// Walks an admin through the exact real public POA/JCF wizard — same shells,
+// same code, same validation — via showHub() (see window.showHub in the
+// shared shim) rather than a separate mockup, so what's previewed can never
+// drift from what an applicant actually experiences. window.__atdPreviewMode
+// is checked inside submitApp()/submitJcfApp() so a preview click-through
+// can never create a real stored application.
+function admin_launchFormPreview(which){
+  window.__atdPreviewMode = true;
+  document.getElementById('atd_previewBanner_label').textContent =
+    which === 'poa' ? 'Places of Amusement application' : 'Noise Abatement (JCF) application';
+  document.getElementById('atd_previewBanner').classList.remove('hidden');
+  const hideIfPresent = (id) => { const el = document.getElementById(id); if(el) el.classList.add('hidden'); };
+  if(which === 'poa'){
+    window.showHub('poa');
+    // Defensive: if a prior preview run this session progressed past
+    // muni-select, force those sections closed first so showMuniSelect()
+    // below doesn't leave two sections visible at once.
+    hideIfPresent('poa_applicationFlow');
+    hideIfPresent('poa_stepReview');
+    if(window.showMuniSelect) window.showMuniSelect();
+  } else if(which === 'jcf'){
+    window.showHub('jcf');
+    hideIfPresent('jcf_stepReview');
+    if(window.startWizard) window.startWizard();
+  }
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+window.admin_launchFormPreview = admin_launchFormPreview;
+
+function admin_exitFormPreview(){
+  window.__atdPreviewMode = false;
+  document.getElementById('atd_previewBanner').classList.add('hidden');
+  window.showHub('admin');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+window.admin_exitFormPreview = admin_exitFormPreview;
 
 // ---------------- Theme toggle ----------------
 document.getElementById('admin_themeToggle').addEventListener('click', ()=>{
@@ -21437,8 +22067,10 @@ window.saveSecurityPolicy = saveSecurityPolicy;
 window.renderSecurityPage = renderSecurityPage;
 window.adminMarkAgencyPaid = adminMarkAgencyPaid;
 window.saveIntegrations = saveIntegrations;
-window.saveFormTemplates = saveFormTemplates;
+window.savePoaFormSettings = savePoaFormSettings;
+window.saveJcfFormSettings = saveJcfFormSettings;
 window.resetFormTemplatesToDefault = resetFormTemplatesToDefault;
+window.admin_showFormTab = admin_showFormTab;
 window.admin_getAgencies = function(){ return agencies; };
 })();</script>
 <script>(function(){
@@ -21824,7 +22456,94 @@ function updateWordCount(textareaId, counterId){
   el.classList.toggle('over', count > 500);
 }
 
-function continueFromStep1(){
+// Pass 2 of the Admin > Application Forms feature: per-field required/optional
+// enforcement. See window.atdLoadFormFieldConfig / window.ATD_DEFAULT_FORM_FIELD_CONFIG
+// / window.ATD_FORM_FIELD_LABELS in the shared shim, and the "Required Fields"
+// panel in Admin, for how this is configured. This EXTENDS the hand-written
+// checks already in continueFromStep1/2/submitJcfApp above/below — it does
+// not replace them. Deliberately out of scope: the three watch-briefing
+// checkboxes, the declaration checkbox, and the signature (always mandatory,
+// unaffected by admin config), and fields inside the DJ/Sound System
+// sub-forms (keep their own existing saveDj()/saveSound() validation).
+//
+// File fields (photoIdFile/flyerFile/permissionLetterFile) are checked
+// against their own module-level `...FileData` variable rather than the
+// file input's current .files, matching how the existing hardcoded checks
+// above already read them.
+const JCF_FIELD_CHECKS = {
+  1: [
+    { key:'jcfEventName', kind:'text', id:'jcfEventName', label:'Event name' },
+    { key:'eventType', kind:'radio', name:'eventType', label:'Type of event' },
+    { key:'promoterBreached', kind:'radio', name:'promoterBreached', label:'Has promoter ever breached the Act?' },
+    { key:'promoterBreachReason', kind:'text', id:'promoterBreachReason', label:'Breach details' },
+    { key:'promoterName', kind:'text', id:'promoterName', label:'Promoter name' },
+    { key:'promoterPhone', kind:'text', id:'promoterPhone', label:'Promoter phone number' },
+    { key:'promoterTrn', kind:'text', id:'promoterTrn', label:'Promoter TRN' },
+    { key:'promoterAddr1', kind:'text', id:'promoterAddr1', label:'Promoter street number' },
+    { key:'promoterAddr2', kind:'text', id:'promoterAddr2', label:'Promoter street name' },
+    { key:'promoterDistrict', kind:'text', id:'promoterDistrict', label:'Promoter district' },
+    { key:'promoterParish', kind:'text', id:'promoterParish', label:'Promoter parish' },
+    { key:'dateOfBirth', kind:'text', id:'dateOfBirth', label:'Promoter date of birth' },
+    { key:'patronsExpected', kind:'text', id:'patronsExpected', label:'Number of patrons expected' },
+    { key:'photoIdFile', kind:'file', label:'Photo ID' },
+    { key:'flyerFile', kind:'file', label:'Event flyer' }
+  ],
+  2: [
+    { key:'ownerBreached', kind:'radio', name:'ownerBreached', label:'Has venue owner ever breached the Act?' },
+    { key:'ownerBreachReason', kind:'text', id:'ownerBreachReason', label:'Breach details' },
+    { key:'venueOwner', kind:'text', id:'venueOwner', label:"Venue's owner name" },
+    { key:'ownerContact', kind:'text', id:'ownerContact', label:"Owner's contact number" },
+    { key:'ownerAddr1', kind:'text', id:'ownerAddr1', label:"Owner's street number" },
+    { key:'ownerAddr2', kind:'text', id:'ownerAddr2', label:"Owner's street name" },
+    { key:'ownerDistrict', kind:'text', id:'ownerDistrict', label:"Owner's district" },
+    { key:'ownerParish', kind:'text', id:'ownerParish', label:"Owner's parish" },
+    { key:'jcf_businessType', kind:'text', id:'jcf_businessType', label:'Type of business conducted at venue' },
+    { key:'permissionLetterFile', kind:'file', label:"Venue owner's letter of permission" },
+    { key:'spiritLicense', kind:'radio', name:'spiritLicense', label:'Valid spirit license in place?' },
+    { key:'communityArrangements', kind:'radio', name:'communityArrangements', label:'Arrangements made with community members?' },
+    { key:'parkingArrangements', kind:'radio', name:'parkingArrangements', label:'Arrangements made for parking?' },
+    { key:'securityArrangements', kind:'radio', name:'securityArrangements', label:'Arrangements made for security?' }
+  ]
+};
+
+// Hidden (display:none) or disabled fields are always treated as satisfied
+// regardless of the admin's required setting — this is what makes JCF's
+// POA-linked auto-lock (see prefillFromPoa's lockedIds) and the conditional
+// breach-reason textareas work with no extra per-condition code here: if the
+// field isn't currently editable/shown to the applicant, it isn't currently
+// enforceable.
+function jcf_fieldIsVisible(f){
+  const el = f.kind === 'radio' ? document.querySelector(`input[name="${f.name}"]`) : document.getElementById(f.id);
+  return !!(el && !el.disabled && el.offsetParent !== null);
+}
+
+function jcf_fieldHasValue(f){
+  if(f.kind === 'file'){
+    if(f.key === 'photoIdFile') return !!photoIdFileData;
+    if(f.key === 'flyerFile') return !!flyerFileData;
+    if(f.key === 'permissionLetterFile') return !!permissionLetterFileData;
+    return false;
+  }
+  if(f.kind === 'radio') return !!document.querySelector(`input[name="${f.name}"]:checked`);
+  const el = document.getElementById(f.id);
+  return !!(el && el.value && el.value.trim());
+}
+
+// Returns the label of the first required-but-missing field for the given
+// step (1 or 2 — Steps 3/4 have no config-driven fields, see JCF_FIELD_CHECKS
+// above), or null if the step passes given the already-loaded
+// platform:formFieldConfig object `cfg` (see window.atdLoadFormFieldConfig).
+function jcf_findMissingRequiredField(stepNum, cfg){
+  const checks = JCF_FIELD_CHECKS[stepNum] || [];
+  for(const f of checks){
+    if(!cfg.jcf[f.key]) continue; // not marked required by the admin
+    if(!jcf_fieldIsVisible(f)) continue; // hidden/disabled right now — not applicable
+    if(!jcf_fieldHasValue(f)) return f.label;
+  }
+  return null;
+}
+
+async function continueFromStep1(){
   if(!document.getElementById('watchNoise').checked){
     jcf_showToast('Please confirm you have watched the Noise Abatement Act briefing before continuing.');
     return;
@@ -21852,9 +22571,15 @@ function continueFromStep1(){
       return;
     }
   }
+  const step1FieldCfg = await window.atdLoadFormFieldConfig();
+  const step1Missing = jcf_findMissingRequiredField(1, step1FieldCfg);
+  if(step1Missing){
+    jcf_showToast(`Please complete "${step1Missing}" before continuing.`);
+    return;
+  }
   jcf_goStep(2);
 }
-function continueFromStep2(){
+async function continueFromStep2(){
   if(radioVal('ownerBreached') === 'Yes'){
     const reason = jcf_val('ownerBreachReason');
     if(!reason){
@@ -21865,6 +22590,12 @@ function continueFromStep2(){
       jcf_showToast('The breach details must be no more than 500 words.');
       return;
     }
+  }
+  const step2FieldCfg = await window.atdLoadFormFieldConfig();
+  const step2Missing = jcf_findMissingRequiredField(2, step2FieldCfg);
+  if(step2Missing){
+    jcf_showToast(`Please complete "${step2Missing}" before continuing.`);
+    return;
   }
   jcf_goStep(3);
 }
@@ -22340,6 +23071,31 @@ async function submitJcfApp(){
   }
   if(!hasSignature()){
     errorBox.textContent = 'Please provide your signature (typed, uploaded, or drawn) before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  // Safety-net re-check of every step's required fields (see JCF_FIELD_CHECKS
+  // above) — continueFromStep1/2 already block this per-step on the way
+  // forward, but a resumed draft or direct step navigation could reach
+  // Submit without ever tripping those checks, so submission itself is the
+  // final gate.
+  const jcfFieldCfg = await window.atdLoadFormFieldConfig();
+  for(const stepNum of [1, 2]){
+    const missingField = jcf_findMissingRequiredField(stepNum, jcfFieldCfg);
+    if(missingField){
+      errorBox.textContent = `Please complete "${missingField}" before submitting.`;
+      errorBox.classList.remove('hidden');
+      return;
+    }
+  }
+
+  // Admin "Preview Form" mode (see admin_launchFormPreview / the preview
+  // banner in the shared shim) walks through this exact live wizard so an
+  // admin can see precisely what an applicant sees — including every check
+  // above — but must never actually create a stored application record.
+  if(window.__atdPreviewMode){
+    errorBox.textContent = 'Preview mode — every check above passed, but no application was actually submitted. Use "Exit preview" above to return to Admin.';
     errorBox.classList.remove('hidden');
     return;
   }
