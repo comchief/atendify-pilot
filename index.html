@@ -3661,6 +3661,38 @@
     document.getElementById('atdFilePreviewModal').classList.add('hidden');
   };
 
+  // ---- Application Forms template text (Admin > Platform > Application Forms) ----
+  // A Super Admin can edit these five text blocks — the POA/JCF declaration
+  // an applicant attests to before submitting, and the editable boilerplate
+  // paragraphs on the Payment Advice / Notice of Application printouts —
+  // without touching this app's code. Everything else on those four
+  // documents (every applicant/event/venue data field) stays exactly as it
+  // already renders; only these specific prose blocks are admin-authored.
+  // Stored as one JSON blob at platform:formTemplates, same convention as
+  // platform:integrationsConfig. ATD_DEFAULT_FORM_TEMPLATES holds the
+  // current hardcoded wording as the fallback, so an install that's never
+  // opened the new admin page behaves identically to before this feature
+  // existed.
+  window.ATD_DEFAULT_FORM_TEMPLATES = {
+    poaDeclarationText: "I hereby declare that the information provided in this application is true, complete, and accurate to the best of my knowledge. I understand that providing false or misleading information may result in the refusal, suspension, or revocation of this licence.",
+    jcfDeclarationText: "I hereby declare that the information provided in this Noise Abatement Permit application is true, complete, and accurate to the best of my knowledge, and that I have read and understood the Acts listed above.",
+    paymentAdviceNoticeText: "Present this payment advice to the cashier when making payment for your places of amusement application license. Ensure to update your online application with the invoice/receipt number to complete submission of your application.",
+    noticeOfApplicationIntroText: "Please take notice that the individual/company listed below has applied for an Amusement License under the Places of Amusement Regulation 1999 and is required to provide to the Corporation the following attendant approvals/permits:",
+    noticeOfApplicationClosingText: "Please accept this notice as proof of application and extend the necessary courtesies to the applicant to complete the application process."
+  };
+  window.atdLoadFormTemplates = async function(){
+    const templates = Object.assign({}, window.ATD_DEFAULT_FORM_TEMPLATES);
+    if(!window.storage) return templates;
+    try{
+      const r = await window.storage.get('platform:formTemplates');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        Object.keys(templates).forEach(k => { if(saved[k]) templates[k] = saved[k]; });
+      }
+    } catch(e){ /* fall back to defaults */ }
+    return templates;
+  };
+
   // ---- Cross-scope agency & municipal-user registry ----
   // Admin's "Agencies" management, the Municipal officer portal's login
   // roster, and the public POA wizard's municipality picker used to be
@@ -4836,6 +4868,12 @@
 
     <div class="review-section-title">Application costs</div>
     <div id="revCosts"></div>
+
+    <div class="review-section-title">Declaration</div>
+    <label class="consent-checkbox-row" for="poa_declarationCheck">
+      <input type="checkbox" id="poa_declarationCheck">
+      <span id="poa_declarationText"></span>
+    </label>
 
     <div id="poa_submitError" class="hidden" style="color:var(--red); font-size:13.5px; margin-top:18px;"></div>
 
@@ -6407,6 +6445,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M17 9h4M3 15h4M17 15h4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       Integrations
     </div>
+    <div class="nav-item" data-page="formtemplates" onclick="admin_goPage('formtemplates')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+      Application Forms
+    </div>
 
     <div class="nav-section-label">Account</div>
     <div class="nav-item" data-page="settings" onclick="admin_goPage('settings')">
@@ -6826,6 +6868,39 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="field-hint" style="margin:0 0 16px;">This prototype has no live backend, so nothing below makes a real external connection — these are configuration placeholders, saved for reference, so the intended integration surface is visible and plannable.</div>
         <div id="admin_integrationsBody"></div>
         <button class="btn btn-primary" style="margin-top:6px;" onclick="saveIntegrations()">Save integrations</button>
+      </div>
+    </div>
+
+    <!-- ===== APPLICATION FORMS PAGE ===== -->
+    <div class="page hidden" id="admin_page-formtemplates">
+      <div class="panel">
+        <div class="panel-head"><h2>Application Forms</h2></div>
+        <div class="field-hint" style="margin:0 0 16px;">Edit the declaration text applicants attest to before submitting, and the boilerplate wording on the Payment Advice and Notice of Application printouts. This is the shared master template used everywhere — it does not touch any individual Municipal Corporation's own fees, billing, or signature, which stay configured per-agency as before.</div>
+
+        <h3 style="margin:20px 0 6px;">POA Form — Declaration</h3>
+        <div class="field-hint" style="margin:0 0 10px;">Shown on the final review step before an applicant submits a Places of Amusement application. They must check a box agreeing to this text before Submit is enabled.</div>
+        <textarea id="admin_formTpl_poaDeclaration" rows="4"></textarea>
+
+        <h3 style="margin:24px 0 6px;">Noise Abatement (JCF) Form — Declaration</h3>
+        <div class="field-hint" style="margin:0 0 10px;">Shown on the Final Declaration step before an applicant submits a JCF Noise Abatement Permit application.</div>
+        <textarea id="admin_formTpl_jcfDeclaration" rows="4"></textarea>
+
+        <h3 style="margin:24px 0 6px;">Payment Advice — Notice</h3>
+        <div class="field-hint" style="margin:0 0 10px;">The instructional notice printed at the top of the Payment Advice slip. Applicant, fee, and municipality data on the slip itself is unaffected.</div>
+        <textarea id="admin_formTpl_paymentAdviceNotice" rows="3"></textarea>
+
+        <h3 style="margin:24px 0 6px;">Notice of Application — Opening paragraph</h3>
+        <div class="field-hint" style="margin:0 0 10px;">The paragraph right after "Dear Sirs:" on the Notice of Application letter.</div>
+        <textarea id="admin_formTpl_noaIntro" rows="3"></textarea>
+
+        <h3 style="margin:24px 0 6px;">Notice of Application — Closing paragraph</h3>
+        <div class="field-hint" style="margin:0 0 10px;">The paragraph after the permits/approvals list.</div>
+        <textarea id="admin_formTpl_noaClosing" rows="3"></textarea>
+
+        <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
+          <button class="btn btn-primary" onclick="saveFormTemplates()">Save form templates</button>
+          <button class="btn" onclick="resetFormTemplatesToDefault()">Reset all to default text</button>
+        </div>
       </div>
     </div>
 
@@ -7785,6 +7860,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <li>K. Disaster Risk Management Act</li>
           <li>L. Any other laws related to the staging of public functions</li>
         </ul>
+
+        <hr class="divider">
+
+        <div class="section-title">Declaration</div>
+        <label class="consent-checkbox-row" for="jcf_declarationCheck">
+          <input type="checkbox" id="jcf_declarationCheck">
+          <span id="jcf_declarationText"></span>
+        </label>
 
         <div class="field-group">
           <label>Signature</label>
@@ -10011,6 +10094,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
     document.getElementById('jcfd_page-appdetail').classList.remove('hidden');
     document.getElementById('jcfd_topbarTitle').textContent = 'Application Details';
+    // Read-side audit trail (Phase D finding #8): this is the single funnel
+    // every "View" button in the JCF portal goes through, so one call here
+    // covers every filing view without double-logging on later re-renders
+    // (edits/comments re-run jcfd_renderApplicationDetail(), not this).
+    if(window.atdLogAudit && jcfdCurrentUser){
+      const rec = await jcfd_getActiveApp();
+      if(rec){
+        const promoterName = (rec.eventOverview && rec.eventOverview.promoterName) || 'Unknown applicant';
+        await window.atdLogAudit({
+          portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+          action: 'application.viewed',
+          details: `Viewed JCF filing ${rec.jcfAppNumber || key} (${promoterName}).`,
+          muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+        });
+      }
+    }
     await jcfd_renderApplicationDetail();
   }
   window.jcfd_openApplication = jcfd_openApplication;
@@ -10852,6 +10951,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   async function jcfd_openDocModal(kind){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
+    // Read-side audit trail (Phase D finding #8) — someone's uploaded ID,
+    // event flyer, or venue permission letter is exactly the kind of thing
+    // a breach investigation needs a "who looked at this and when" trail
+    // for. One call here covers every document kind this modal handles.
+    if(window.atdLogAudit && jcfdCurrentUser){
+      const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
+        : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission" : kind === 'signature' ? 'Signature on File' : kind;
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'document.viewed',
+        details: `Viewed ${docLabel} for JCF filing ${rec.jcfAppNumber || jcfdActiveAppKey}.`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
     const titleEl = document.getElementById('jcfd_docModalTitle');
     const subEl = document.getElementById('jcfd_docModalSub');
     const box = document.getElementById('jcfd_docPreviewBox');
@@ -11054,6 +11167,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const w = jcfWatchlist.find(w => w.trn === trn);
     if(!w) return;
     jcfdViewingWatchlistTrn = trn;
+    // Read-side audit trail (Phase D finding #8) — watchlist entries carry
+    // law-enforcement-sensitive data, so who looked at one and when matters.
+    if(window.atdLogAudit && jcfdCurrentUser){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'watchlist.viewed',
+        details: `Viewed watchlist entry for ${w.fullName} (${formatTrnDisplayJcfd(w.trn)}).`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
     document.getElementById('jcfd_watchlistViewTitle').textContent = w.fullName;
     document.getElementById('jcfd_watchlistViewSub').textContent = `${w.type} · ${w.status === 'Active' ? 'Active flag' : 'Cleared'}`;
 
@@ -12751,7 +12874,7 @@ function renderCosts(){
   document.getElementById('costTotal').textContent = poa_formatCurrency(c.total);
 }
 
-function poa_goReview(){
+async function poa_goReview(){
   document.getElementById('poa_stepHeader').classList.add('hidden');
   steps.forEach(id=> document.getElementById(id).classList.add('hidden'));
   document.getElementById('poa_stepReview').classList.remove('hidden');
@@ -12863,6 +12986,18 @@ function poa_goReview(){
   }
   costsHtml += rowHtml(['Total', poa_formatCurrency(c.total)]);
   document.getElementById('revCosts').innerHTML = costsHtml;
+
+  // Declaration — admin-editable (Admin > Platform > Application Forms, see
+  // window.atdLoadFormTemplates in the shared shim). Re-fetched and reset
+  // unchecked every time this step renders, so re-visiting Review after
+  // going back to edit information always requires re-confirming, rather
+  // than a stale checked state surviving a real change to the application.
+  const declarationTextEl = document.getElementById('poa_declarationText');
+  if(declarationTextEl && window.atdLoadFormTemplates){
+    const templates = await window.atdLoadFormTemplates();
+    declarationTextEl.textContent = templates.poaDeclarationText;
+  }
+  document.getElementById('poa_declarationCheck').checked = false;
 
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -13250,6 +13385,14 @@ async function submitApp(){
   if(!selectedMunicipality){
     errorBox.textContent = 'No municipality was selected for this application. Please go back to the start and select your parish.';
     errorBox.classList.remove('hidden');
+    return;
+  }
+
+  const declarationCheck = document.getElementById('poa_declarationCheck');
+  if(declarationCheck && !declarationCheck.checked){
+    errorBox.textContent = 'Please read and check the declaration before submitting.';
+    errorBox.classList.remove('hidden');
+    declarationCheck.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
 
@@ -14270,17 +14413,21 @@ function printDoc(html){
   setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
 }
 
-function printPaymentAdvice(){
+async function printPaymentAdvice(){
   const r = currentAppRecord;
   const isAnnual = r.amusement.licenseType === 'Annual';
   const eventName = isAnnual ? (r.amusement.businessType || 'N/A') : (r.amusement.eventName || 'N/A');
   const eventDate = isAnnual ? 'N/A (Annual License)' : (r.amusement.eventDate || 'N/A');
+  // Admin-editable (Admin > Platform > Application Forms) — see
+  // window.atdLoadFormTemplates in the shared shim. Everything else on this
+  // slip is this specific application's own data and is untouched.
+  const formTemplates = window.atdLoadFormTemplates ? await window.atdLoadFormTemplates() : window.ATD_DEFAULT_FORM_TEMPLATES;
 
   const html = `
     <div class="doc-sheet">
       <div class="doc-notice">
         <strong>NOTICE:</strong>
-        Present this payment advice to the cashier when making payment for your places of amusement application license. Ensure to update your online application with the invoice/receipt number to complete submission of your application.
+        ${poa_escapeHtml(formTemplates.paymentAdviceNoticeText)}
       </div>
 
       <div class="doc-header">
@@ -14327,6 +14474,12 @@ async function printNoticeOfApplication(){
   const patrons = isAnnual ? 'N/A' : (r.amusement.patrons || 'N/A');
   const docList = r.regulatoryDocList || [];
   const signature = await fetchMuniSignature(r.muniId);
+  // Admin-editable (Admin > Platform > Application Forms) — see
+  // window.atdLoadFormTemplates in the shared shim. Everything else on this
+  // letter (tracking code, municipality, applicant/event/venue data,
+  // permits list, signature) is this specific application's own data and
+  // is untouched.
+  const formTemplates = window.atdLoadFormTemplates ? await window.atdLoadFormTemplates() : window.ATD_DEFAULT_FORM_TEMPLATES;
 
   const html = `
     <div class="doc-sheet notice-letter">
@@ -14335,11 +14488,11 @@ async function printNoticeOfApplication(){
       <div class="nl-dept">Commercial Services Department</div>
 
       <p>Dear Sirs:</p>
-      <p>Please take notice that the individual/company listed below has applied for an Amusement License under the Places of Amusement Regulation 1999 and is required to provide to the Corporation the following attendant approvals/permits:</p>
+      <p>${poa_escapeHtml(formTemplates.noticeOfApplicationIntroText)}</p>
 
       ${docList.length ? `<p><strong>Permits/Approvals:</strong></p><ol>${docList.map(d=>`<li>${poa_escapeHtml(d)}</li>`).join('')}</ol>` : '<p>No additional permits/approvals are required for this application.</p>'}
 
-      <p>Please accept this notice as proof of application and extend the necessary courtesies to the applicant to complete the application process.</p>
+      <p>${poa_escapeHtml(formTemplates.noticeOfApplicationClosingText)}</p>
 
       <div class="nl-heading">NOTICE OF APPLICATION</div>
 
@@ -17543,6 +17696,23 @@ async function deleteUser(id){
 function muni_openAppModal(id){
   activeAppId = id;
   muni_goPage('appdetail', true);
+  // Read-side audit trail (Phase D finding #8): this is the single funnel
+  // every "View" / "View / Print" button in the Municipal portal goes
+  // through, so one call here covers every application view without
+  // double-logging on renderAppDetail()'s many later re-renders (payment
+  // verification, status changes, comments, etc. all re-render the same
+  // page without navigating here again).
+  if(window.atdLogAudit && currentUser){
+    const a = applications.find(a => a.id === id);
+    if(a){
+      window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'application.viewed',
+        details: `Viewed application ${a.appNumber} (${a.applicant}).`,
+        muniId: currentUser.muniId
+      });
+    }
+  }
   renderAppDetail();
   muni_loadLinkedJcfApp(id);
 }
@@ -18384,6 +18554,20 @@ async function openApplicantFileModal(kind){
     storageKey = `applicationAdditionalPaymentReceipt:${a.appNumber}:${idx}`;
   } else {
     return;
+  }
+
+  // Read-side audit trail (Phase D finding #8) — someone's uploaded ID,
+  // flier, or receipt is exactly the kind of thing a breach investigation
+  // needs a "who looked at this and when" trail for. One call here covers
+  // every document kind this modal handles (same action name JCF's
+  // jcfd_openDocModal uses, for a consistent cross-portal audit trail).
+  if(window.atdLogAudit && currentUser){
+    await window.atdLogAudit({
+      portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+      action: 'document.viewed',
+      details: `Viewed ${title} for application ${a.appNumber}.`,
+      muniId: currentUser.muniId
+    });
   }
 
   activeDocName = null;
@@ -19554,7 +19738,7 @@ function admin_goPage(page){
   document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
   (document.getElementById('admin_page-' + page) || document.getElementById('page-' + page)).classList.remove('hidden');
   document.querySelectorAll('#shell-admin .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', settings: 'Settings' };
+  const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', formtemplates: 'Application Forms', settings: 'Settings' };
   document.getElementById('admin_topbarTitle').textContent = titles[page];
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -19585,6 +19769,7 @@ function admin_renderAll(){
   renderPermissionsPage();
   renderSecurityPage();
   renderIntegrationsPage();
+  renderFormTemplatesPage();
 }
 
 function admin_todayIso(){ return new Date().toISOString().slice(0, 10); }
@@ -20363,6 +20548,18 @@ async function deleteRole(id){
 function admin_openAppModal(id){
   activeAppId = id;
   const a = applications.find(a => a.id === id);
+  // Read-side audit trail (Phase D finding #8), same action name the
+  // Municipal and JCF portals use for their own "opened an application"
+  // events, so the audit log's action column stays consistent across
+  // portals.
+  if(window.atdLogAudit && a){
+    window.atdLogAudit({
+      portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator',
+      action: 'application.viewed',
+      details: `Viewed application ${a.appNumber} (${a.applicant}).`,
+      muniId: a.muniId != null ? a.muniId : null
+    });
+  }
   document.getElementById('appModalTitle').textContent = a.appNumber;
   document.getElementById('appModalSub').textContent = `Submitted ${a.submitted} · Routed to ${agencyNameByMuniId(a.muniId)}`;
 
@@ -21134,6 +21331,53 @@ async function saveIntegrations(){
   admin_renderNationalOverview();
 }
 
+// ---------------- Application Forms (Platform > Application Forms) ----------------
+// See window.atdLoadFormTemplates / window.ATD_DEFAULT_FORM_TEMPLATES in the
+// shared shim near the top of <body> for the storage shape and defaults —
+// this page is just a thin editor over that one platform:formTemplates blob.
+const ATD_FORM_TEMPLATE_FIELD_IDS = {
+  poaDeclarationText: 'admin_formTpl_poaDeclaration',
+  jcfDeclarationText: 'admin_formTpl_jcfDeclaration',
+  paymentAdviceNoticeText: 'admin_formTpl_paymentAdviceNotice',
+  noticeOfApplicationIntroText: 'admin_formTpl_noaIntro',
+  noticeOfApplicationClosingText: 'admin_formTpl_noaClosing'
+};
+
+async function renderFormTemplatesPage(){
+  const anyFieldEl = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS.poaDeclarationText);
+  if(!anyFieldEl) return;
+  const templates = await window.atdLoadFormTemplates();
+  Object.keys(ATD_FORM_TEMPLATE_FIELD_IDS).forEach(key => {
+    const el = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS[key]);
+    if(el) el.value = templates[key];
+  });
+}
+
+async function saveFormTemplates(){
+  const templates = {};
+  Object.keys(ATD_FORM_TEMPLATE_FIELD_IDS).forEach(key => {
+    const el = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS[key]);
+    templates[key] = el ? el.value.trim() : '';
+  });
+  // A blank field would mean applicants see no declaration at all (or a
+  // blank boilerplate paragraph) — fall back to the default for any field
+  // left empty rather than saving nothing.
+  Object.keys(templates).forEach(key => {
+    if(!templates[key]) templates[key] = window.ATD_DEFAULT_FORM_TEMPLATES[key];
+  });
+  await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: 'Updated application form templates (declarations, Payment Advice, Notice of Application).' });
+  admin_showToast('Form templates saved. Applicants and staff will see the new wording next time each form/document loads.');
+}
+
+function resetFormTemplatesToDefault(){
+  Object.keys(ATD_FORM_TEMPLATE_FIELD_IDS).forEach(key => {
+    const el = document.getElementById(ATD_FORM_TEMPLATE_FIELD_IDS[key]);
+    if(el) el.value = window.ATD_DEFAULT_FORM_TEMPLATES[key];
+  });
+  admin_showToast('Reset to default text below — click "Save form templates" to make this take effect.');
+}
+
 function admin_escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -21193,6 +21437,8 @@ window.saveSecurityPolicy = saveSecurityPolicy;
 window.renderSecurityPage = renderSecurityPage;
 window.adminMarkAgencyPaid = adminMarkAgencyPaid;
 window.saveIntegrations = saveIntegrations;
+window.saveFormTemplates = saveFormTemplates;
+window.resetFormTemplatesToDefault = resetFormTemplatesToDefault;
 window.admin_getAgencies = function(){ return agencies; };
 })();</script>
 <script>(function(){
@@ -21536,7 +21782,7 @@ function startWizard(){
 const stepNames = ['Event Overview', 'Venue Details', 'Entertainment Details', 'Final Declaration'];
 
 let currentJcfStep = 1;
-function jcf_goStep(n){
+async function jcf_goStep(n){
   currentJcfStep = n;
   document.getElementById('jcf_stepReview').classList.add('hidden');
   document.getElementById('confirmPage').classList.add('hidden');
@@ -21548,6 +21794,19 @@ function jcf_goStep(n){
   document.getElementById('jcf_stepNum').textContent = n;
   document.getElementById('jcf_stepName').textContent = stepNames[n-1];
   document.getElementById('jcf_progressFill').style.width = (n/4*100)+'%';
+  // Declaration — admin-editable (Admin > Platform > Application Forms, see
+  // window.atdLoadFormTemplates in the shared shim). Loaded and reset
+  // unchecked every time step 4 is (re-)entered, same reasoning as the POA
+  // review step's own declaration: re-visiting after going back to change
+  // something shouldn't carry over a stale confirmation.
+  if(n === 4){
+    const declarationTextEl = document.getElementById('jcf_declarationText');
+    if(declarationTextEl && window.atdLoadFormTemplates){
+      const templates = await window.atdLoadFormTemplates();
+      declarationTextEl.textContent = templates.jcfDeclarationText;
+    }
+    document.getElementById('jcf_declarationCheck').checked = false;
+  }
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -21619,6 +21878,10 @@ function continueFromStep3(){
 function continueFromStep4(){
   if(!document.getElementById('watchCharges').checked){
     jcf_showToast('Please confirm you have watched the Charges for Breaches briefing before continuing.');
+    return;
+  }
+  if(!document.getElementById('jcf_declarationCheck').checked){
+    jcf_showToast('Please read and check the declaration before continuing.');
     return;
   }
   jcf_goReview();
@@ -22057,6 +22320,11 @@ async function submitJcfApp(){
 
   if(!document.getElementById('watchNoise').checked || !document.getElementById('watchLoudspeakers').checked || !document.getElementById('watchCharges').checked){
     errorBox.textContent = 'You must confirm you have watched all three briefing videos before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(!document.getElementById('jcf_declarationCheck').checked){
+    errorBox.textContent = 'Please read and check the declaration on the Final Declaration step before submitting.';
     errorBox.classList.remove('hidden');
     return;
   }
