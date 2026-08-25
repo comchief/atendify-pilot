@@ -1,0 +1,46 @@
+name: Backend regression suite
+
+# Runs backend/test/run_tests.sh against a real Postgres instance on every
+# push and pull request. This is the CI half of the hardening plan's Phase
+# B — the test files themselves persist what used to be one-off local
+# verification scripts, written for a single fix and then deleted; this
+# workflow is what actually runs them automatically instead of relying on
+# someone remembering to.
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/db-tests.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/db-tests.yml'
+  workflow_dispatch: {}
+
+jobs:
+  backend-regression-suite:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run backend regression suite
+        run: backend/test/run_tests.sh
