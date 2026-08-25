@@ -13,16 +13,16 @@
     --border: #e2e5ea;
     --field-bg: #ffffff;
     --panel: #ffffff;
-    --blue: #4f5fee;
+    --blue: #4338ca;
     --blue-hover: #3f4fdc;
     --track: #e6e8ec;
     --progress: #4f5fee;
-    --red: #e6482e;
+    --red: #b91c1c;
     --info-bg: #eef1ff;
     --info-text: #3f4fdc;
-    --green: #16a34a;
+    --green: #15803d;
     --green-tint: #eafaf0;
-    --amber: #d97706;
+    --amber: #b45309;
     --amber-tint: #fef6e7;
     --radius: 8px;
   }
@@ -956,15 +956,15 @@
     --text-muted: #6b7280;
     --border: #e2e5ea;
     --field-bg: #ffffff;
-    --blue: #4f5fee;
+    --blue: #4338ca;
     --blue-hover: #3f4fdc;
     --blue-tint: #eef1ff;
     --track: #e6e8ec;
-    --red: #e6482e;
+    --red: #b91c1c;
     --red-tint: #fdecea;
-    --green: #16a34a;
+    --green: #15803d;
     --green-tint: #eafaf0;
-    --amber: #d97706;
+    --amber: #b45309;
     --amber-tint: #fef6e7;
     --purple: #7c3aed;
     --purple-tint: #f2ecfe;
@@ -1754,15 +1754,15 @@
     --text-muted: #6b7280;
     --border: #e2e5ea;
     --field-bg: #ffffff;
-    --blue: #4f5fee;
+    --blue: #4338ca;
     --blue-hover: #3f4fdc;
     --blue-tint: #eef1ff;
     --track: #e6e8ec;
-    --red: #e6482e;
+    --red: #b91c1c;
     --red-tint: #fdeceA;
-    --green: #16a34a;
+    --green: #15803d;
     --green-tint: #eafaf0;
-    --amber: #d97706;
+    --amber: #b45309;
     --amber-tint: #fef6e7;
     --radius: 10px;
     --sidebar-w: 240px;
@@ -2242,16 +2242,16 @@
     --border: #e2e5ea;
     --field-bg: #ffffff;
     --panel: #ffffff;
-    --blue: #4f5fee;
+    --blue: #4338ca;
     --blue-hover: #3f4fdc;
     --track: #e6e8ec;
     --progress: #4f5fee;
-    --red: #e6482e;
+    --red: #b91c1c;
     --info-bg: #eef1ff;
     --info-text: #3f4fdc;
-    --green: #16a34a;
+    --green: #15803d;
     --green-tint: #eafaf0;
-    --amber: #d97706;
+    --amber: #b45309;
     --amber-tint: #fef6e7;
     --radius: 8px;
   }
@@ -4797,7 +4797,7 @@
   </div>
 </div>
 
-<div class="toast" id="poa_toast">Application submitted successfully.</div>
+<div class="toast" id="poa_toast" role="status" aria-live="polite" aria-atomic="true">Application submitted successfully.</div>
 <div id="printArea" class="print-only"></div>
 
 <script>
@@ -5044,8 +5044,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>All applications</h2>
           <div class="panel-tools">
-            <input type="text" id="muni_appSearch" placeholder="Search applicant, application #, or tracking code" oninput="muni_renderApplications()">
-            <select id="muni_appStatusFilter" onchange="muni_renderApplications()">
+            <input type="text" id="muni_appSearch" placeholder="Search applicant, application #, or tracking code" aria-label="Search applicant, application #, or tracking code" oninput="muni_renderApplications()">
+            <select id="muni_appStatusFilter" aria-label="Filter applications by status" onchange="muni_renderApplications()">
               <option value="">All statuses</option>
               <option>Submitted</option>
               <option>Payment Received</option>
@@ -5080,7 +5080,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Registered venues</h2>
           <div class="panel-tools">
-            <input type="text" id="venueSearchInput" placeholder="Search venues" oninput="renderVenues()">
+            <input type="text" id="venueSearchInput" placeholder="Search venues" aria-label="Search venues" oninput="renderVenues()">
             <button class="btn btn-primary" onclick="openVenueModal()">+ Add venue</button>
           </div>
         </div>
@@ -5119,7 +5119,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Watchlist</h2>
           <div class="panel-tools">
-            <input type="text" id="watchlistSearchInput" placeholder="Search by name or TRN" oninput="renderWatchlist()">
+            <input type="text" id="watchlistSearchInput" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="renderWatchlist()">
             <select id="watchlistStatusFilter" onchange="renderWatchlist()">
               <option value="">All statuses</option>
               <option>Active</option>
@@ -5194,7 +5194,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Issued Permits</h2>
           <div class="panel-tools">
-            <input type="text" id="permitSearchInput" placeholder="Search permit #, name, or app #" oninput="renderPermitsList()">
+            <input type="text" id="permitSearchInput" placeholder="Search permit #, name, or app #" aria-label="Search permits by permit #, name, or application #" oninput="renderPermitsList()">
           </div>
         </div>
         <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Every permit generated for this municipality, with a link back to its source application.</p>
@@ -5272,7 +5272,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Municipality staff accounts</h2>
           <div class="panel-tools">
-            <input type="text" id="userSearch" placeholder="Search staff" oninput="renderUsers()">
+            <input type="text" id="userSearch" placeholder="Search staff" aria-label="Search staff" oninput="renderUsers()">
             <button class="btn btn-primary" onclick="openUserModal()">+ Add user</button>
           </div>
         </div>
@@ -5534,11 +5534,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="field-row">
           <div class="field-group">
-            <label>Role</label>
+            <label for="profileRoleDisplay">Role</label>
             <input type="text" id="profileRoleDisplay" disabled>
           </div>
           <div class="field-group">
-            <label>Municipality</label>
+            <label for="profileMuniDisplay">Municipality</label>
             <input type="text" id="profileMuniDisplay" disabled>
           </div>
         </div>
@@ -6018,7 +6018,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
-<div class="toast" id="muni_toast"></div>
+<div class="toast" id="muni_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 <div id="permitPrintArea" class="print-only"></div>
 
 <!-- qrcodejs already inlined above -->
@@ -6271,8 +6271,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>All applications</h2>
           <div class="panel-tools">
-            <input type="text" id="admin_appSearch" placeholder="Search applicant or application #" oninput="admin_renderApplications()">
-            <select id="admin_appStatusFilter" onchange="admin_renderApplications()">
+            <input type="text" id="admin_appSearch" placeholder="Search applicant or application #" aria-label="Search applicant or application #" oninput="admin_renderApplications()">
+            <select id="admin_appStatusFilter" aria-label="Filter applications by status" onchange="admin_renderApplications()">
               <option value="">All statuses</option>
               <option value="Submitted">Submitted</option>
               <option value="Payment Received">Payment Received</option>
@@ -6346,7 +6346,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Agency accounts</h2>
           <div class="panel-tools">
-            <input type="text" id="agencySearch" placeholder="Search agency" oninput="renderAgencies()">
+            <input type="text" id="agencySearch" placeholder="Search agency" aria-label="Search agency" oninput="renderAgencies()">
             <button class="btn btn-primary" onclick="openAgencyModal()">+ Add agency account</button>
           </div>
         </div>
@@ -6934,7 +6934,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
-<div class="toast" id="admin_toast"></div>
+<div class="toast" id="admin_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
 
@@ -7047,7 +7047,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
                 <div class="fu-icon">⤒</div>
                 <div class="fu-label">Upload Photo ID</div>
               </div>
-              <input type="file" id="photoIdFile" accept="image/*" style="display:none;" onchange="photoIdFileChosen(this)">
+              <input type="file" id="photoIdFile" accept="image/*" style="display:none;" aria-required="true" onchange="photoIdFileChosen(this)">
             </div>
           </div>
           <div>
@@ -7058,7 +7058,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
                 <div class="fu-icon">⤒</div>
                 <div class="fu-label">Upload flyer</div>
               </div>
-              <input type="file" id="flyerFile" accept="image/*" style="display:none;" onchange="flyerFileChosen(this)">
+              <input type="file" id="flyerFile" accept="image/*" style="display:none;" aria-required="true" onchange="flyerFileChosen(this)">
             </div>
           </div>
         </div>
@@ -7153,7 +7153,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="breach-reason-wrap hidden" id="promoterBreachReasonWrap">
           <div class="field-group">
             <label for="promoterBreachReason">Please provide details <span class="required-mark">*</span></label>
-            <textarea id="promoterBreachReason" maxlength="4000" oninput="updateWordCount('promoterBreachReason','promoterBreachWordCount')" placeholder="Describe the breach (no more than 500 words)"></textarea>
+            <textarea id="promoterBreachReason" maxlength="4000" aria-required="true" oninput="updateWordCount('promoterBreachReason','promoterBreachWordCount')" placeholder="Describe the breach (no more than 500 words)"></textarea>
             <div class="word-count-note" id="promoterBreachWordCount">0 / 500 words</div>
           </div>
         </div>
@@ -7261,7 +7261,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="breach-reason-wrap hidden" id="ownerBreachReasonWrap">
           <div class="field-group">
             <label for="ownerBreachReason">Please provide details <span class="required-mark">*</span></label>
-            <textarea id="ownerBreachReason" maxlength="4000" oninput="updateWordCount('ownerBreachReason','ownerBreachWordCount')" placeholder="Describe the breach (no more than 500 words)"></textarea>
+            <textarea id="ownerBreachReason" maxlength="4000" aria-required="true" oninput="updateWordCount('ownerBreachReason','ownerBreachWordCount')" placeholder="Describe the breach (no more than 500 words)"></textarea>
             <div class="word-count-note" id="ownerBreachWordCount">0 / 500 words</div>
           </div>
         </div>
@@ -7352,21 +7352,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="field-row">
               <div class="field-group">
                 <label for="djTrn">TRN Number <span class="required-mark">*</span></label>
-                <input type="text" id="djTrn" placeholder="000-000-000">
+                <input type="text" id="djTrn" placeholder="000-000-000" aria-required="true">
               </div>
               <div class="field-group">
                 <label for="djName">Name of DJ <span class="required-mark">*</span></label>
-                <input type="text" id="djName">
+                <input type="text" id="djName" aria-required="true">
               </div>
             </div>
             <div class="field-row">
               <div class="field-group">
                 <label for="djAlias">Alias of DJ <span class="required-mark">*</span></label>
-                <input type="text" id="djAlias">
+                <input type="text" id="djAlias" aria-required="true">
               </div>
               <div class="field-group">
                 <label for="djContact">Contact # <span class="required-mark">*</span></label>
-                <input type="tel" id="djContact">
+                <input type="tel" id="djContact" aria-required="true">
               </div>
             </div>
             <div class="field-group field-row">
@@ -7411,21 +7411,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="field-row">
               <div class="field-group">
                 <label for="soundTrn">TRN Number (Owner) <span class="required-mark">*</span></label>
-                <input type="text" id="soundTrn" placeholder="000-000-000">
+                <input type="text" id="soundTrn" placeholder="000-000-000" aria-required="true">
               </div>
               <div class="field-group">
                 <label for="soundName">Name of Sound <span class="required-mark">*</span></label>
-                <input type="text" id="soundName">
+                <input type="text" id="soundName" aria-required="true">
               </div>
             </div>
             <div class="field-row">
               <div class="field-group">
                 <label for="soundOwnerName">Name of Owner <span class="required-mark">*</span></label>
-                <input type="text" id="soundOwnerName">
+                <input type="text" id="soundOwnerName" aria-required="true">
               </div>
               <div class="field-group">
                 <label for="soundContact">Contact # <span class="required-mark">*</span></label>
-                <input type="tel" id="soundContact">
+                <input type="tel" id="soundContact" aria-required="true">
               </div>
             </div>
             <div class="field-group field-row">
@@ -7605,7 +7605,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 </main>
 
-<div class="toast" id="jcf_toast">Application submitted successfully.</div>
+<div class="toast" id="jcf_toast" role="status" aria-live="polite" aria-atomic="true">Application submitted successfully.</div>
 
 
 
@@ -7836,7 +7836,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2 id="jcfd_appsHeading">Applications</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_appSearch" placeholder="Search promoter, application #, or tracking code" oninput="jcfd_renderApplications()">
+              <input type="text" id="jcfd_appSearch" placeholder="Search promoter, application #, or tracking code" aria-label="Search promoter, application #, or tracking code" oninput="jcfd_renderApplications()">
             </div>
           </div>
           <div style="overflow-x:auto;">
@@ -7880,7 +7880,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2>Watch List</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_watchlistSearch" placeholder="Search by name or TRN" oninput="jcfd_renderWatchlist()">
+              <input type="text" id="jcfd_watchlistSearch" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="jcfd_renderWatchlist()">
               <select id="jcfd_watchlistTypeFilter" onchange="jcfd_renderWatchlist()">
                 <option value="">All types</option>
                 <option>Promoter</option>
@@ -7963,7 +7963,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2>Issued Permits</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_permitSearch" placeholder="Search permit #, promoter, or app #" oninput="jcfd_renderPermitsList()">
+              <input type="text" id="jcfd_permitSearch" placeholder="Search permit #, promoter, or app #" aria-label="Search permits by permit #, promoter, or application #" oninput="jcfd_renderPermitsList()">
             </div>
           </div>
           <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Every Noise Abatement Permit issued by your division, with a link back to its source application.</p>
@@ -8153,7 +8153,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
      (mirrors the Municipal Officer's permitPrintArea/printing-permit pipeline). -->
 <div id="jcfdPermitPrintArea" class="print-only"></div>
 
-<div class="toast" id="jcfd_toast"></div>
+<div class="toast" id="jcfd_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 (function(){
@@ -21418,6 +21418,154 @@ window.submitJcfApp = submitJcfApp;
 window.switchSigMode = switchSigMode;
 window.toggleBreachReason = toggleBreachReason;
 window.updateWordCount = updateWordCount;
+})();</script>
+
+<!--
+  Phase D, round 2: keyboard access for click-only controls, and modal
+  dialog accessibility (focus management + Escape-to-close). Added as one
+  self-contained block at the end of <body> rather than editing the ~75
+  individual onclick divs/spans or the 24 modals' open/close functions —
+  it observes the existing DOM/class-toggling patterns instead of replacing
+  them, so none of the app's existing logic above is changed.
+-->
+<script>(function(){
+
+  // ---- Part 1: keyboard access for div/span elements that only have an
+  // onclick handler (nav sidebars, file-upload drop zones, the notification
+  // bell/list, the eBriefing "play" triggers, etc.) ----
+
+  function atdEnhanceClickable(el){
+    if (el.nodeType !== 1) return;
+    if ((el.tagName === 'DIV' || el.tagName === 'SPAN') && el.hasAttribute('onclick')){
+      if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+      if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+    }
+  }
+
+  function atdEnhanceClickableTree(root){
+    atdEnhanceClickable(root);
+    if (root.querySelectorAll){
+      var found = root.querySelectorAll('div[onclick], span[onclick]');
+      for (var i = 0; i < found.length; i++) atdEnhanceClickable(found[i]);
+    }
+  }
+
+  atdEnhanceClickableTree(document.body);
+
+  // Dynamically-rendered content (notifications, re-rendered lists, etc.)
+  // needs the same treatment as it's added, since it didn't exist for the
+  // initial pass above.
+  new MutationObserver(function(mutations){
+    for (var i = 0; i < mutations.length; i++){
+      var added = mutations[i].addedNodes;
+      for (var j = 0; j < added.length; j++) atdEnhanceClickableTree(added[j]);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    var tag = e.target && e.target.tagName;
+    // Real form controls/links already handle Enter/Space natively — only
+    // step in for the div/span stand-ins we just marked role="button" on.
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A') return;
+    var el = e.target.closest && e.target.closest('[onclick][role="button"]');
+    if (!el) return;
+    e.preventDefault();
+    el.click();
+  });
+
+  // ---- Part 2: modal dialogs — announce as dialogs, manage focus, and
+  // support Escape-to-close + Tab focus-trapping while one is open ----
+
+  // Each modal's real close function, so Escape triggers the same cleanup
+  // (clearing an "editing" id, resetting a draft field, etc.) a click on
+  // its own Cancel button already does — not just hiding the overlay.
+  var atdModalCloseFns = {
+    directorModal: 'closeDirectorModal',
+    securityModal: 'closeSecurityModal',
+    parkingModal: 'closeParkingModal',
+    archiveViewModal: 'closeArchiveViewModal',
+    formElementModal: 'closeFormElementModal',
+    watchlistAddModal: 'closeWatchlistAddModal',
+    promotionModal: 'closePromotionModal',
+    watchlistViewModal: 'closeWatchlistViewModal',
+    adModal: 'closeAdModal',
+    venueModal: 'closeVenueModal',
+    venueViewModal: 'closeVenueViewModal',
+    flagVenueModal: 'closeFlagVenueModal',
+    docModal: 'closeDocModal',
+    jcfPermitModal: 'closeJcfPermitModal',
+    userModal: 'closeUserModal',
+    agencyModal: 'closeAgencyModal',
+    roleModal: 'closeRoleModal',
+    appModal: 'closeAppModal',
+    venueRegistryModal: 'closeVenueRegistryModal',
+    jcfd_userModal: 'jcfd_closeUserModal',
+    jcfd_docModal: 'jcfd_closeDocModal',
+    jcfd_watchlistAddModal: 'jcfd_closeWatchlistAddModal',
+    jcfd_watchlistViewModal: 'jcfd_closeWatchlistViewModal',
+    jcfd_approveModal: 'jcfd_closeApproveModal'
+  };
+
+  var atdFocusableSelector = 'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+  var atdModalReturnFocus = {};
+  var atdHeadingIdCounter = 0;
+
+  function atdModalOpened(modal){
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    if (!modal.hasAttribute('aria-labelledby') && !modal.hasAttribute('aria-label')){
+      var heading = modal.querySelector('.modal-box h1, .modal-box h2, .modal-box h3, .modal-box h4');
+      if (heading){
+        if (!heading.id){ atdHeadingIdCounter++; heading.id = 'atdModalTitle' + atdHeadingIdCounter; }
+        modal.setAttribute('aria-labelledby', heading.id);
+      }
+    }
+    atdModalReturnFocus[modal.id] = document.activeElement;
+    var focusable = modal.querySelector(atdFocusableSelector);
+    if (focusable) setTimeout(function(){ focusable.focus(); }, 0);
+  }
+
+  function atdModalClosed(modal){
+    var toFocus = atdModalReturnFocus[modal.id];
+    delete atdModalReturnFocus[modal.id];
+    if (toFocus && document.body.contains(toFocus)){
+      setTimeout(function(){ toFocus.focus(); }, 0);
+    }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.modal-overlay'), function(modal){
+    var wasHidden = modal.classList.contains('hidden');
+    new MutationObserver(function(){
+      var nowHidden = modal.classList.contains('hidden');
+      if (nowHidden === wasHidden) return;
+      wasHidden = nowHidden;
+      if (nowHidden) atdModalClosed(modal); else atdModalOpened(modal);
+    }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape' && e.key !== 'Tab') return;
+    var openModal = document.querySelector('.modal-overlay:not(.hidden)');
+    if (!openModal) return;
+
+    if (e.key === 'Escape'){
+      var fnName = atdModalCloseFns[openModal.id];
+      var fn = fnName && window[fnName];
+      if (typeof fn === 'function') fn();
+      else openModal.classList.add('hidden'); // fallback if a new modal is ever added without an entry above
+      return;
+    }
+
+    // Tab: keep focus cycling within the open modal instead of escaping
+    // into the (visually covered) page behind it.
+    var focusables = openModal.querySelectorAll(atdFocusableSelector);
+    if (!focusables.length) return;
+    var first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  });
+
 })();</script>
 
 </body>
