@@ -9797,9 +9797,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
       try{
         const { error } = await window.ATDBackend.signIn(email, password);
-        if(error) throw error;
+        // See the identical comment in muni_attemptLogin() — Supabase Auth's
+        // own error message (e.g. "Invalid login credentials" vs. "Email not
+        // confirmed") is far more useful than one generic phrase, especially
+        // right after a Chief has just created a new division staffer.
+        if(error) throw new Error(error.message || 'Sign-in failed.');
         const profile = await window.ATDBackend.getProfile();
-        if(!profile || profile.role !== 'jcfd' || String(profile.jcf_branch_id) !== String(branchId)) throw new Error('not provisioned for this division');
+        if(!profile){
+          throw new Error('Signed in, but no staff profile exists for this account yet.');
+        }
+        if(profile.role !== 'jcfd'){
+          throw new Error(`Signed in, but this account is provisioned as role "${profile.role}", not JCF division staff. Check the staff invite for this email.`);
+        }
+        if(String(profile.jcf_branch_id) !== String(branchId)){
+          throw new Error(`Signed in, but this account is provisioned for a different division (branch ${profile.jcf_branch_id ?? 'none'}) than the one selected here.`);
+        }
         // jcfdStaffUsers was loaded (if at all) while this visitor was still
         // anonymous — under RLS, jcfdUser records are only readable by an
         // authenticated 'jcfd' user for their own branch, so that earlier
@@ -9809,16 +9821,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         // Mirrors the identical fix in muni_attemptLogin().
         try{ jcfdStaffUsers = await window.atdLoadJcfdUsers(); }catch(e){}
         const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === email);
-        if(!user || user.status !== 'Active') throw new Error('suspended or not found');
+        if(!user){
+          throw new Error('Signed in and correctly provisioned, but no matching staff record was found for this division — the jcfdUser record may be missing.');
+        }
+        if(user.status !== 'Active'){
+          throw new Error('This account has been suspended. Contact your Police Chief for access.');
+        }
         errorBox.classList.add('hidden');
         if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, true);
         if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: branchId });
         await jcfd_enterShellAsUser(user, branchId);
         return;
       }catch(e){
+        console.error('jcfd_attemptLogin failed:', e);
+        const detail = (e && e.message) ? e.message : String(e);
         if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, false);
-        if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid division, email, or password.' });
-        errorBox.textContent = 'Invalid division, email, or password.';
+        if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: detail });
+        errorBox.textContent = `Could not sign in. (Details: ${detail})`;
         errorBox.classList.remove('hidden');
         return;
       }
@@ -15483,11 +15502,28 @@ async function muni_attemptLogin(){
   // it isn't where their profile lives.
   if(window.ATDBackend && window.ATDBackend.isConfigured()){
     try{
-      if(!municipalityIsActive) throw new Error('municipality suspended');
+      if(!municipalityIsActive) throw new Error('This municipality is not currently active.');
       const { error } = await window.ATDBackend.signIn(email, password);
-      if(error) throw error;
+      // Supabase Auth's own error message here is the single most useful
+      // diagnostic signal this function has — "Invalid login credentials"
+      // (wrong email/password) reads completely differently from "Email not
+      // confirmed" (a real account that exists but can't sign in until
+      // confirmed, e.g. because this project has "Confirm email" turned on
+      // and nothing has sent/clicked a confirmation for it yet — a real,
+      // reported failure mode for newly-created staff accounts). Surface it
+      // rather than collapsing every cause into one generic phrase, the same
+      // way submitApp() already does for submission failures.
+      if(error) throw new Error(error.message || 'Sign-in failed.');
       const profile = await window.ATDBackend.getProfile();
-      if(!profile || profile.role !== 'muni' || String(profile.agency_id) !== String(muniId)) throw new Error('not provisioned for this municipality');
+      if(!profile){
+        throw new Error('Signed in, but no staff profile exists for this account yet.');
+      }
+      if(profile.role !== 'muni'){
+        throw new Error(`Signed in, but this account is provisioned as role "${profile.role}", not a municipal officer. Check the staff invite for this email.`);
+      }
+      if(String(profile.agency_id) !== String(muniId)){
+        throw new Error(`Signed in, but this account is provisioned for a different municipality (agency ${profile.agency_id ?? 'none'}) than the one selected here.`);
+      }
       // municipalUsers was loaded from storage while the visitor was still
       // anonymous (whoever loads the login page first, page load) — under
       // RLS, muniUser records are only readable by an authenticated 'muni'
@@ -15497,16 +15533,23 @@ async function muni_attemptLogin(){
       // agency, and will actually find their record.
       try{ municipalUsers = await window.atdLoadMuniUsers(); }catch(e){}
       const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
-      if(!user || user.status !== 'Active') throw new Error('suspended or not found');
+      if(!user){
+        throw new Error('Signed in and correctly provisioned, but no matching staff record was found for this municipality — the muniUser record may be missing.');
+      }
+      if(user.status !== 'Active'){
+        throw new Error('This account has been suspended. Contact your CEO for access.');
+      }
       errorBox.classList.add('hidden');
       await window.atdRecordLoginAttempt('muni', email, true);
       await window.atdLogAudit({ portal: 'muni', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: user.muniId });
       muni_enterShellAsUser(user);
       return;
     }catch(e){
+      console.error('muni_attemptLogin failed:', e);
+      const detail = (e && e.message) ? e.message : String(e);
       await window.atdRecordLoginAttempt('muni', email, false);
-      await window.atdLogAudit({ portal: 'muni', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid municipality, email, or password.' });
-      errorBox.textContent = 'Invalid municipality, email, or password.';
+      await window.atdLogAudit({ portal: 'muni', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: detail });
+      errorBox.textContent = `Could not sign in. (Details: ${detail})`;
       errorBox.classList.remove('hidden');
       return;
     }
