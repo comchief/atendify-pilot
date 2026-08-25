@@ -2993,8 +2993,24 @@
       try {
         parsed = JSON.parse(value);
         var offloaded = await offloadLargeFields(key, parsed);
+        // Postgres's upsert (INSERT ... ON CONFLICT DO UPDATE) needs a
+        // SELECT policy to even check whether a conflict exists, regardless
+        // of whether one actually does — confirmed by reproducing this
+        // exact failure locally. auditLog's SELECT policy is admin-only (by
+        // design — only admin reads the trail), so ANY non-admin write,
+        // including the anonymous "login failed" entries the RLS policy is
+        // explicitly meant to allow, failed with "new row violates row
+        // level security policy" purely from that conflict check, never
+        // even reaching the insert rule that would have allowed it. Every
+        // audit key is a freshly generated, guaranteed-unique id (see
+        // atdLogAudit) and is never legitimately re-saved, so a plain
+        // insert — which needs only the INSERT policy, no conflict check at
+        // all — is both correct and sidesteps this entirely.
+        var isAuditLog = key.indexOf('auditLog:') === 0;
         var res = await atdWithClockSkewRetry(function () {
-          return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+          return isAuditLog
+            ? client.from(TABLE).insert({ key: key, value: offloaded })
+            : client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
         if (res.error) {
           window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), res.error);
@@ -3531,6 +3547,19 @@
       password: password || ATD_DEFAULT_PASSWORD
     };
     await window.atdSaveMuniUser(record);
+    // Pre-authorize this CEO's email for the real backend the same way
+    // muni_saveUser() already does for every OTHER staff member a CEO adds.
+    // Without this, this CEO's own real Supabase signup (see
+    // muni_attemptSignup) finds no staff_invites row and the
+    // atd_handle_new_user trigger silently defaults them to a public 'poa'
+    // applicant account instead of 'muni' — the login then fails with a
+    // generic "Invalid municipality, email, or password" that gives no hint
+    // this is why. Every seeded/demo CEO happened to work because their
+    // invite was hand-written directly into supabase_schema.sql; a CEO
+    // created live through this admin screen never got one until now.
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.inviteStaff){
+      window.ATDBackend.inviteStaff({ email: record.email, role: 'muni', agency_id: String(record.muniId), permissions: record.permissions, display_name: record.name }).catch(()=>{});
+    }
     return record;
   };
 
@@ -3581,6 +3610,22 @@
       created: new Date().toISOString().slice(0,10)
     };
     await window.atdSaveJcfdUser(record);
+    // Pre-authorize this Chief's email for the real backend, the same way
+    // jcfd_saveUser() already does for every OTHER officer a Chief adds.
+    // THIS WAS THE ACTUAL, STILL-UNFIXED CAUSE of "created a JCF Agency but
+    // couldn't log into it": without a staff_invites row, this Chief's real
+    // Supabase signup (see jcfd_attemptSignup) finds no invite and the
+    // atd_handle_new_user trigger defaults them to a public 'poa' applicant
+    // account instead of 'jcfd' — jcfd_attemptLogin's own
+    // `profile.role !== 'jcfd'` check then throws, which surfaces as the
+    // generic "Invalid division, email, or password" (plus a login.failed
+    // audit entry), with no hint that the real problem is a missing invite,
+    // not a wrong password. Every seeded/demo Chief happened to work because
+    // their invite was hand-written directly into supabase_schema.sql; a
+    // Chief created live through this admin screen never got one until now.
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.inviteStaff){
+      window.ATDBackend.inviteStaff({ email: record.email, role: 'jcfd', jcf_branch_id: String(record.agencyId), display_name: record.name }).catch(()=>{});
+    }
     return record;
   };
 
