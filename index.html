@@ -2858,6 +2858,54 @@
   };
 </script>
 <script>
+  // ---- Shared "Active sessions" panel (acct/Muni/JCF/Admin Profile & Settings) ----
+  // One implementation, reused from all 4 portals' own profile pages, since
+  // the underlying data and action are identical regardless of which portal
+  // the signed-in person happens to be — only the surrounding panel markup
+  // differs per portal (each already has its own container id to render
+  // into). Defined here, early, purely as a shared window.* utility — see
+  // window.atdLoadingHtml just above for the same cross-closure pattern.
+  window.atdRenderSessionsInto = async function (containerId) {
+    var body = document.getElementById(containerId);
+    if (!body) return;
+    if (!window.ATDBackend || !window.ATDBackend.isConfigured()) {
+      body.innerHTML = '<div class="empty-state" style="padding:16px 0;">Session history isn\'t available in this preview environment.</div>';
+      return;
+    }
+    body.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Loading sessions…', 16) : 'Loading…';
+    var sessions = await window.ATDBackend.listSessions();
+    var currentId = await window.ATDBackend.currentSessionId();
+    if (!sessions.length) {
+      body.innerHTML = '<div class="empty-state" style="padding:16px 0;">No sign-in history recorded yet.</div>';
+      return;
+    }
+    body.innerHTML = sessions.map(function (s) {
+      var when = s.signedInAt ? new Date(s.signedInAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+      var isCurrent = currentId && s.id === currentId;
+      return '<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border);">'
+        + '<div><div style="font-weight:600;">' + (s.device || 'Unknown device')
+        + (isCurrent ? ' <span style="color:var(--green); font-weight:600; font-size:12px;">&bull; This device</span>' : '')
+        + '</div><div style="font-size:12.5px; color:var(--text-muted);">Signed in ' + when + '</div></div>'
+        + '</div>';
+    }).join('');
+  };
+
+  // Confirms, then revokes every session Supabase holds for this account
+  // (this device included — see ATDBackend.signOutEverywhere's own comment).
+  // afterFn is whichever portal's own _logout() cleans up local UI state —
+  // it's called after the real revocation succeeds, not instead of it.
+  window.atdSignOutAllSessions = async function (afterFn) {
+    var confirmed = await window.atdConfirm('This signs you out of Atendify on every device you\'re currently logged into, including this one. You\'ll need to log in again afterward. Continue?');
+    if (!confirmed) return;
+    var res = await window.ATDBackend.signOutEverywhere();
+    if (!res || !res.ok) {
+      window.alert(res && res.error ? res.error : 'Could not sign out of all sessions right now. Please try again.');
+      return;
+    }
+    if (typeof afterFn === 'function') afterFn();
+  };
+</script>
+<script>
   // Failsafe: guarantees this overlay can never permanently strand a
   // visitor, even if atdBootstrapSessionRestore's own script block never
   // runs (e.g. an unrelated JS error earlier in the page aborts execution).
@@ -3210,6 +3258,44 @@
     return res;
   }
 
+  // ---- Active-session helpers ----
+  // Supabase puts a `session_id` claim (a uuid, stable for the lifetime of
+  // that one sign-in, distinct from the user's own id which never changes)
+  // in every access-token JWT it issues. That's the same identifier the
+  // server uses internally to know which session is "current" when a
+  // scope:'others'/'global' signOut runs, so decoding it here — rather than
+  // inventing a separate client-generated device marker — lets the active
+  // sessions list say "this device" against the exact row a sign-out would
+  // actually be revoking. No server round-trip needed: a JWT's payload
+  // segment is just base64url, safe to decode client-side (it's already
+  // sitting, signed, in the token this browser holds).
+  function atdJwtSessionId(accessToken){
+    try{
+      var parts = (accessToken || '').split('.');
+      if(parts.length < 2) return null;
+      var b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while(b64.length % 4) b64 += '=';
+      var payload = JSON.parse(atob(b64));
+      return payload.session_id || null;
+    }catch(e){ return null; }
+  }
+  function atdDeviceLabelFromUA(ua){
+    ua = ua || '';
+    var os = 'Unknown device';
+    if(/iPhone|iPad|iPod/.test(ua)) os = 'iPhone/iPad';
+    else if(/Android/.test(ua)) os = 'Android';
+    else if(/Macintosh|Mac OS X/.test(ua)) os = 'Mac';
+    else if(/Windows/.test(ua)) os = 'Windows';
+    else if(/Linux/.test(ua)) os = 'Linux';
+    var browser = 'Unknown browser';
+    if(/Edg\//.test(ua)) browser = 'Edge';
+    else if(/OPR\//.test(ua)) browser = 'Opera';
+    else if(/CriOS\//.test(ua) || (/Chrome\//.test(ua) && !/Edg\//.test(ua))) browser = 'Chrome';
+    else if(/FxiOS\//.test(ua) || /Firefox\//.test(ua)) browser = 'Firefox';
+    else if(/Safari\//.test(ua) && !/Chrome\//.test(ua) && !/CriOS\//.test(ua)) browser = 'Safari';
+    return browser + ' on ' + os;
+  }
+
   var ATDBackend = {
     isConfigured: function () { return !!client; },
 
@@ -3341,9 +3427,18 @@
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.signUp({ email: email, password: password });
     },
+    // scope:'local' is deliberate, not the default: Supabase's own default
+    // scope is 'global', meaning every ordinary "Log out" click in every
+    // portal was — until this fix — silently signing that account out on
+    // EVERY device it was signed into, not just this one. That's surprising
+    // behavior nobody asked for (Chief logs out on their phone at the end of
+    // the day, and their office desktop session dies too, no warning). An
+    // everyday logout should only ever end the session the person is
+    // actually looking at; ending every session everywhere is now its own
+    // explicit, clearly-labeled action — see signOutEverywhere() below.
     signOut: function () {
       if (!client) return resolved();
-      return client.auth.signOut();
+      return client.auth.signOut({ scope: 'local' });
     },
     // Self-service password change for the currently signed-in user (no
     // portal had one before this — every existing "reset password" flow is
@@ -3451,6 +3546,66 @@
       });
       if (res.error) { window.atdShowDebugError('countActiveLockouts()', res.error); return 0; }
       return typeof res.data === 'number' ? res.data : 0;
+    },
+
+    // ==================== Active session tracking ====================
+    // The Supabase client SDK has no "list every device I'm signed in on"
+    // API — that genuinely requires the Admin API plus a service-role key,
+    // which can never run safely in a browser. So this keeps its own
+    // append-only sign-in log instead (one kv_store row per session, see
+    // backend/fix23_session_log.sql), written at successful login by
+    // whichever portal's login flow called logSession(). What IS fully real
+    // here is signOutEverywhere(): Supabase's own scope:'global' signOut
+    // actually revokes every refresh token this account holds, on every
+    // device, immediately — this isn't a cosmetic list-and-forget feature.
+    logSession: async function (portal) {
+      if (!client) return;
+      try {
+        var sessionRes = await client.auth.getSession();
+        var session = sessionRes && sessionRes.data && sessionRes.data.session;
+        if (!session || !session.user || !session.user.email) return;
+        var email = session.user.email.toLowerCase();
+        var sessionId = atdJwtSessionId(session.access_token) || session.user.id;
+        var key = 'sessionLog:' + email + ':' + sessionId;
+        var res = await atdWithClockSkewRetry(function () {
+          return client.from(TABLE).upsert({
+            key: key,
+            value: {
+              id: sessionId,
+              ownerEmail: email,
+              portal: portal,
+              device: atdDeviceLabelFromUA(typeof navigator !== 'undefined' ? navigator.userAgent : ''),
+              signedInAt: new Date().toISOString()
+            }
+          }, { onConflict: 'key' });
+        });
+        if (res.error) window.atdShowDebugError('logSession(' + portal + ')', res.error);
+      } catch (e) { window.atdShowDebugError('logSession(' + portal + ')', e); }
+    },
+    listSessions: async function () {
+      if (!client) return [];
+      var res = await atdWithClockSkewRetry(function () {
+        return client.from(TABLE).select('value').like('key', 'sessionLog:%');
+      });
+      if (res.error) { window.atdShowDebugError('listSessions()', res.error); return []; }
+      var rows = (res.data || []).map(function (r) { return r.value; });
+      rows.sort(function (a, b) { return new Date(b.signedInAt) - new Date(a.signedInAt); });
+      return rows;
+    },
+    currentSessionId: async function () {
+      if (!client) return null;
+      var sessionRes = await client.auth.getSession();
+      var session = sessionRes && sessionRes.data && sessionRes.data.session;
+      if (!session) return null;
+      return atdJwtSessionId(session.access_token) || session.user.id;
+    },
+    signOutEverywhere: async function () {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      try {
+        var res = await client.auth.signOut({ scope: 'global' });
+        if (res && res.error) { window.atdShowDebugError('signOutEverywhere()', res.error); return { ok: false, error: res.error.message }; }
+        return { ok: true };
+      } catch (e) { window.atdShowDebugError('signOutEverywhere()', e); return { ok: false, error: String(e) }; }
     },
     // "Track Application" (see submitTrackApplication() below) has to work for
     // a guest applicant with no account or session at all, looking up their
@@ -6367,6 +6522,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="btn btn-primary" onclick="saveMuniProfile()">Save profile</button>
         </div>
       </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Active sessions</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Devices and browsers currently signed in to your account. If you don't recognize one, log out of all sessions below.</p>
+        <div id="muniSessionsBody"><div class="empty-state" style="padding:16px 0;">Loading…</div></div>
+        <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+          <button class="btn btn-sm btn-danger" type="button" onclick="atdSignOutAllSessions(muni_logout)">Log out of all sessions</button>
+        </div>
+      </div>
     </div>
 
     <!-- ===== SLA BREACHES PAGE ===== -->
@@ -7553,6 +7716,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="empty-state" style="padding:10px 0 0; text-align:left; color:var(--text-muted); font-size:13px;">
           This is a demo admin profile. Connect a backend to enable editable settings and password changes.
+        </div>
+      </div>
+
+      <div class="panel" style="max-width:520px;">
+        <div class="panel-head"><h2>Active sessions</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Devices and browsers currently signed in to your account. If you don't recognize one, log out of all sessions below.</p>
+        <div id="adminSessionsBody"><div class="empty-state" style="padding:16px 0;">Loading…</div></div>
+        <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+          <button class="btn btn-sm btn-danger" type="button" onclick="atdSignOutAllSessions(admin_logout)">Log out of all sessions</button>
         </div>
       </div>
 
@@ -9094,6 +9266,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <button class="btn btn-primary" onclick="jcfd_saveProfile()">Save profile</button>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Active sessions</h2></div>
+          <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Devices and browsers currently signed in to your account. If you don't recognize one, log out of all sessions below.</p>
+          <div id="jcfdSessionsBody"><div class="empty-state" style="padding:16px 0;">Loading…</div></div>
+          <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+            <button class="btn btn-sm btn-danger" type="button" onclick="atdSignOutAllSessions(jcfd_logout)">Log out of all sessions</button>
+          </div>
+        </div>
       </div>
 
       <!-- ===== SLA POLICY PAGE (JCF) ===== -->
@@ -9488,6 +9668,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const result = await window.storage.get('accountUser:' + email, true);
         if(!result || !result.value) throw new Error('no profile record');
         acct_currentUser = JSON.parse(result.value);
+        if(window.ATDBackend.logSession) await window.ATDBackend.logSession('poa');
         acct_showLoggedInUI();
       }catch(e){
         errorBox.textContent = 'Incorrect email or password.';
@@ -9988,11 +10169,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         '<div id="acct_passwordError" class="hidden" style="color:var(--red); font-size:13.5px; margin-bottom:12px;"></div>' +
         '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-primary" onclick="acct_changePassword()">Update password</button></div>' +
       '</div>' +
+      '<div class="panel" style="margin-bottom:24px;">' +
+        '<h3 style="margin-top:0;">Active sessions</h3>' +
+        '<p class="col-desc" style="margin-bottom:16px;">Devices and browsers currently signed in to your account. If you don\'t recognize one, log out of all sessions below.</p>' +
+        '<div id="acctSessionsBody"><div class="empty-state" style="padding:16px 0;">Loading…</div></div>' +
+        '<div class="btn-row" style="justify-content:flex-start; margin-top:14px;"><button class="btn btn-sm btn-danger" type="button" onclick="atdSignOutAllSessions(acct_logout)">Log out of all sessions</button></div>' +
+      '</div>' +
       '<div class="panel">' +
         '<h3 style="margin-top:0; color:var(--red);">Delete account</h3>' +
         '<p class="col-desc" style="margin-bottom:16px;">Permanently delete your Atendify account. This does not affect data already submitted to regulatory agencies.</p>' +
         '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-danger" onclick="acct_requestDeleteAccount()">Delete my account</button></div>' +
       '</div>';
+    if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('acctSessionsBody');
   }
 
   async function acct_changePassword(){
@@ -10443,6 +10631,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         }
         errorBox.classList.add('hidden');
         if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, true);
+        if(window.ATDBackend.logSession) await window.ATDBackend.logSession('jcf');
         if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: branchId });
         await jcfd_enterShellAsUser(user, branchId);
         return;
@@ -11806,6 +11995,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_profilePhoneInput').value = jcfdCurrentUser.phone || '';
     document.getElementById('jcfd_profileRoleDisplay').value = jcfdCurrentUser.role || '';
     document.getElementById('jcfd_profileBranchDisplay').value = jcfdCurrentBranch ? jcfdCurrentBranch.name : '';
+    if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('jcfdSessionsBody');
   }
   window.jcfd_renderProfile = jcfd_renderProfile;
 
@@ -16609,6 +16799,7 @@ async function muni_attemptLogin(){
       }
       errorBox.classList.add('hidden');
       await window.atdRecordLoginAttempt('muni', email, true);
+      if(window.ATDBackend.logSession) await window.ATDBackend.logSession('muni');
       await window.atdLogAudit({ portal: 'muni', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: user.muniId });
       muni_enterShellAsUser(user);
       return;
@@ -16942,6 +17133,7 @@ function renderMuniProfile(){
   document.getElementById('profilePhoneInput').value = currentUser.phone || '';
   document.getElementById('profileRoleDisplay').value = currentUser.role || '';
   document.getElementById('profileMuniDisplay').value = myMunicipalityName();
+  if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('muniSessionsBody');
 }
 
 function saveMuniProfile(){
@@ -21356,6 +21548,7 @@ window.admin_applySidebarAvatar = admin_applySidebarAvatar;
 
 function admin_renderProfile(){
   admin_applySidebarAvatar();
+  if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('adminSessionsBody');
 }
 window.admin_renderProfile = admin_renderProfile;
 
@@ -21408,6 +21601,7 @@ async function admin_attemptLogin(){
       adminActorEmail = profile.email || email;
       errorBox.classList.add('hidden');
       await window.atdRecordLoginAttempt('admin', email, true);
+      if(window.ATDBackend.logSession) await window.ATDBackend.logSession('admin');
       await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
       admin_showAppShell();
       return;
