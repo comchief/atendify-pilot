@@ -9986,10 +9986,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // comment on muni_tryRestoreSession() for why this is needed.
   async function jcfd_tryRestoreSession(profile){
     try{
-      const branchId = profile.jcf_branch_id;
-      if(branchId == null) return false;
+      // Coerced to a real number: jcfd_enterShellAsUser() passes this
+      // straight into jcfd_branchById(), which does a strict === against
+      // agency records' numeric id field — a string here would silently
+      // leave jcfdCurrentBranch unset even after everything else matched.
+      const branchId = Number(profile.jcf_branch_id);
+      if(profile.jcf_branch_id == null || Number.isNaN(branchId)) return false;
       jcfdStaffUsers = await window.atdLoadJcfdUsers();
-      const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
+      // Same string-vs-number mismatch fixed in muni_tryRestoreSession above
+      // — profiles.jcf_branch_id comes back as a string, jcfdStaffUsers'
+      // agencyId is a number.
+      const user = jcfdStaffUsers.find(u => String(u.agencyId) === String(branchId) && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
       if(!user || user.status !== 'Active') return false;
       showHub('jcfd');
       await jcfd_enterShellAsUser(user, branchId);
@@ -15780,7 +15787,11 @@ async function muni_tryRestoreSession(profile){
     const muniId = profile.agency_id;
     if(muniId == null) return false;
     municipalUsers = await window.atdLoadMuniUsers();
-    const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
+    // Loose/string comparison: profiles.agency_id comes back from Supabase
+    // as a string ("7"), while municipalUsers' own muniId field is a
+    // number (7) — a strict === here always failed silently, which is
+    // exactly why this restore never actually fired when first tested live.
+    const user = municipalUsers.find(u => String(u.muniId) === String(muniId) && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
     if(!user || user.status !== 'Active') return false;
     showHub('muni');
     muni_enterShellAsUser(user);
