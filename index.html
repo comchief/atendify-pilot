@@ -21175,9 +21175,19 @@ async function saveAgency(){
       admin_showToast('Please assign a Municipal Corporation number of 1 or higher.');
       return;
     }
-    const duplicate = agencies.find(a => a.type === 'Municipal Corporation' && a.muniNumber === muniNumber && a.id !== editingAgencyId);
+    // String() on both sides deliberately, not a bare ===: muniNumber a record
+    // was actually saved with can silently be a string ("7") depending on how
+    // it got into `agencies` (this exact string-vs-number mismatch is the
+    // reason a real St. James Municipal Corporation was once able to reuse
+    // the same muniNumber as a fictional demo record already sitting in this
+    // list — a strict === comparison let the collision straight through).
+    // This check also intentionally does NOT exclude Suspended/retired
+    // agencies: a muniNumber is stamped into every permit/application number
+    // that agency ever issued, so it must never be recycled, even after the
+    // agency itself is gone.
+    const duplicate = agencies.find(a => a.type === 'Municipal Corporation' && String(a.muniNumber) === String(muniNumber) && a.id !== editingAgencyId);
     if(duplicate){
-      admin_showToast(`Municipal Corporation number ${muniNumber} is already assigned to ${duplicate.name}. Please choose a different number.`);
+      admin_showToast(`Municipal Corporation number ${muniNumber} is already assigned to ${duplicate.name} (${duplicate.status}). Please choose a different number.`);
       return;
     }
   } else {
