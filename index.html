@@ -9998,6 +9998,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // agencyId is a number.
       const user = jcfdStaffUsers.find(u => String(u.agencyId) === String(branchId) && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
       if(!user || user.status !== 'Active') return false;
+      // jcfd_enterShellAsUser() resolves the division name via
+      // jcfd_agencies(), which reads the Admin scope's `agencies` array —
+      // loaded by its own async bootstrap that isn't guaranteed to have
+      // finished this early in a fresh page load. Wait for it explicitly so
+      // the restored sidebar shows the real division name, not "—".
+      if(window.adminRegistryReady) await window.adminRegistryReady;
+      await jcfd_initRegistryData();
       showHub('jcfd');
       await jcfd_enterShellAsUser(user, branchId);
       return true;
@@ -15793,6 +15800,11 @@ async function muni_tryRestoreSession(profile){
     // exactly why this restore never actually fired when first tested live.
     const user = municipalUsers.find(u => String(u.muniId) === String(muniId) && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
     if(!user || user.status !== 'Active') return false;
+    // muni_initRegistryData() is fired-and-forgotten at page load (never
+    // awaited), so MUNICIPALITIES can still be empty this early — awaiting
+    // it again here (safe/idempotent) guarantees the sidebar's municipality
+    // name resolves correctly instead of showing "Unassigned".
+    await muni_initRegistryData();
     showHub('muni');
     muni_enterShellAsUser(user);
     return true;
@@ -20361,6 +20373,10 @@ let adminRegistryReady = (async function admin_initRegistryData(){
     admin_renderAll();
   }
 })();
+// Exposed so jcfd_tryRestoreSession (a different script scope) can await
+// this same registry load — jcfd_agencies() reads the `agencies` array
+// this populates, needed to resolve a restored session's division name.
+window.adminRegistryReady = adminRegistryReady;
 
 // Re-fetches applications/muniUsers/agencies right before an admin reaches
 // the login form, the same "refresh on entry" pattern used by
@@ -20468,6 +20484,11 @@ async function admin_tryRestoreSession(profile){
   try{
     if(profile.role !== 'admin') return false;
     adminActorEmail = profile.email || adminActorEmail;
+    // Same reasoning as muni/jcfd's restore functions: wait for the
+    // fire-and-forget registry bootstrap so admin_renderAll() (called by
+    // admin_showAppShell()) has real agencies/users/applications data to
+    // render instead of running against empty arrays.
+    await adminRegistryReady;
     showHub('admin');
     admin_showAppShell();
     return true;
