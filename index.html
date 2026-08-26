@@ -4144,6 +4144,10 @@
     return record;
   };
 
+  window.atdDeleteJcfdUser = async function(agencyId, id){
+    await window.storage.delete('jcfdUser:' + agencyId + ':' + id);
+  };
+
   // Creates a real, working Police Chief record for a newly-provisioned JCF
   // division agency, mirroring atdProvisionMuniCeo above. JCF logins have
   // never used a per-officer password field (see JCFD_DEMO_PASSWORD, a
@@ -11032,7 +11036,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <td>${acctEscapeHtml(u.role)}</td>
       <td>${acctEscapeHtml(u.email)}</td>
       <td class="row-actions">
-        ${u.role !== JCFD_ROLE_CHIEF ? `<button class="btn btn-sm" onclick="jcfd_toggleUserStatus(${u.id})">${u.status==='Active'?'Suspend':'Reactivate'}</button>` : ''}
+        ${u.role !== JCFD_ROLE_CHIEF ? `<button class="btn btn-sm" onclick="jcfd_toggleUserStatus(${u.id})">${u.status==='Active'?'Suspend':'Reactivate'}</button> <button class="btn btn-sm" onclick="jcfd_deleteUser(${u.id})" ${u.id === (jcfdCurrentUser && jcfdCurrentUser.id) ? 'disabled' : ''}>Delete</button>` : ''}
       </td>
     </tr>`).join('');
   }
@@ -11046,6 +11050,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_renderUsers();
   }
   window.jcfd_toggleUserStatus = jcfd_toggleUserStatus;
+
+  // Mirrors the Municipal officer portal's own deleteUser() (same self-
+  // delete guard, confirm dialog, and audit-log shape) — added alongside
+  // Fix #21's staff_invites repair, since a Police Chief could previously
+  // only suspend a division staffer, never actually remove the account.
+  async function jcfd_deleteUser(id){
+    if(jcfdCurrentUser && id === jcfdCurrentUser.id){
+      jcfd_showToast("You can't delete your own account.");
+      return;
+    }
+    const u = jcfdStaffUsers.find(x => x.id === id);
+    if(!u) return;
+    if(!(await window.atdConfirm(`Remove ${u.name}?`))) return;
+    jcfdStaffUsers = jcfdStaffUsers.filter(x => x.id !== id);
+    await window.atdDeleteJcfdUser(u.agencyId, id);
+    if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser ? jcfdCurrentUser.email : '', actorRole: jcfdCurrentUser ? jcfdCurrentUser.role : '', action: 'user.delete', details: `Deleted staff account ${u.name} (${u.email}).`, muniId: u.agencyId });
+    jcfd_showToast('Staff account removed.');
+    jcfd_renderUsers();
+  }
+  window.jcfd_deleteUser = jcfd_deleteUser;
 
   function jcfd_openUserModal(){
     document.getElementById('jcfd_userName').value = '';
