@@ -15695,16 +15695,14 @@ async function submitApplicationFeeBankTransfer(){
   renderMmPaymentStage();
 }
 
-async function payApplicationFeeByCard(){
-  currentAppRecord.applicationFeePaid = true;
-  currentAppRecord.applicationFeePayment = {
-    method: 'Credit/Debit Card', referenceNumber: 'CARD-' + Date.now().toString().slice(-8), fileName: '',
-    uploadedDate: new Date().toISOString().slice(0,10)
-  };
-  await mmPersist();
-  poa_showToast('Application Fee paid by card.');
-  renderMmPaymentStage();
-}
+// Card payment was removed from the Application Fee step's own Payment
+// Method dropdown (it now only offers Bank Transfer / Credit Wallet, see
+// renderMmPaymentStage above) — there is no live payment gateway behind a
+// card option, and offering one that only ever simulates success risks a
+// real pilot applicant believing money actually moved. payApplicationFeeByCard
+// used to be that option's handler; removed rather than left as dead code
+// nothing calls, so there's no path back to a fake "Pay Now" left lying
+// around for a future change to accidentally wire back up.
 
 // ---- Stage 2: License Fee ----
 function onLfMethodChange(){
@@ -16448,7 +16446,6 @@ window.openDirectorModal = openDirectorModal;
 window.openJcfForm = openJcfForm;
 window.openParkingModal = openParkingModal;
 window.openSecurityModal = openSecurityModal;
-window.payApplicationFeeByCard = payApplicationFeeByCard;
 window.poa_goReview = poa_goReview;
 window.poa_goStep = poa_goStep;
 window.poa_recalcAge = poa_recalcAge;
