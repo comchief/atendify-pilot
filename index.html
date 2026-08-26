@@ -3121,7 +3121,19 @@
         // update-in-place semantics — so this only switches to a plain
         // insert when the prefix is one of these write-once-anon prefixes
         // AND nobody is actually signed in.
-        var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles):/.test(key);
+        // 'notification' belongs in this same list for the anon case only:
+        // atdNotify()'s write to notify municipal staff of a new guest
+        // submission (see the anon "application-submitted notifications"
+        // policy Fix #18 added) hit this identical bug — swallowed silently
+        // by atdNotify()'s own try/catch, so it never blocked the actual
+        // submission, but it meant staff got no bell alert for any guest
+        // application. Each notification key is a fresh Date.now()+random
+        // id, so it's write-once from an anonymous caller too; the ONLY
+        // place a 'notification:' key is ever re-saved is "mark as read"
+        // (see the readBy handling below), which only ever runs under a
+        // signed-in staff session — so gating on "no active session" (same
+        // as the other prefixes here) keeps that update path on upsert.
+        var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles|notification):/.test(key);
         var useInsertOnly = isAuditLog;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
