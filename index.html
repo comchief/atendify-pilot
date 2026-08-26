@@ -3759,7 +3759,16 @@
     jcfDeclarationText: "I hereby declare that the information provided in this Noise Abatement Permit application is true, complete, and accurate to the best of my knowledge, and that I have read and understood the Acts listed above.",
     paymentAdviceNoticeText: "Present this payment advice to the cashier when making payment for your places of amusement application license. Ensure to update your online application with the invoice/receipt number to complete submission of your application.",
     noticeOfApplicationIntroText: "Please take notice that the individual/company listed below has applied for an Amusement License under the Places of Amusement Regulation 1999 and is required to provide to the Corporation the following attendant approvals/permits:",
-    noticeOfApplicationClosingText: "Please accept this notice as proof of application and extend the necessary courtesies to the applicant to complete the application process."
+    noticeOfApplicationClosingText: "Please accept this notice as proof of application and extend the necessary courtesies to the applicant to complete the application process.",
+    // Links to the three JCF eBriefing videos an applicant must watch
+    // during the Noise Abatement wizard — hosted externally (YouTube,
+    // Vimeo, or any direct video URL), not uploaded to this app. Empty by
+    // default: an install that's never configured these shows "no video
+    // configured yet" in their place (see jcf_buildVideoEmbedHtml) while
+    // the existing watched-confirmation checkbox still gates progress.
+    jcfBriefingVideoNoiseUrl: "",
+    jcfBriefingVideoLoudspeakersUrl: "",
+    jcfBriefingVideoChargesUrl: ""
   };
   window.atdLoadFormTemplates = async function(){
     const templates = Object.assign({}, window.ATD_DEFAULT_FORM_TEMPLATES);
@@ -5815,7 +5824,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <!-- ===== PERMIT SIGNATURES PAGE ===== -->
     <div class="page hidden" id="page-signatures">
       <div style="margin-bottom:20px;">
-        <p style="font-size:13.5px; color:var(--text-muted); margin:0;">Manage the official signatures printed on issued permits.</p>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:0;">Manage the official logo and signature printed on issued permits and notices.</p>
+      </div>
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-head">
+          <div>
+            <h2 style="font-size:18px;">Municipal Corporation Logo</h2>
+            <div class="cell-sub" style="margin-top:2px;">Municipal Permit PDF &amp; Notice of Application</div>
+          </div>
+          <span id="logoStatusBadge" class="badge badge-gray" style="padding:8px 16px; font-size:12.5px;">Not Set</span>
+        </div>
+
+        <hr class="section-divider">
+
+        <p style="font-size:13.5px; color:var(--text-muted); margin:0 0 18px;">Shown alongside the Atendify mark on Amusement License permits and Notices of Application. A placeholder box is shown in its place until a logo is uploaded here.</p>
+
+        <div class="signature-box" id="logoBox">
+          <div class="signature-placeholder" id="logoPlaceholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="30" height="30"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+            <div>No logo uploaded yet</div>
+          </div>
+          <img id="logoPreviewImg" class="hidden" alt="Municipal Corporation logo">
+        </div>
+
+        <div class="btn-row" style="justify-content:flex-start; margin-top:18px;">
+          <button class="btn btn-primary" onclick="document.getElementById('logoFileInput').click()">+ Add Logo</button>
+          <button class="btn btn-outline-danger hidden" id="removeLogoBtn" onclick="removeLogo()">Remove logo</button>
+          <input type="file" id="logoFileInput" accept="image/*" style="display:none;" onchange="uploadLogo(this)">
+        </div>
       </div>
       <div class="panel">
         <div class="panel-head">
@@ -7195,6 +7231,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <button class="btn" onclick="resetFormTemplatesToDefault('jcf')">Reset declaration to default text</button>
           </div>
 
+          <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">JCF Coat of Arms</h3>
+          <div class="field-hint" style="margin:0 0 12px;">The official JCF crest shown on every Noise Abatement Permit, platform-wide (the same crest for every division). Falls back to a generic shield icon until one is uploaded here.</div>
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:20px; display:flex; align-items:center; gap:16px;">
+            <div id="jcfCrestPreviewBox" style="height:56px; width:56px; border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+              <span id="jcfCrestPlaceholderText" style="font-size:9px; font-weight:600; color:#666; text-align:center; line-height:1.15;">No crest uploaded</span>
+              <img id="jcfCrestPreviewImg" class="hidden" alt="JCF coat of arms" style="max-height:100%; max-width:100%; object-fit:contain;">
+            </div>
+            <div class="btn-row" style="justify-content:flex-start;">
+              <button class="btn btn-sm btn-primary" onclick="document.getElementById('jcfCrestFileInput').click()">+ Add Crest</button>
+              <button class="btn btn-sm btn-outline-danger hidden" id="removeJcfCrestBtn" onclick="admin_removeJcfCrest()">Remove crest</button>
+              <input type="file" id="jcfCrestFileInput" accept="image/*" style="display:none;" onchange="admin_uploadJcfCrest(this)">
+            </div>
+          </div>
+
+          <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Briefing Videos</h3>
+          <div class="field-hint" style="margin:0 0 12px;">Links to the three eBriefing videos applicants must watch during the Noise Abatement wizard — hosted on YouTube, Vimeo, or any direct video URL rather than uploaded to this app, to keep hosting fast and inexpensive. Leave a field blank to show "no video configured yet" in its place; applicants still confirm they've watched it via the checkbox on that step either way.</div>
+          <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:20px;">
+            <div class="field-hint" style="margin:0 0 4px;">Noise Abatement Act Briefing</div>
+            <input type="text" id="admin_formTpl_jcfVideoNoise" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <div class="field-hint" style="margin:0 0 4px;">Playing of Loud Speakers Briefing</div>
+            <input type="text" id="admin_formTpl_jcfVideoLoudspeakers" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <div class="field-hint" style="margin:0 0 4px;">Charges and Penalties Briefing</div>
+            <input type="text" id="admin_formTpl_jcfVideoCharges" placeholder="https://www.youtube.com/watch?v=...">
+          </div>
+
           <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Associated Documents</h3>
           <div class="field-hint" style="margin:0 0 16px;">Documents generated from a JCF application. Preview uses sample data — no real application is involved.</div>
 
@@ -7668,12 +7729,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <div class="video-embed-sub">Jamaica Constabulary Force</div>
             </div>
           </div>
-          <div class="video-embed-frame">
-            <div class="video-embed-play" onclick="markWatched('noise')">
-              <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-          </div>
-          <div class="video-embed-foot">Video managed by Atendify Admin — Assets &amp; Ads panel</div>
+          <div class="video-embed-frame" id="jcfVideoFrame_noise"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
         </div>
         <label class="watch-receipt">
           <input type="checkbox" id="watchNoise">
@@ -7975,12 +8032,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <div class="video-embed-sub">Jamaica Constabulary Force</div>
             </div>
           </div>
-          <div class="video-embed-frame">
-            <div class="video-embed-play" onclick="markWatched('loudspeakers')">
-              <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-          </div>
-          <div class="video-embed-foot">Video managed by Atendify Admin — Assets &amp; Ads panel</div>
+          <div class="video-embed-frame" id="jcfVideoFrame_loudspeakers"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
         </div>
         <label class="watch-receipt">
           <input type="checkbox" id="watchLoudspeakers">
@@ -8137,12 +8190,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <div class="video-embed-sub">Jamaica Constabulary Force</div>
             </div>
           </div>
-          <div class="video-embed-frame">
-            <div class="video-embed-play" onclick="markWatched('charges')">
-              <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-          </div>
-          <div class="video-embed-foot">Video managed by Atendify Admin — Assets &amp; Ads panel</div>
+          <div class="video-embed-frame" id="jcfVideoFrame_charges"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
         </div>
         <label class="watch-receipt">
           <input type="checkbox" id="watchCharges">
@@ -9933,6 +9982,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_attemptLogin = jcfd_attemptLogin;
 
+  // Session-restore counterpart to jcfd_attemptLogin() — see the identical
+  // comment on muni_tryRestoreSession() for why this is needed.
+  async function jcfd_tryRestoreSession(profile){
+    try{
+      const branchId = profile.jcf_branch_id;
+      if(branchId == null) return false;
+      jcfdStaffUsers = await window.atdLoadJcfdUsers();
+      const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
+      if(!user || user.status !== 'Active') return false;
+      showHub('jcfd');
+      await jcfd_enterShellAsUser(user, branchId);
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+  window.jcfd_tryRestoreSession = jcfd_tryRestoreSession;
+
   // First-time password creation for a division staffer the Chief has
   // already added (see jcfd_saveUser(), which writes a matching
   // staff_invites row so this signup is auto-assigned the right division).
@@ -10617,6 +10684,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         jcfdCachedSignature = (sigR && sigR.value) ? JSON.parse(sigR.value).fileData || null : null;
       }
     } catch(sigErr){ /* ignore — permit will print without a signature */ }
+    try{
+      if(window.storage){
+        const crestR = await window.storage.get('platform:jcfCrest', true);
+        jcfdCachedCrest = (crestR && crestR.value) ? JSON.parse(crestR.value).fileData || null : null;
+      }
+    } catch(crestErr){ /* ignore — permit will print with the generic crest icon */ }
 
     const branchOfficers = jcfdStaffUsers.filter(u => u.agencyId === jcfdCurrentBranch.id && u.role === JCFD_ROLE_OFFICER && u.status === 'Active');
     const canManage = jcfdCurrentUser.role === JCFD_ROLE_CHIEF || jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR;
@@ -10829,7 +10902,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const jcfdPrintArea = document.getElementById('jcfdPermitPrintArea');
     if(jcfdPrintArea){
       if(rec.permitGenerated && rec.permit){
-        jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature);
+        jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, undefined, jcfdCachedCrest);
         jcfd_renderPermitQr('jcfdPermitQrTarget', rec.permit.qrData);
       } else {
         jcfdPrintArea.innerHTML = '';
@@ -11628,6 +11701,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   // ==================== Permit Signature ====================
   let jcfdCachedSignature = null;
+  let jcfdCachedCrest = null;
 
   function jcfd_setSignatureUI(dataUrl){
     const placeholder = document.getElementById('jcfd_signaturePlaceholder');
@@ -11808,7 +11882,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // is, so Admin's document-preview feature (see admin_previewDocument) can
   // render into its own preview modal without an id collision against a
   // real jcfdPermitPrintArea render elsewhere in the same page.
-  function jcfd_buildPermitDocHtml(p, signatureDataUrl, qrTargetId){
+  function jcfd_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl){
     qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
     const eventClause = p.eventName
@@ -11820,7 +11894,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
-            ${JCFD_CREST_SVG}
+            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:40px; width:auto; object-fit:contain; display:block; margin:0 auto 3px;">` : JCFD_CREST_SVG}
             <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
@@ -14991,6 +15065,7 @@ async function printNoticeOfApplication(previewRecord){
   const patrons = isAnnual ? 'N/A' : (r.amusement.patrons || 'N/A');
   const docList = r.regulatoryDocList || [];
   const signature = await fetchMuniSignature(r.muniId);
+  const logo = await fetchMuniLogo(r.muniId);
   // Admin-editable (Admin > Platform > Application Forms) — see
   // window.atdLoadFormTemplates in the shared shim. Everything else on this
   // letter (tracking code, municipality, applicant/event/venue data,
@@ -15000,7 +15075,14 @@ async function printNoticeOfApplication(previewRecord){
 
   const html = `
     <div class="doc-sheet notice-letter">
+      <div style="text-align:right; color:#c0392b; font-weight:700; font-size:13px; margin-bottom:6px;">THIS IS NOT A PERMIT!</div>
       <div class="nl-tracking">Tracking Code: <strong>${poa_escapeHtml(r.trackingCode)}</strong></div>
+      <div style="display:flex; align-items:center; justify-content:center; gap:16px; margin:10px 0 14px;">
+        <img src="${ATENDIFY_LOGO_B64}" alt="Atendify logo" style="height:56px; width:auto; object-fit:contain;">
+        ${logo
+          ? `<img src="${logo}" alt="${poa_escapeHtml(r.municipalityName || 'Municipal Corporation')} logo" style="height:56px; width:auto; object-fit:contain;">`
+          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px;">LOGO OF MC</div>`}
+      </div>
       <div class="nl-muni">${poa_escapeHtml(r.municipalityName)}</div>
       <div class="nl-dept">Commercial Services Department</div>
 
@@ -15166,7 +15248,7 @@ function poa_formatLongDate(isoDate){
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId){
+function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   qrTargetId = qrTargetId || 'permitQrTarget';
   const eventClause = p.eventName
     ? ` with event name: <strong>${poa_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${poa_escapeHtml(poa_formatLongDate(p.eventDate))}</strong>`
@@ -15176,6 +15258,9 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId){
     <div class="permit-doc">
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
+        ${logoDataUrl
+          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo">`
+          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px;">LOGO OF MC</div>`}
         <div class="permit-doc-muniblock">
           <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
         </div>
@@ -15233,7 +15318,8 @@ async function renderMmPermit(){
   }
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
-  body.innerHTML = poa_buildPermitDocHtml(p, signature, 'mmPermitQrTarget') + `
+  const logo = await fetchMuniLogo(r.muniId);
+  body.innerHTML = poa_buildPermitDocHtml(p, signature, 'mmPermitQrTarget', logo) + `
     <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
       <button class="btn" onclick="printPermitFromMenu()">🖨 Print permit</button>
     </div>
@@ -15246,7 +15332,8 @@ async function printPermitFromMenu(){
   if(!r.permitGenerated || !r.permit) return;
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
-  document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget');
+  const logo = await fetchMuniLogo(r.muniId);
+  document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo);
   poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/officer/applications/${r.appNumber}`);
   document.body.classList.add('printing-doc');
   window.print();
@@ -15440,6 +15527,7 @@ let watchlist = [];
 
 let currentUser = null;
 let cachedSignature = null;
+let cachedLogo = null;
 let editingUserId = null;
 let editingVenueId = null;
 let editingAdId = null;
@@ -15567,6 +15655,7 @@ function muni_enterShellAsUser(user){
   muni_goPage('dashboard');
   loadSubmittedApplications();
   cacheSignature();
+  cacheLogo();
   loadVenues();
   loadAdItems();
   loadWatchlist();
@@ -15678,6 +15767,30 @@ async function muni_attemptLogin(){
 }
 window.muni_attemptLogin = muni_attemptLogin;
 
+// Session-restore counterpart to muni_attemptLogin(): a signed-in officer's
+// Supabase Auth session persists in the browser (supabase-js's own default
+// behavior) across a page reload, but nothing previously checked for it —
+// every reload silently dropped back to the public landing page and made
+// the officer log in again, even though the underlying session was still
+// valid. Called from the bootstrap at the end of <body> on every fresh
+// page load; a no-op (falls through to the normal landing page) unless a
+// real, still-valid staff session for THIS portal is found.
+async function muni_tryRestoreSession(profile){
+  try{
+    const muniId = profile.agency_id;
+    if(muniId == null) return false;
+    municipalUsers = await window.atdLoadMuniUsers();
+    const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === String(profile.email || '').toLowerCase());
+    if(!user || user.status !== 'Active') return false;
+    showHub('muni');
+    muni_enterShellAsUser(user);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+window.muni_tryRestoreSession = muni_tryRestoreSession;
+
 // First-time password creation for an officer the CEO has already added
 // (see saveUser() below, which writes a matching staff_invites row so this
 // signup is auto-assigned the right role/agency/permissions).
@@ -15770,7 +15883,7 @@ function muni_goPage(page, keepAppsActive){
   const titles = { dashboard: 'Dashboard', applications: 'Applications', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permit Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar' };
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
-  if(page === 'signatures') loadSignature();
+  if(page === 'signatures') { loadSignature(); loadLogo(); }
   if(page === 'venues') renderVenues();
   if(page === 'ads') renderAdItems();
   if(page === 'watchlist') renderWatchlist();
@@ -17861,6 +17974,105 @@ async function loadSignature(){
   } catch(err){
     cachedSignature = null;
     setSignatureUI(null);
+  }
+}
+
+// ==================== Municipal Corporation logo ====================
+// Mirrors the CEO Signature functions above exactly, keyed on
+// `municipality:<muniId>:logo` instead of `:signature` — used to fill the
+// logo slot next to the Atendify mark on the POA Permit and Notice of
+// Application (see poa_buildPermitDocHtml / printNoticeOfApplication),
+// which previously had no logo slot for the Municipal Corporation at all.
+function setLogoUI(dataUrl){
+  const placeholder = document.getElementById('logoPlaceholder');
+  const img = document.getElementById('logoPreviewImg');
+  const badge = document.getElementById('logoStatusBadge');
+  const removeBtn = document.getElementById('removeLogoBtn');
+  if(!placeholder || !img || !badge || !removeBtn) return;
+
+  if(dataUrl){
+    placeholder.classList.add('hidden');
+    img.src = dataUrl;
+    img.classList.remove('hidden');
+    badge.textContent = 'Set';
+    badge.className = 'badge badge-green';
+    badge.style.padding = '8px 16px';
+    badge.style.fontSize = '12.5px';
+    removeBtn.classList.remove('hidden');
+  } else {
+    placeholder.classList.remove('hidden');
+    img.classList.add('hidden');
+    img.src = '';
+    badge.textContent = 'Not Set';
+    badge.className = 'badge badge-gray';
+    badge.style.padding = '8px 16px';
+    badge.style.fontSize = '12.5px';
+    removeBtn.classList.add('hidden');
+  }
+}
+
+async function cacheLogo(){
+  if(!window.storage || !currentUser){ cachedLogo = null; return; }
+  try{
+    const result = await window.storage.get(`municipality:${currentUser.muniId}:logo`, true);
+    cachedLogo = (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    cachedLogo = null;
+  }
+}
+
+async function loadLogo(){
+  if(!window.storage || !currentUser){ setLogoUI(null); return; }
+  try{
+    const result = await window.storage.get(`municipality:${currentUser.muniId}:logo`, true);
+    cachedLogo = (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+    setLogoUI(cachedLogo);
+  } catch(err){
+    cachedLogo = null;
+    setLogoUI(null);
+  }
+}
+
+async function uploadLogo(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!window.storage || !currentUser){
+    muni_showToast('Logo storage is not available right now.');
+    return;
+  }
+  try{
+    const dataUrl = await readImageAsDataUrl(file);
+    await window.storage.set(`municipality:${currentUser.muniId}:logo`, JSON.stringify({ fileData: dataUrl }), true);
+    cachedLogo = dataUrl;
+    setLogoUI(dataUrl);
+    muni_showToast('Logo saved. It will now appear on issued permits and notices.');
+  } catch(err){
+    muni_showToast('That image is too large — please use a logo image under 500KB.');
+  } finally{
+    input.value = '';
+  }
+}
+window.uploadLogo = uploadLogo;
+
+async function removeLogo(){
+  if(!window.storage || !currentUser) return;
+  if(!(await window.atdConfirm('Remove the Municipal Corporation logo? Newly issued permits and notices will show a placeholder until a new one is uploaded.'))) return;
+  try{
+    await window.storage.delete(`municipality:${currentUser.muniId}:logo`, true);
+  } catch(err){ /* ignore */ }
+  cachedLogo = null;
+  setLogoUI(null);
+  muni_showToast('Logo removed.');
+}
+window.removeLogo = removeLogo;
+
+async function fetchMuniLogo(muniId){
+  if(!window.storage || !muniId) return null;
+  try{
+    const result = await window.storage.get(`municipality:${muniId}:logo`, true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
   }
 }
 
@@ -20239,6 +20451,21 @@ async function admin_attemptLogin(){
 }
 window.admin_attemptLogin = admin_attemptLogin;
 
+// Session-restore counterpart to admin_attemptLogin() — see the identical
+// comment on muni_tryRestoreSession() for why this is needed.
+async function admin_tryRestoreSession(profile){
+  try{
+    if(profile.role !== 'admin') return false;
+    adminActorEmail = profile.email || adminActorEmail;
+    showHub('admin');
+    admin_showAppShell();
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+window.admin_tryRestoreSession = admin_tryRestoreSession;
+
 // First-time setup of the real admin account: only meaningful once a
 // Supabase backend is configured (see backend/supabase_schema.sql, which
 // pre-seeds a staff_invites row for ADMIN_EMAIL so this signup is
@@ -21885,7 +22112,10 @@ const ATD_FORM_TEMPLATE_FIELD_IDS = {
   jcfDeclarationText: 'admin_formTpl_jcfDeclaration',
   paymentAdviceNoticeText: 'admin_formTpl_paymentAdviceNotice',
   noticeOfApplicationIntroText: 'admin_formTpl_noaIntro',
-  noticeOfApplicationClosingText: 'admin_formTpl_noaClosing'
+  noticeOfApplicationClosingText: 'admin_formTpl_noaClosing',
+  jcfBriefingVideoNoiseUrl: 'admin_formTpl_jcfVideoNoise',
+  jcfBriefingVideoLoudspeakersUrl: 'admin_formTpl_jcfVideoLoudspeakers',
+  jcfBriefingVideoChargesUrl: 'admin_formTpl_jcfVideoCharges'
 };
 
 async function renderFormTemplatesPage(){
@@ -21932,6 +22162,10 @@ async function saveJcfFormSettings(){
   const templates = await window.atdLoadFormTemplates();
   const jcfDeclEl = document.getElementById('admin_formTpl_jcfDeclaration');
   templates.jcfDeclarationText = (jcfDeclEl && jcfDeclEl.value.trim()) || window.ATD_DEFAULT_FORM_TEMPLATES.jcfDeclarationText;
+  const videoField = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  templates.jcfBriefingVideoNoiseUrl = videoField('admin_formTpl_jcfVideoNoise');
+  templates.jcfBriefingVideoLoudspeakersUrl = videoField('admin_formTpl_jcfVideoLoudspeakers');
+  templates.jcfBriefingVideoChargesUrl = videoField('admin_formTpl_jcfVideoCharges');
   await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
 
   const fieldCfg = await window.atdLoadFormFieldConfig();
@@ -21966,7 +22200,83 @@ function admin_showFormTab(which){
   const jcfBtn = document.getElementById('admin_formTab_btn_jcf');
   poaBtn.classList.toggle('btn-primary', which === 'poa');
   jcfBtn.classList.toggle('btn-primary', which === 'jcf');
+  if(which === 'jcf') admin_loadJcfCrest();
 }
+
+// ==================== JCF coat of arms (platform-wide) ====================
+// One crest image for the whole JCF, stored under a single platform-level
+// key (not per-division, unlike the CEO/branch signatures) — see
+// jcfd_buildPermitDocHtml's crestDataUrl param, which falls back to the
+// existing generic shield icon (JCFD_CREST_SVG) until this is set.
+function admin_setJcfCrestUI(dataUrl){
+  const img = document.getElementById('jcfCrestPreviewImg');
+  const placeholderText = document.getElementById('jcfCrestPlaceholderText');
+  const removeBtn = document.getElementById('removeJcfCrestBtn');
+  if(!img || !placeholderText || !removeBtn) return;
+  if(dataUrl){
+    img.src = dataUrl;
+    img.classList.remove('hidden');
+    placeholderText.classList.add('hidden');
+    removeBtn.classList.remove('hidden');
+  } else {
+    img.classList.add('hidden');
+    img.src = '';
+    placeholderText.classList.remove('hidden');
+    removeBtn.classList.add('hidden');
+  }
+}
+
+async function admin_loadJcfCrest(){
+  const dataUrl = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+  admin_setJcfCrestUI(dataUrl);
+}
+
+async function admin_uploadJcfCrest(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!window.storage){
+    admin_showToast('Storage is not available right now.');
+    return;
+  }
+  try{
+    const dataUrl = window.atdReadFileSmart
+      ? await window.atdReadFileSmart(file)
+      : await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+    await window.storage.set('platform:jcfCrest', JSON.stringify({ fileData: dataUrl }), true);
+    admin_setJcfCrestUI(dataUrl);
+    admin_showToast('JCF crest saved. It will now appear on issued Noise Abatement permits.');
+  } catch(e){
+    admin_showToast('That image is too large — please use a crest image under 500KB.');
+  } finally{
+    input.value = '';
+  }
+}
+window.admin_uploadJcfCrest = admin_uploadJcfCrest;
+
+async function admin_removeJcfCrest(){
+  if(!window.storage) return;
+  if(!(await window.atdConfirm('Remove the JCF crest? Newly issued Noise Abatement permits will show the generic shield icon until a new crest is uploaded.'))) return;
+  try{ await window.storage.delete('platform:jcfCrest', true); } catch(e){ /* ignore */ }
+  admin_setJcfCrestUI(null);
+  admin_showToast('JCF crest removed.');
+}
+window.admin_removeJcfCrest = admin_removeJcfCrest;
+
+async function fetchJcfCrest(){
+  if(!window.storage) return null;
+  try{
+    const result = await window.storage.get('platform:jcfCrest', true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
+  }
+}
+window.fetchJcfCrest = fetchJcfCrest;
 
 // ---------------- Application Forms: Required Fields ----------------
 // See window.atdLoadFormFieldConfig / window.ATD_DEFAULT_FORM_FIELD_CONFIG /
@@ -22095,7 +22405,8 @@ async function admin_previewDocument(kind){
   } else if(kind === 'jcfPermit'){
     titleEl.textContent = 'Noise Abatement Permit — preview';
     if(window.jcfd_buildPermitDocHtml){
-      html = window.jcfd_buildPermitDocHtml(ADMIN_SAMPLE_JCF_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID);
+      const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+      html = window.jcfd_buildPermitDocHtml(ADMIN_SAMPLE_JCF_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID, crest);
       qr = { render: window.jcfd_renderPermitQr, data: ADMIN_SAMPLE_JCF_PERMIT.qrData };
     }
   }
@@ -22555,6 +22866,7 @@ function startWizard(){
   document.getElementById('jcf_applicationFlow').classList.remove('hidden');
   document.getElementById('jcf_saveLaterWrap').classList.toggle('hidden', !(window.AccountBridge && window.AccountBridge.getCurrentUser()));
   prefillFromPoa();
+  jcf_loadBriefingVideos();
   jcf_goStep(1);
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -22911,10 +23223,44 @@ function renderSoundCards(){
 
 // ==================== eBriefing videos ====================
 function markWatched(key){
-  // In production this fires once the embedded video actually finishes playing.
-  // The video source itself is managed from the Atendify Admin dashboard's Assets & Ads panel.
   const idMap = { noise: 'watchNoise', loudspeakers: 'watchLoudspeakers', charges: 'watchCharges' };
   document.getElementById(idMap[key]).checked = true;
+}
+
+// Builds the actual embed for one briefing video, given the URL an Admin
+// configured in Application Forms > Noise Abatement (JCF) Form > Briefing
+// Videos. Recognizes YouTube/Vimeo links (rendered as their normal
+// embeddable player) and treats anything else as a direct video file URL;
+// an empty/unset URL renders an honest placeholder instead of a fake,
+// non-functional play button.
+function jcf_buildVideoEmbedHtml(url){
+  if(!url) return '<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; text-align:center; padding:0 20px; color:#b7bac2; font-size:12.5px;">No briefing video has been configured yet — check the box below to continue.</div>';
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/);
+  if(yt){
+    return `<iframe width="100%" height="100%" style="border:0; display:block;" src="https://www.youtube.com/embed/${yt[1]}" title="Briefing video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
+  }
+  const vimeo = url.match(/vimeo\.com\/(\d+)/);
+  if(vimeo){
+    return `<iframe width="100%" height="100%" style="border:0; display:block;" src="https://player.vimeo.com/video/${vimeo[1]}" title="Briefing video" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
+  }
+  return `<video controls style="width:100%; height:100%; display:block; background:#000;" src="${poa_escapeHtml(url)}"></video>`;
+}
+
+// Fetches the three configured links once and fills in each video-embed
+// frame — called from startWizard() below, right as the applicant enters
+// the wizard (all three steps' frames already exist in the DOM at that
+// point, just not yet visible).
+async function jcf_loadBriefingVideos(){
+  const templates = window.atdLoadFormTemplates ? await window.atdLoadFormTemplates() : window.ATD_DEFAULT_FORM_TEMPLATES;
+  const map = {
+    noise: templates.jcfBriefingVideoNoiseUrl,
+    loudspeakers: templates.jcfBriefingVideoLoudspeakersUrl,
+    charges: templates.jcfBriefingVideoChargesUrl
+  };
+  Object.keys(map).forEach(key => {
+    const frame = document.getElementById(`jcfVideoFrame_${key}`);
+    if(frame) frame.innerHTML = jcf_buildVideoEmbedHtml(map[key]);
+  });
 }
 
 // ==================== Photo ID upload ====================
@@ -23602,6 +23948,40 @@ window.updateWordCount = updateWordCount;
   });
 
 })();</script>
+
+<script>
+// ==================== Session restore on page load ====================
+// Every staff portal (Municipal Officer, JCF Division, Admin) signs in
+// through real Supabase Auth, whose own session token already persists in
+// the browser across a reload (supabase-js's default behavior) — but
+// nothing in this app ever checked for that persisted session on load, so
+// every refresh dropped straight back to the public landing page and made
+// staff log in again from scratch, even though their session was still
+// good. This runs once, immediately, on every fresh page load: if a valid
+// session belongs to a staff profile, it jumps straight into that portal's
+// shell instead of the public landing page. Any failure (no backend
+// configured, no session, no matching staff record, a suspended account)
+// simply falls through and leaves the normal public landing page showing,
+// exactly as before this existed.
+(async function atdBootstrapSessionRestore(){
+  try{
+    if(!(window.ATDBackend && window.ATDBackend.isConfigured())) return;
+    const profile = await window.ATDBackend.getProfile();
+    if(!profile) return;
+    if(profile.role === 'muni' && window.muni_tryRestoreSession){
+      if(await window.muni_tryRestoreSession(profile)) return;
+    } else if(profile.role === 'jcfd' && window.jcfd_tryRestoreSession){
+      if(await window.jcfd_tryRestoreSession(profile)) return;
+    } else if(profile.role === 'admin' && window.admin_tryRestoreSession){
+      if(await window.admin_tryRestoreSession(profile)) return;
+    }
+    // Any other role, or a restore that didn't find a matching/active staff
+    // record: leave the public landing page showing, same as always.
+  }catch(e){
+    if(window.atdShowDebugError) window.atdShowDebugError('atdBootstrapSessionRestore', e);
+  }
+})();
+</script>
 
 </body>
 </html>
