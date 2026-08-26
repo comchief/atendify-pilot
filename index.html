@@ -15079,7 +15079,7 @@ async function printNoticeOfApplication(previewRecord){
   const patrons = isAnnual ? 'N/A' : (r.amusement.patrons || 'N/A');
   const docList = r.regulatoryDocList || [];
   const signature = await fetchMuniSignature(r.muniId);
-  const logo = await fetchMuniLogo(r.muniId);
+  const logo = await window.fetchMuniLogo(r.muniId);
   // Admin-editable (Admin > Platform > Application Forms) — see
   // window.atdLoadFormTemplates in the shared shim. Everything else on this
   // letter (tracking code, municipality, applicant/event/venue data,
@@ -15332,7 +15332,7 @@ async function renderMmPermit(){
   }
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
-  const logo = await fetchMuniLogo(r.muniId);
+  const logo = await window.fetchMuniLogo(r.muniId);
   body.innerHTML = poa_buildPermitDocHtml(p, signature, 'mmPermitQrTarget', logo) + `
     <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
       <button class="btn" onclick="printPermitFromMenu()">🖨 Print permit</button>
@@ -15346,7 +15346,7 @@ async function printPermitFromMenu(){
   if(!r.permitGenerated || !r.permit) return;
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
-  const logo = await fetchMuniLogo(r.muniId);
+  const logo = await window.fetchMuniLogo(r.muniId);
   document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo);
   poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/officer/applications/${r.appNumber}`);
   document.body.classList.add('printing-doc');
@@ -18098,6 +18098,11 @@ async function fetchMuniLogo(muniId){
     return null;
   }
 }
+// Exposed so the notice/permit-printing functions (a separate <script> scope
+// — see printNoticeOfApplication/renderMmPermit/printPermitFromMenu) can
+// reach this. Those call it as window.fetchMuniLogo(...); a bare
+// fetchMuniLogo(...) there throws ReferenceError since it isn't in scope.
+window.fetchMuniLogo = fetchMuniLogo;
 
 function readImageAsDataUrl(file){
   // Delegates to the shared resizer (see the <body>-top shim) so a large
