@@ -3103,8 +3103,32 @@
         // insert — which needs only the INSERT policy, no conflict check at
         // all — is both correct and sidesteps this entirely.
         var isAuditLog = key.indexOf('auditLog:') === 0;
+        // Same class of bug as auditLog above, found live during the actual
+        // pilot smoke test: a genuinely anonymous applicant's very first
+        // "Submit application" (the anon INSERT policies Fix #18 added)
+        // still went through this same upsert() path, whose implicit "does
+        // this key already exist?" conflict probe needs a SELECT policy —
+        // one anonymous callers were deliberately never granted on
+        // application/jcf-filing rows (that would let any visitor read
+        // every applicant's records). So the probe itself failed RLS with
+        // the exact same "new row violates row-level security policy"
+        // 42501, on a row that didn't even exist yet, before ever reaching
+        // the INSERT policy that would have allowed it. These prefixes are
+        // only ever first-written by an anonymous caller at the moment of
+        // initial submission; every later change to the same key (status,
+        // payment, recommendation, permit) is made by an authenticated
+        // muni/jcfd/admin session and still needs upsert's real
+        // update-in-place semantics — so this only switches to a plain
+        // insert when the prefix is one of these write-once-anon prefixes
+        // AND nobody is actually signed in.
+        var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles):/.test(key);
+        var useInsertOnly = isAuditLog;
+        if (!useInsertOnly && isWriteOnceAnonPrefix) {
+          var sessionRes = await client.auth.getSession();
+          if (!sessionRes || !sessionRes.data || !sessionRes.data.session) useInsertOnly = true;
+        }
         var res = await atdWithClockSkewRetry(function () {
-          return isAuditLog
+          return useInsertOnly
             ? client.from(TABLE).insert({ key: key, value: offloaded })
             : client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
