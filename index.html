@@ -6491,23 +6491,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
-<!-- ===== Admin > Application Forms: document preview modal ===== -->
-<!-- See admin_previewDocument() in the Admin script — renders the exact
-     same document-building code applicants/officers see (printPaymentAdvice,
-     printNoticeOfApplication, poa_buildPermitDocHtml, jcfd_buildPermitDocHtml),
-     fed a hand-built sample record instead of a real application, so nothing
-     here is a real applicant's data. -->
-<div class="modal-overlay hidden" id="adminDocPreviewModal">
-  <div class="modal-box modal-wide">
-    <h3 id="adminDocPreviewTitle">Document preview</h3>
-    <p class="modal-sub">Rendered with sample data for preview purposes only — no real application is involved.</p>
-    <div class="doc-preview-box" id="adminDocPreviewBody"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeAdminDocPreviewModal()">Close</button>
-    </div>
-  </div>
-</div>
-
 <!-- ===== Add / Edit User Modal ===== -->
 <div class="modal-overlay hidden" id="userModal">
   <div class="modal-box">
@@ -6569,6 +6552,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 
 </div><div id="shell-admin" class="app-shell hidden">
+<!-- ===== Admin > Application Forms: document preview modal ===== -->
+<!-- See admin_previewDocument() in the Admin script — renders the exact
+     same document-building code applicants/officers see (printPaymentAdvice,
+     printNoticeOfApplication, poa_buildPermitDocHtml, jcfd_buildPermitDocHtml),
+     fed a hand-built sample record instead of a real application, so nothing
+     here is a real applicant's data. -->
+<div class="modal-overlay hidden" id="adminDocPreviewModal">
+  <div class="modal-box modal-wide">
+    <h3 id="adminDocPreviewTitle">Document preview</h3>
+    <p class="modal-sub">Rendered with sample data for preview purposes only — no real application is involved.</p>
+    <div class="doc-preview-box" id="adminDocPreviewBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAdminDocPreviewModal()">Close</button>
+    </div>
+  </div>
+</div>
 <div class="suite-back-bar">
   <button type="button" onclick="showHub('staff')">&larr; Back to Staff Portals</button>
   <span class="suite-back-label">Atendify Admin</span>
@@ -7624,10 +7623,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div id="unlinkedBanner" class="hidden info-banner warn" style="text-align:left; max-width:640px; margin:0 auto 26px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>This form is meant to be started from your Places of Amusement Application's Main Menu, under "Noise Abatement (JCF) Permit" — that carries your application number and details over automatically so you don't have to re-enter them. You can still continue manually below, but your application number won't be linked to a Places of Amusement application.</span>
+        <span>A Places of Amusement application is required before you can complete a JCF Noise Abatement Permit application. Please start (or continue) your Places of Amusement application first — once it reaches the "Noise Abatement (JCF) Permit" option on its Application Main Menu, your details will carry over automatically and you'll be able to complete this form.</span>
       </div>
 
-      <button class="btn btn-primary" onclick="startWizard()">Continue</button>
+      <button class="btn btn-primary hidden" id="jcf_continueBtn" onclick="startWizard()">Continue</button>
+      <button class="btn btn-primary hidden" id="jcf_startPoaBtn" onclick="showHub('poa')">Start a Places of Amusement Application</button>
     </div>
   </section>
 
@@ -10614,7 +10614,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     try{
       if(jcfdCurrentBranch && window.storage){
         const sigR = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:signature`, true);
-        jcfdCachedSignature = (sigR && sigR.value) || null;
+        jcfdCachedSignature = (sigR && sigR.value) ? JSON.parse(sigR.value).fileData || null : null;
       }
     } catch(sigErr){ /* ignore — permit will print without a signature */ }
 
@@ -11654,7 +11654,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!window.storage || !jcfdCurrentBranch){ jcfd_setSignatureUI(null); return; }
     try{
       const r = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:signature`, true);
-      jcfdCachedSignature = (r && r.value) || null;
+      jcfdCachedSignature = (r && r.value) ? JSON.parse(r.value).fileData || null : null;
       jcfd_setSignatureUI(jcfdCachedSignature);
     } catch(e){
       jcfdCachedSignature = null;
@@ -11684,7 +11684,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             reader.onerror = reject;
             reader.readAsDataURL(file);
           });
-      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:signature`, dataUrl, true);
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:signature`, JSON.stringify({ fileData: dataUrl }), true);
       jcfdCachedSignature = dataUrl;
       jcfd_setSignatureUI(dataUrl);
       jcfd_showToast('Signature saved. It will now appear on issued permits.');
@@ -14973,7 +14973,7 @@ async function fetchMuniSignature(muniId){
   if(!window.storage || !muniId) return null;
   try{
     const result = await window.storage.get(`municipality:${muniId}:signature`, true);
-    return (result && result.value) || null;
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
   } catch(err){
     return null;
   }
@@ -17846,7 +17846,7 @@ async function cacheSignature(){
   if(!window.storage || !currentUser){ cachedSignature = null; return; }
   try{
     const result = await window.storage.get(`municipality:${currentUser.muniId}:signature`, true);
-    cachedSignature = (result && result.value) || null;
+    cachedSignature = (result && result.value) ? JSON.parse(result.value).fileData || null : null;
   } catch(err){
     cachedSignature = null;
   }
@@ -17856,7 +17856,7 @@ async function loadSignature(){
   if(!window.storage || !currentUser){ setSignatureUI(null); return; }
   try{
     const result = await window.storage.get(`municipality:${currentUser.muniId}:signature`, true);
-    cachedSignature = (result && result.value) || null;
+    cachedSignature = (result && result.value) ? JSON.parse(result.value).fileData || null : null;
     setSignatureUI(cachedSignature);
   } catch(err){
     cachedSignature = null;
@@ -17894,7 +17894,7 @@ async function uploadSignature(input){
   }
   try{
     const dataUrl = await readImageAsDataUrl(file);
-    await window.storage.set(`municipality:${currentUser.muniId}:signature`, dataUrl, true);
+    await window.storage.set(`municipality:${currentUser.muniId}:signature`, JSON.stringify({ fileData: dataUrl }), true);
     cachedSignature = dataUrl;
     setSignatureUI(dataUrl);
     muni_showToast('Signature saved. It will now appear on issued permits and notices.');
@@ -22542,6 +22542,15 @@ window.jcf_resumeDraft = jcf_resumeDraft;
 window.jcf_saveForLater = jcf_saveForLater;
 
 function startWizard(){
+  // Backstop: a JCF Noise Abatement application can only be started from a
+  // linked Places of Amusement application. The Continue button is hidden
+  // whenever poaData is absent (see jcf_updateLandingBanner), but this guard
+  // keeps a stray call (e.g. a stale deep link) from getting into the wizard.
+  if(!poaData){
+    jcf_updateLandingBanner();
+    window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
   document.getElementById('jcf_infoPage').classList.add('hidden');
   document.getElementById('jcf_applicationFlow').classList.remove('hidden');
   document.getElementById('jcf_saveLaterWrap').classList.toggle('hidden', !(window.AccountBridge && window.AccountBridge.getCurrentUser()));
@@ -23376,13 +23385,23 @@ themeToggle.addEventListener('click', ()=>{
 function jcf_updateLandingBanner(){
   const linkedBanner = document.getElementById('linkedBanner');
   const unlinkedBanner = document.getElementById('unlinkedBanner');
+  const continueBtn = document.getElementById('jcf_continueBtn');
+  const startPoaBtn = document.getElementById('jcf_startPoaBtn');
   if(poaData){
     linkedBanner.classList.remove('hidden');
     unlinkedBanner.classList.add('hidden');
     document.getElementById('linkedBannerText').textContent = `We found your Places of Amusement application ${poaData.appNumber} — click Continue and we'll pre-fill what we already know.`;
+    if(continueBtn) continueBtn.classList.remove('hidden');
+    if(startPoaBtn) startPoaBtn.classList.add('hidden');
   } else {
     linkedBanner.classList.add('hidden');
     unlinkedBanner.classList.remove('hidden');
+    // No linked POA application: a JCF Noise Abatement application cannot
+    // be started standalone (see startWizard()'s guard below for the
+    // non-UI-reachable backstop) — hide Continue, offer the POA starting
+    // point instead.
+    if(continueBtn) continueBtn.classList.add('hidden');
+    if(startPoaBtn) startPoaBtn.classList.remove('hidden');
   }
 }
 jcf_updateLandingBanner();
