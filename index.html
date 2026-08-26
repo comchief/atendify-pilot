@@ -2765,6 +2765,16 @@
 </style>
 </head>
 <body>
+<script>
+  // ---- Public QR verify route (Fix: public QR permit-verification page) ----
+  // A permit's QR code encodes https://atendifyapp.com/verify/{appNumber}.
+  // This has to be decided before anything else on the page runs: a scanned
+  // visitor should see ONLY the verification result, never the normal
+  // landing page, a login form, or the (slow, admin-only) session-restore
+  // flow below. window.ATD_IS_VERIFY_ROUTE gates both of those.
+  window.ATD_VERIFY_MATCH = /^\/verify\/([^\/?#]+)/.exec(location.pathname);
+  window.ATD_IS_VERIFY_ROUTE = !!window.ATD_VERIFY_MATCH;
+</script>
 <!--
   ---- Session-restore loading overlay ----
   Covers the page the instant it paints, before any script has had a chance
@@ -2813,7 +2823,51 @@
     var el = document.getElementById('atdSessionRestoreOverlay');
     if(el) el.style.display = 'none';
   }, 15000);
+
+  // A /verify/ visitor never needs the session-restore flow (there's no
+  // session to restore anything into) — hide the overlay immediately rather
+  // than waiting on atdBootstrapSessionRestore, which doesn't run on this
+  // route at all (see its own guard further down).
+  if(window.ATD_IS_VERIFY_ROUTE){
+    var _atdVerifyOverlay = document.getElementById('atdSessionRestoreOverlay');
+    if(_atdVerifyOverlay) _atdVerifyOverlay.style.display = 'none';
+  }
 </script>
+
+<!--
+  ---- Public QR verify page ----
+  Rendered only when window.ATD_IS_VERIFY_ROUTE is true. The CSS rule below
+  hides every other top-level section of the app (landing page, modals,
+  portal shells — all added to <body> further down in this same document) —
+  a live selector, so it applies correctly regardless of parse order. The
+  actual lookup runs later, right after ATDBackend is defined (see
+  atdRenderVerifyPage near the bottom of the Phase 1 script block), since it
+  needs window.ATDBackend.verifyPermit.
+-->
+<div id="atdVerifyPage" style="display:none; max-width:480px; margin:0 auto; padding:48px 20px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="text-align:center; margin-bottom:28px;">
+    <div style="font-weight:700; font-size:20px; color:#1c1c1e;">Atendify Permit Check</div>
+  </div>
+  <div id="atdVerifyPageBody" style="border:1px solid #e2e2e6; border-radius:12px; padding:24px; background:#fff;">
+    <div style="color:#767680; font-size:14px;">Checking permit…</div>
+  </div>
+</div>
+<style>
+  html.atd-verify-mode body > *:not(#atdVerifyPage):not(#atdSessionRestoreOverlay){ display:none !important; }
+  html.atd-verify-mode body{ background:#f5f5f7; }
+  @media (prefers-color-scheme: dark) {
+    html.atd-verify-mode body{ background:#000; }
+    html.atd-verify-mode #atdVerifyPageBody{ background:#1c1c1e; border-color:#333; }
+    html.atd-verify-mode #atdVerifyPage > div > div{ color:#fff; }
+  }
+</style>
+<script>
+  if(window.ATD_IS_VERIFY_ROUTE){
+    document.documentElement.classList.add('atd-verify-mode');
+    document.getElementById('atdVerifyPage').style.display = 'block';
+  }
+</script>
+
 <!--
   ---- Phase 1 shared backend (Supabase) ----
   This app was originally built against window.storage backed by nothing but
@@ -3286,6 +3340,20 @@
       }, { onConflict: 'email' });
     },
 
+    // Public QR permit-verification lookup (Fix #21, backend/
+    // fix21_public_verify_function.sql) — a narrow SECURITY DEFINER function,
+    // not a table read, so it works with no session at all (anon) and can
+    // never return applicant PII/financial fields, only the pre-approved
+    // subset the function itself builds.
+    verifyPermit: async function (appNumber) {
+      if (!client) return { found: false };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_verify_permit', { p_app_number: appNumber });
+      });
+      if (res.error) { window.atdShowDebugError('verifyPermit(' + appNumber + ')', res.error); return { found: false }; }
+      return res.data || { found: false };
+    },
+
     // Login lockout, enforced server-side (see supabase_schema.sql's Family
     // 8 comment for why this moved off a client-read/writable kv_store
     // prefix): these three call SECURITY DEFINER Postgres functions that
@@ -3364,6 +3432,83 @@
   };
 
   window.ATDBackend = ATDBackend;
+})();
+</script>
+<script>
+(function(){
+  'use strict';
+  if(!window.ATD_IS_VERIFY_ROUTE) return;
+
+  function esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+  function statusBadge(status){
+    const s = String(status || '');
+    const isGood = s === 'Approved' || s === 'Active';
+    const isBad = s === 'Expired' || s === 'Withdrawn' || s === 'Rejected';
+    const color = isGood ? '#1a7f37' : isBad ? '#c0392b' : '#97631a';
+    const bg = isGood ? '#e6f4ea' : isBad ? '#fdecea' : '#fdf3e2';
+    const label = isGood ? 'Valid' : (s || 'Unknown');
+    return `<span style="display:inline-block; padding:3px 10px; border-radius:999px; font-size:12.5px; font-weight:600; color:${color}; background:${bg};">${esc(label)}</span>`;
+  }
+  function row(label, value){
+    if(value == null || value === '') return '';
+    return `<div style="display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid rgba(0,0,0,0.07); font-size:14px;">
+      <span style="color:#767680;">${esc(label)}</span>
+      <span style="font-weight:600; text-align:right;">${esc(value)}</span>
+    </div>`;
+  }
+
+  async function atdRenderVerifyPage(){
+    const bodyEl = document.getElementById('atdVerifyPageBody');
+    if(!bodyEl) return;
+    const appNumber = decodeURIComponent((window.ATD_VERIFY_MATCH && window.ATD_VERIFY_MATCH[1]) || '');
+    if(!appNumber){
+      bodyEl.innerHTML = `<div style="color:#c0392b; font-size:14px;">No permit number given.</div>`;
+      return;
+    }
+    let result;
+    try{
+      result = await window.ATDBackend.verifyPermit(appNumber);
+    }catch(e){
+      result = { found: false };
+    }
+    if(!result || !result.found){
+      bodyEl.innerHTML = `
+        <div style="text-align:center; padding:8px 0;">
+          <div style="font-size:34px; margin-bottom:8px;">⚠️</div>
+          <div style="font-weight:700; font-size:16px; margin-bottom:6px;">Not a valid permit</div>
+          <div style="color:#767680; font-size:13.5px;">No issued permit was found for <strong>${esc(appNumber)}</strong>. This may not be a genuine Atendify permit, or the permit may not have been issued yet.</div>
+        </div>`;
+      return;
+    }
+    const eventOrBusiness = result.businessOrEventName || 'N/A';
+    let html = `<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;">
+        <div style="font-weight:700; font-size:17px;">${esc(result.municipalityName || 'Municipal Corporation')}</div>
+        ${statusBadge(result.status)}
+      </div>`;
+    html += row('Permit / Application No.', result.appNumber);
+    html += row('License Type', result.isAnnual ? 'Annual License' : 'Special Event');
+    html += row(result.isAnnual ? 'Business' : 'Event', eventOrBusiness);
+    if(!result.isAnnual) html += row('Event Date', result.eventDate);
+    html += row('Validity', result.validity);
+    html += row('Venue', result.venueName);
+    html += row('Venue Address', result.venueAddress);
+    if(result.jcf && result.jcf.hasJcfPermit){
+      html += `<div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(0,0,0,0.07); font-size:13.5px; color:#767680;">
+        Also cleared for noise abatement by ${esc(result.jcf.divisionName || 'JCF')} ${statusBadge(result.jcf.status)}
+      </div>`;
+    }
+    bodyEl.innerHTML = html;
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', atdRenderVerifyPage);
+  } else {
+    atdRenderVerifyPage();
+  }
 })();
 </script>
 <script>
@@ -11912,7 +12057,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       eventDate: eo.dateOfEvent || '',
       divisionName: (jcfdCurrentBranch.parish || '') + ' Divisional Headquarters',
       parish: jcfdCurrentBranch.parish || '',
-      qrData: `${number} · ${eo.promoterName || ''}`
+      // Was plain text (`${number} · promoterName`) — not a link anywhere,
+      // so scanning it did nothing. Now points at the same public verify
+      // page the Municipal side uses, keyed off jcfdActiveAppKey (the exact
+      // storage key this record lives under — right regardless of whether
+      // that's the linked poaAppNumber or this filing's own jcfAppNumber).
+      qrData: `https://atendifyapp.com/verify/${(jcfdActiveAppKey || '').replace('jcfApplication:', '')}`
     };
 
     await jcfd_saveActiveApp(rec);
@@ -15395,7 +15545,7 @@ async function renderMmPermit(){
       <button class="btn" onclick="printPermitFromMenu()">🖨 Print permit</button>
     </div>
   `;
-  poa_renderPermitQr('mmPermitQrTarget', p.qrData || `https://atendifyapp.com/officer/applications/${r.appNumber}`);
+  poa_renderPermitQr('mmPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
 }
 
 async function printPermitFromMenu(){
@@ -15405,7 +15555,7 @@ async function printPermitFromMenu(){
   const signature = await fetchMuniSignature(r.muniId);
   const logo = await window.fetchMuniLogo(r.muniId);
   document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo);
-  poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/officer/applications/${r.appNumber}`);
+  poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
   document.body.classList.add('printing-doc');
   window.print();
   setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
@@ -19793,7 +19943,7 @@ function generatePermit(a){
     validity: isAnnual ? `1 April ${permitYear} – 31 March ${permitYear + 1}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
-    qrData: `https://atendifyapp.com/officer/applications/${a.appNumber}`
+    qrData: `https://atendifyapp.com/verify/${a.appNumber}`
   };
   a.permit = permit;
   a.permitGenerated = true;
@@ -24076,6 +24226,10 @@ window.updateWordCount = updateWordCount;
 // exactly as before this existed.
 (async function atdBootstrapSessionRestore(){
   try{
+    // A /verify/ visitor gets the QR-check page and nothing else — no
+    // session to restore, no need to load anything portal-related. The
+    // overlay is already force-hidden for this route (see top of <body>).
+    if(window.ATD_IS_VERIFY_ROUTE) return;
     if(!(window.ATDBackend && window.ATDBackend.isConfigured())) return;
     const profile = await window.ATDBackend.getProfile();
     if(!profile) return;

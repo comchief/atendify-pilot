@@ -1,0 +1,25 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+	log {
+		format json
+	}
+	servers {
+		trusted_proxies static private_ranges 100.0.0.0/8
+	}
+}
+
+:{$PORT:3000} {
+	log {
+		format json
+	}
+
+	root * .
+	encode gzip
+	file_server
+
+	# Any path that isn't a real file (e.g. /verify/POA-072026-03, /portal,
+	# /admin) falls back to index.html, which decides what to show client-side.
+	try_files {path} /index.html
+}
