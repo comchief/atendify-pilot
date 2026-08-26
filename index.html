@@ -2766,6 +2766,42 @@
 </head>
 <body>
 <!--
+  ---- Session-restore loading overlay ----
+  Covers the page the instant it paints, before any script has had a chance
+  to run. Municipal Officer and JCF Division session restores resolve fast
+  enough that this barely flashes, but Admin's restore additionally has to
+  load the whole national registry (every agency, user, and application)
+  before it can render, which can take several seconds — without this,
+  a returning Admin would see the public landing page for that whole
+  stretch and could easily read it as having been signed out, only to be
+  yanked into the dashboard moments later. atdBootstrapSessionRestore (see
+  the bottom of <body>) removes this in a `finally` block the instant it's
+  done, on every path: restored, not restored, or errored. The failsafe
+  timer just below is a backstop in case that script never runs at all
+  (a JS error earlier in the page) — it force-hides this after 15s so a
+  genuine failure can never strand a visitor looking at a permanent spinner.
+-->
+<div id="atdSessionRestoreOverlay" style="position:fixed; inset:0; z-index:99999; background:#fff; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px;">
+  <div style="width:36px; height:36px; border:3px solid #e2e2e6; border-top-color:#4f46e5; border-radius:50%; animation:atdRestoreSpin 0.8s linear infinite;"></div>
+  <div style="color:#767680; font-size:13.5px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">Loading Atendify…</div>
+</div>
+<style>
+  @keyframes atdRestoreSpin { to { transform: rotate(360deg); } }
+  @media (prefers-color-scheme: dark) {
+    #atdSessionRestoreOverlay { background:#1c1c1e; }
+  }
+</style>
+<noscript><style>#atdSessionRestoreOverlay{ display:none !important; }</style></noscript>
+<script>
+  // Failsafe: guarantees this overlay can never permanently strand a
+  // visitor, even if atdBootstrapSessionRestore's own script block never
+  // runs (e.g. an unrelated JS error earlier in the page aborts execution).
+  setTimeout(function(){
+    var el = document.getElementById('atdSessionRestoreOverlay');
+    if(el) el.style.display = 'none';
+  }, 15000);
+</script>
+<!--
   ---- Phase 1 shared backend (Supabase) ----
   This app was originally built against window.storage backed by nothing but
   browser localStorage, so nothing typed on one device was ever visible on
@@ -24016,6 +24052,12 @@ window.updateWordCount = updateWordCount;
     // record: leave the public landing page showing, same as always.
   }catch(e){
     if(window.atdShowDebugError) window.atdShowDebugError('atdBootstrapSessionRestore', e);
+  }finally{
+    // Runs on every path out of the try above (restored into a portal, fell
+    // through to the public landing page, or errored) — see the overlay's
+    // own comment at the top of <body> for why this exists.
+    const overlay = document.getElementById('atdSessionRestoreOverlay');
+    if(overlay) overlay.style.display = 'none';
   }
 })();
 </script>
