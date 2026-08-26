@@ -3283,6 +3283,34 @@
       });
       if (res.error) { window.atdShowDebugError('trackApplication(' + appNumber + ')', res.error); return null; }
       return res.data || null;
+    },
+    // generateAppNumber() (below submitApp()) used to work out the next
+    // sequence number by listing existing `application:` keys and counting
+    // how many matched the current municipality+year prefix — found live,
+    // during the pilot smoke test, to be fundamentally broken for anyone
+    // but muni/admin staff: window.storage.list() only ever returns keys the
+    // caller's own SELECT policy permits, and a guest applicant (or any
+    // signed-in 'poa' applicant, whose SELECT policy is scoped to their OWN
+    // applications only) can never see anyone else's `application:` rows —
+    // so that count was always 0, and every single non-staff applicant to a
+    // given municipality in a given year computed the exact same "first"
+    // sequence number. Previously this was invisible: ATDBackend.set()'s
+    // upsert() silently overwrote the earlier applicant's record under that
+    // same collided key. The insert-vs-upsert fix above turned that silent
+    // data loss into a loud, correct "duplicate key" error instead — which
+    // is how this got caught — but the real fix is to stop computing the
+    // sequence number from data the caller usually can't see at all. This
+    // reserves the next number atomically, server-side, via a SECURITY
+    // DEFINER function (atd_next_app_seq, see phase1b_migration.sql Fix
+    // #20) backed by its own counter table — regardless of caller identity
+    // or what rows they're allowed to SELECT.
+    nextAppSeq: async function (counterKey) {
+      if (!client) return 1;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_next_app_seq', { p_counter_key: counterKey });
+      });
+      if (res.error) { window.atdShowDebugError('nextAppSeq(' + counterKey + ')', res.error); throw res.error; }
+      return typeof res.data === 'number' ? res.data : 1;
     }
   };
 
@@ -13718,18 +13746,27 @@ async function generateAppNumber(){
   // Format: POA-<2-digit Municipal Number><4-digit year>-<2-digit sequence>
   // e.g. POA-042026-01 = Municipal #04, year 2026, 1st application submitted
   // to that municipality that year. Sequence resets every year per
-  // municipality since it's counted from keys sharing this exact prefix.
+  // municipality (the counter is keyed on this exact prefix — see
+  // atd_next_app_seq / Fix #20).
+  //
+  // This used to compute `seq` by listing existing `application:` keys and
+  // counting matches — broken for anyone but muni/admin staff, since
+  // window.storage.list() only ever returns what the caller's own SELECT
+  // policy allows, and a guest (or any 'poa' applicant, whose SELECT policy
+  // is scoped to their own applications only) can never see anyone else's
+  // rows. That silently collided every non-staff applicant onto the same
+  // "first" sequence number, previously masked by upsert() quietly
+  // overwriting the earlier record — see ATDBackend.nextAppSeq's comment for
+  // how this was actually found. The number is now reserved atomically,
+  // server-side, regardless of what the caller can see.
   const year = new Date().getFullYear();
   const muniIdPadded = selectedMunicipality ? String(selectedMunicipality.id).padStart(2, '0') : '00';
   const prefix = `POA-${muniIdPadded}${year}`;
 
   let seq = 1;
-  if(window.storage){
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
     try{
-      const listResult = await window.storage.list('application:', true);
-      const keys = (listResult && listResult.keys) || [];
-      const matching = keys.filter(k => k.startsWith(`application:${prefix}`));
-      seq = matching.length + 1;
+      seq = await window.ATDBackend.nextAppSeq(prefix);
     } catch(err){
       seq = 1;
     }
