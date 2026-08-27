@@ -5815,7 +5815,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <input type="password" id="muni_loginPassword" placeholder="••••••••">
       </div>
 
-      <button class="btn btn-primary btn-block" onclick="muni_attemptLogin()">Login</button>
+      <button class="btn btn-primary btn-block" id="muniLoginBtn" onclick="muni_attemptLogin()">Login</button>
 
       <div class="login-demo-hint" id="muni_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="muni_attemptSignup()">First time signing in? Create your password with this email (your CEO must have added your account first).</div>
     </div>
@@ -7085,7 +7085,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <span style="font-size:13.5px; color:var(--blue); font-weight:600; cursor:pointer;">Forgot password?</span>
       </div>
 
-      <button class="btn btn-primary btn-block" onclick="admin_attemptLogin()">Login</button>
+      <button class="btn btn-primary btn-block" id="adminLoginBtn" onclick="admin_attemptLogin()">Login</button>
 
       <div class="login-demo-hint" id="admin_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="admin_attemptSignup()">First time with a live backend connected? Create the admin account with this email/password.</div>
     </div>
@@ -8805,7 +8805,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="field-group"><label for="acct_loginEmail">Email</label><input type="email" id="acct_loginEmail"></div>
       <div class="field-group"><label for="acct_loginPassword">Password</label><input type="password" id="acct_loginPassword"></div>
       <div id="acct_loginError" class="info-banner warn hidden"></div>
-      <button class="btn btn-primary" style="width:100%;" onclick="acct_login()">Log In</button>
+      <button class="btn btn-primary" style="width:100%;" id="acctLoginBtn" onclick="acct_login()">Log In</button>
     </div>
 
     <div id="acct_paneSignup" class="acct-auth-pane">
@@ -8931,7 +8931,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="password" id="jcfd_loginPassword" placeholder="••••••••">
         </div>
 
-        <button class="btn btn-primary btn-block" onclick="jcfd_attemptLogin()">Login</button>
+        <button class="btn btn-primary btn-block" id="jcfdLoginBtn" onclick="jcfd_attemptLogin()">Login</button>
 
         <div class="login-demo-hint" id="jcfd_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="jcfd_attemptSignup()">First time signing in? Create your password with this email (your Chief must have added your account first).</div>
       </div>
@@ -9662,6 +9662,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const errorBox = document.getElementById('acct_loginError');
     errorBox.classList.add('hidden');
 
+    // Pulsing-logo loading state on the button itself, matching the same
+    // shared indicator used everywhere else in the app — this button
+    // previously gave no feedback at all while the sign-in request was in
+    // flight. Wrapped around the whole existing body (try/finally) rather
+    // than threading restore calls into every branch below, so every return
+    // path — success, each error, each fallback — restores it the same way.
+    const loginBtn = document.getElementById('acctLoginBtn');
+    const loginBtnOriginal = loginBtn ? loginBtn.innerHTML : '';
+    if(loginBtn){
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Logging in…', 16) : 'Logging in…';
+    }
+    try{
+
     if(!email || !password){
       errorBox.textContent = 'Please enter your email and password.';
       errorBox.classList.remove('hidden');
@@ -9704,6 +9718,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     } catch(e){
       errorBox.textContent = 'No account found with that email. Please sign up first.';
       errorBox.classList.remove('hidden');
+    }
+    }finally{
+      if(loginBtn){ loginBtn.disabled = false; loginBtn.innerHTML = loginBtnOriginal; }
     }
   }
   window.acct_login = acct_login;
@@ -10598,6 +10615,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const password = document.getElementById('jcfd_loginPassword').value;
     const errorBox = document.getElementById('jcfd_loginError');
 
+    // See acct_login's identical comment — this button previously gave no
+    // feedback at all while sign-in was in flight. Wrapping the whole
+    // existing body in try/finally restores it on every return path.
+    const jcfdLoginBtnEl = document.getElementById('jcfdLoginBtn');
+    const jcfdLoginBtnOriginal = jcfdLoginBtnEl ? jcfdLoginBtnEl.innerHTML : '';
+    if(jcfdLoginBtnEl){
+      jcfdLoginBtnEl.disabled = true;
+      jcfdLoginBtnEl.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Logging in…', 16) : 'Logging in…';
+    }
+    try{
+
     const gate = window.atdCheckLoginAllowed ? await window.atdCheckLoginAllowed('jcf', email) : { allowed: true };
     if(!gate.allowed){
       errorBox.textContent = gate.message;
@@ -10676,6 +10704,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid division, email, or password.' });
       errorBox.textContent = 'Invalid division, email, or password.';
       errorBox.classList.remove('hidden');
+    }
+    }finally{
+      if(jcfdLoginBtnEl){ jcfdLoginBtnEl.disabled = false; jcfdLoginBtnEl.innerHTML = jcfdLoginBtnOriginal; }
     }
   }
   window.jcfd_attemptLogin = jcfd_attemptLogin;
@@ -16749,6 +16780,17 @@ async function muni_attemptLogin(){
   const password = document.getElementById('muni_loginPassword').value;
   const errorBox = document.getElementById('muni_loginError');
 
+  // See acct_login's identical comment — this button previously gave no
+  // feedback at all while sign-in was in flight. Wrapping the whole
+  // existing body in try/finally restores it on every return path.
+  const muniLoginBtnEl = document.getElementById('muniLoginBtn');
+  const muniLoginBtnOriginal = muniLoginBtnEl ? muniLoginBtnEl.innerHTML : '';
+  if(muniLoginBtnEl){
+    muniLoginBtnEl.disabled = true;
+    muniLoginBtnEl.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Logging in…', 16) : 'Logging in…';
+  }
+  try{
+
   const gate = await window.atdCheckLoginAllowed('muni', email);
   if(!gate.allowed){
     errorBox.textContent = gate.message;
@@ -16845,6 +16887,9 @@ async function muni_attemptLogin(){
     await window.atdLogAudit({ portal: 'muni', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: 'Invalid municipality, email, or password.' });
     errorBox.textContent = 'Invalid municipality, email, or password.';
     errorBox.classList.remove('hidden');
+  }
+  }finally{
+    if(muniLoginBtnEl){ muniLoginBtnEl.disabled = false; muniLoginBtnEl.innerHTML = muniLoginBtnOriginal; }
   }
 }
 window.muni_attemptLogin = muni_attemptLogin;
@@ -21594,6 +21639,17 @@ async function admin_attemptLogin(){
   const password = document.getElementById('admin_loginPassword').value;
   const errorBox = document.getElementById('admin_loginError');
 
+  // See acct_login's identical comment — this button previously gave no
+  // feedback at all while sign-in was in flight. Wrapping the whole
+  // existing body in try/finally restores it on every return path.
+  const adminLoginBtnEl = document.getElementById('adminLoginBtn');
+  const adminLoginBtnOriginal = adminLoginBtnEl ? adminLoginBtnEl.innerHTML : '';
+  if(adminLoginBtnEl){
+    adminLoginBtnEl.disabled = true;
+    adminLoginBtnEl.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Logging in…', 16) : 'Logging in…';
+  }
+  try{
+
   const gate = await window.atdCheckLoginAllowed('admin', email);
   if(!gate.allowed){
     errorBox.textContent = gate.message;
@@ -21635,6 +21691,9 @@ async function admin_attemptLogin(){
     await window.atdLogAudit({ portal: 'admin', actor: email || '(blank)', actorRole: 'Super Administrator', action: 'login.failed', details: 'Invalid email or password.' });
     errorBox.textContent = 'Invalid email or password.';
     errorBox.classList.remove('hidden');
+  }
+  }finally{
+    if(adminLoginBtnEl){ adminLoginBtnEl.disabled = false; adminLoginBtnEl.innerHTML = adminLoginBtnOriginal; }
   }
 }
 window.admin_attemptLogin = admin_attemptLogin;
