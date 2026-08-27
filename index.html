@@ -7806,14 +7806,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
 
           <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Briefing Videos</h3>
-          <div class="field-hint" style="margin:0 0 12px;">Links to the three eBriefing videos applicants must watch during the Noise Abatement wizard — hosted on YouTube, Vimeo, or any direct video URL rather than uploaded to this app, to keep hosting fast and inexpensive. Leave a field blank to show "no video configured yet" in its place; applicants still confirm they've watched it via the checkbox on that step either way.</div>
+          <div class="field-hint" style="margin:0 0 12px;">Links to the three eBriefing videos applicants must watch during the Noise Abatement wizard — hosted on YouTube, Vimeo, or any direct video URL rather than uploaded to this app, to keep hosting fast and inexpensive. Leave a field blank to show "no video configured yet" in its place; applicants still confirm they've watched it via the checkbox on that step either way. Each link saves itself as soon as you click or tab away — no separate save step needed.</div>
           <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:20px;">
             <div class="field-hint" style="margin:0 0 4px;">Noise Abatement Act Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoNoise" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <input type="text" id="admin_formTpl_jcfVideoNoise" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;" onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoNoise', 'jcfBriefingVideoNoiseUrl')">
             <div class="field-hint" style="margin:0 0 4px;">Playing of Loud Speakers Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoLoudspeakers" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <input type="text" id="admin_formTpl_jcfVideoLoudspeakers" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;" onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoLoudspeakers', 'jcfBriefingVideoLoudspeakersUrl')">
             <div class="field-hint" style="margin:0 0 4px;">Charges and Penalties Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoCharges" placeholder="https://www.youtube.com/watch?v=...">
+            <input type="text" id="admin_formTpl_jcfVideoCharges" placeholder="https://www.youtube.com/watch?v=..." onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoCharges', 'jcfBriefingVideoChargesUrl')">
           </div>
 
           <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Associated Documents</h3>
@@ -11363,6 +11363,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }).join('');
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
+
+  // ---- 5-minute platform auto-refresh (JCF Division portal) ----
+  // Both of these already read live from storage on every call (no cached
+  // array to go stale), so a background refresh is just re-calling them
+  // periodically while someone is actually signed in and viewing this
+  // portal — the same "new applications show up without a manual reload"
+  // fix applied to the Municipal officer and National Admin portals.
+  setInterval(() => {
+    const shell = document.getElementById('shell-jcfd');
+    if(jcfdCurrentUser && shell && !shell.classList.contains('hidden')){
+      jcfd_renderDashboard();
+      jcfd_renderApplications();
+    }
+  }, 5 * 60 * 1000);
 
   async function jcfd_openApplication(key){
     jcfdActiveAppKey = key;
@@ -21356,11 +21370,15 @@ function printPermit(){
 }
 
 // ==================== Load submitted applications from shared storage ====================
-async function loadSubmittedApplications(){
+async function loadSubmittedApplications(silent){
   if(!window.storage){
     return;
   }
-  const btn = document.getElementById('refreshAppsBtn');
+  // silent=true is used by the 5-minute background auto-refresh below — it
+  // should quietly pick up new/changed applications without flickering the
+  // manual "↻ Refresh" button's label or popping a toast every 5 minutes
+  // regardless of whether anything actually changed.
+  const btn = silent ? null : document.getElementById('refreshAppsBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Refreshing…'; }
 
   try{
@@ -21432,15 +21450,30 @@ async function loadSubmittedApplications(){
     });
 
     muni_renderAll();
-    if(fetched.length){
+    if(fetched.length && !silent){
       muni_showToast(`Loaded ${fetched.length} submitted application(s) from the applicant form.`);
     }
   } catch(err){
-    muni_showToast('Could not load submitted applications right now.');
+    if(!silent) muni_showToast('Could not load submitted applications right now.');
   } finally{
     if(btn){ btn.disabled = false; btn.textContent = '↻ Refresh'; }
   }
 }
+
+// ---- 5-minute platform auto-refresh (Municipal officer portal) ----
+// New applications submitted by an applicant, or changes made by a
+// colleague, previously only showed up here after a manual "↻ Refresh"
+// click or a full page reload — an officer who leaves this dashboard open
+// could sit for hours without seeing a new submission. Silently re-pulls
+// the real records every 5 minutes while someone is actually signed in and
+// looking at this portal (checked fresh on every tick, not just once), so
+// the dashboard/application lists stay current on their own.
+setInterval(() => {
+  const shell = document.getElementById('shell-muni');
+  if(currentUser && shell && !shell.classList.contains('hidden')){
+    loadSubmittedApplications(true);
+  }
+}, 5 * 60 * 1000);
 
 // ==================== Notification bell ====================
 // Combines two kinds of alert into one feed behind the topbar bell:
@@ -22253,6 +22286,27 @@ function admin_renderAll(){
   renderFormTemplatesPage();
   renderRequiredFieldsPanel();
 }
+
+// ---- 5-minute platform auto-refresh (National Admin portal) ----
+// Applications submitted or changed elsewhere (by an applicant, a
+// Municipal officer, JCF, etc.) previously only reached this dashboard on
+// login or a manual page reload. This re-pulls the real application
+// records every 5 minutes and refreshes just the application-facing views
+// (National overview, Payment Verification panel, Applications table,
+// Recent applications) — deliberately NOT the full admin_renderAll(),
+// which also re-renders every settings/editor form on the other pages
+// (agency edits, fee adjustments, form template text, etc.) and would
+// silently overwrite anything an admin has mid-typed but not yet saved.
+async function admin_autoRefreshApplications(){
+  const shell = document.getElementById('admin_appShell');
+  if(!shell || shell.classList.contains('hidden')) return; // not logged in yet
+  await admin_loadApplications();
+  admin_renderNationalOverview();
+  admin_renderApplications();
+  admin_renderRecentApps();
+}
+setInterval(admin_autoRefreshApplications, 5 * 60 * 1000);
+window.admin_autoRefreshApplications = admin_autoRefreshApplications;
 
 function admin_todayIso(){ return new Date().toISOString().slice(0, 10); }
 
@@ -24151,6 +24205,30 @@ async function renderFormTemplatesPage(){
     if(el) el.value = templates[key];
   });
 }
+
+// The three Briefing Video link fields save themselves the moment you tab
+// or click away (onchange), instead of only being picked up by the "Save
+// Noise Abatement form settings" button several sections above them —
+// pasting a link there and refreshing the page used to lose it, because
+// that distant button was the only thing that ever wrote it to storage,
+// and it's easy to never notice it applies down here too. Mirrors the
+// JCF Coat of Arms upload right above it, which already saves itself the
+// same way on its own onchange.
+async function admin_saveJcfBriefingVideoField(fieldId, templateKey){
+  const el = document.getElementById(fieldId);
+  if(!el || !window.storage) return;
+  const value = el.value.trim();
+  try{
+    const templates = await window.atdLoadFormTemplates();
+    templates[templateKey] = value;
+    await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: `Updated JCF briefing video link (${templateKey}).` });
+    admin_showToast(value ? 'Briefing video link saved.' : 'Briefing video link cleared.');
+  }catch(e){
+    admin_showToast('Could not save the video link — please try again.');
+  }
+}
+window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
 
 // Saves everything in the POA tab in one shot: its declaration + the two
 // documents nested under it (Payment Advice notice, Notice of Application
