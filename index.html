@@ -3505,6 +3505,22 @@
       return res.data || { found: false };
     },
 
+    // Public venue picker lookup (Fix #25, backend/fix25_venue_public_read.sql)
+    // — same reasoning as verifyPermit above: a venue record carries the
+    // owner's name/address/phone alongside the applicant-facing fields, so
+    // this is a narrow SECURITY DEFINER function scoped to one municipality
+    // at a time (never the whole table) rather than a plain RLS policy that
+    // would let anyone bulk-list every venue owner's contact details
+    // nationwide. Used by loadMunicipalityVenues() in the public POA form.
+    publicVenues: async function (muniNumber) {
+      if (!client) return [];
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_public_venues', { p_muni_number: muniNumber });
+      });
+      if (res.error) { window.atdShowDebugError('publicVenues(' + muniNumber + ')', res.error); return []; }
+      return res.data || [];
+    },
+
     // Applicant wallet (Credit Notes) — RLS already scopes this to the
     // caller's own rows ("kv_store: poa reads own wallet transactions" in
     // fix22_wallet.sql), so this is a plain filtered read, one query instead
@@ -6996,6 +7012,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permPayment"> Verify / unverify payment received</label>
       <label class="checkbox-row"><input type="checkbox" id="permReview"> Review applications & recommend decision</label>
       <label class="checkbox-row"><input type="checkbox" id="permApprove"> Approve or reject applications</label>
+      <label class="checkbox-row"><input type="checkbox" id="permApproveCapped"> Approve or reject applications with 500 or fewer expected patrons</label>
       <label class="checkbox-row"><input type="checkbox" id="permManageUsers"> Create users & assign roles</label>
     </div>
 
@@ -11444,7 +11461,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     const branchOfficers = jcfdStaffUsers.filter(u => u.agencyId === jcfdCurrentBranch.id && u.role === JCFD_ROLE_OFFICER && u.status === 'Active');
     const canManage = jcfdCurrentUser.role === JCFD_ROLE_CHIEF || jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR;
-    const canDecide = jcfd_hasPerm('decide');
+    const canDecide = jcfd_canDecideApp(rec);
 
     // Same "official-card" style as the Municipal Officer's Official Use
     // column (Watchlist / Document Check / etc. cards) — <h4> title, bordered
@@ -11630,7 +11647,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="btn" onclick="jcfd_reject()" ${rec.status==='Rejected'?'disabled':''}>Reject</button>
         </div>
       </div>`;
-    } else if(jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR){
+    } else if(jcfd_hasPerm('decideCapped')){
+      html += `<div class="official-card"><h4>Final Decision</h4><p class="no-permission-note">Your approval permission is limited to applications with 500 or fewer expected patrons — this application's expected patron count is ${acctEscapeHtml(String(jcfd_expectedPatronsForApp(rec) ?? 'not on file'))}.</p></div>`;
+    } else if(jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR || jcfdCurrentUser.role === JCFD_ROLE_OFFICER){
       html += `<div class="official-card"><h4>Final Decision</h4><p class="no-permission-note">Only a Police Chief (or a role granted the "Approve / Reject &amp; Issue Permits" permission) can finalize this application.</p></div>`;
     }
 
@@ -11800,9 +11819,41 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_chiefRejectRecommendation = jcfd_chiefRejectRecommendation;
 
+  // Same raw field jcfd_confirmApprove()/jcfd_renderApplicationDetail() already
+  // read (eventOverview.patronsExpected, filled in on submission — see the JCF
+  // filing form) — reused here so decideCapped's ≤500 check reads the
+  // identical number shown anywhere else on the application, rather than a
+  // second, possibly-diverging computation. Returns null (not 0) when
+  // there's nothing usable to compare, so a missing/blank patron count never
+  // silently qualifies as "≤500." Mirrors muni_expectedPatronsForApp().
+  function jcfd_expectedPatronsForApp(rec){
+    const raw = rec && rec.eventOverview && rec.eventOverview.patronsExpected;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  // The single gate for "can this signed-in officer approve/reject THIS
+  // application" — full `decide` (unrestricted; the Chief always has it)
+  // always can; `decideCapped` only can when the application's own expected
+  // patron count is a real number and is 500 or fewer. Used both to show/hide
+  // the Final Decision buttons and, just as importantly, inside
+  // jcfd_confirmApprove()/jcfd_approve()/jcfd_reject() themselves — the
+  // buttons being hidden was never actual enforcement on its own, since
+  // nothing previously stopped a direct call. Mirrors muni_canDecideApp().
+  function jcfd_canDecideApp(rec){
+    if(jcfd_hasPerm('decide')) return true;
+    if(!jcfd_hasPerm('decideCapped')) return false;
+    const patrons = jcfd_expectedPatronsForApp(rec);
+    return patrons !== null && patrons <= 500;
+  }
+
   async function jcfd_approve(){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
+    if(!jcfd_canDecideApp(rec)){
+      jcfd_showToast("You don't have permission to approve or reject this application.");
+      return;
+    }
     rec.status = 'Approved';
     rec.decidedAt = new Date().toISOString();
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
@@ -11822,6 +11873,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   async function jcfd_reject(){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
+    if(!jcfd_canDecideApp(rec)){
+      jcfd_showToast("You don't have permission to approve or reject this application.");
+      return;
+    }
     rec.status = 'Rejected';
     rec.decidedAt = new Date().toISOString();
     rec.finalDecision = 'Rejected by ' + jcfdCurrentUser.name;
@@ -11946,14 +12001,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     { key: 'permits', label: 'View Issued Permits tab' },
     { key: 'signatures', label: 'Manage Permit Signature' },
     { key: 'decide', label: 'Approve / Reject & Issue Permits' },
+    // Distinct from 'decide' (unrestricted): lets the Chief delegate
+    // approve/reject to a Supervisor/Officer for only the smaller events —
+    // applications with 500 or fewer expected patrons (eventOverview.patronsExpected).
+    // Mirrors the Municipal side's 'approveCapped' permission — see
+    // jcfd_expectedPatronsForApp/jcfd_canDecideApp near jcfd_approve() below.
+    { key: 'decideCapped', label: 'Approve / Reject (≤500 patrons)' },
     { key: 'reports', label: 'View Reports tab' },
     { key: 'eventsCalendar', label: 'View shared Events Calendar' },
     { key: 'slaBreaches', label: 'View SLA Breaches tab' }
   ];
   const JCFD_ROLE_PERMISSION_DEFAULTS = {
-    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, reports: true, eventsCalendar: true, slaBreaches: true },
-    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, reports: true, eventsCalendar: true, slaBreaches: true },
-    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, reports: false, eventsCalendar: false, slaBreaches: false }
+    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, decideCapped: true, reports: true, eventsCalendar: true, slaBreaches: true },
+    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, decideCapped: false, reports: true, eventsCalendar: true, slaBreaches: true },
+    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, decideCapped: false, reports: false, eventsCalendar: false, slaBreaches: false }
   };
   let jcfdRolePermissions = JSON.parse(JSON.stringify(JCFD_ROLE_PERMISSION_DEFAULTS));
 
@@ -12856,12 +12917,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
 
   async function jcfd_openApproveModal(){
-    if(!jcfd_hasPerm('decide')){
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    if(!jcfd_canDecideApp(rec)){
       jcfd_showToast("You don't have permission to approve and issue permits.");
       return;
     }
-    const rec = await jcfd_getActiveApp();
-    if(!rec) return;
     const cl = rec.officialChecklist || {};
     const checklistComplete = !!(cl.promoterIdentityVerified && cl.eventVenueSatisfactory && cl.promoterBriefedNoiseAct && cl.venueUseLetterSubmitted);
     if(!checklistComplete){
@@ -12887,6 +12948,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
+    if(!jcfd_canDecideApp(rec)){
+      jcfd_showToast("You don't have permission to approve and issue permits.");
+      return;
+    }
     const eo = rec.eventOverview || {};
 
     rec.status = 'Approved';
@@ -14094,19 +14159,32 @@ async function loadMunicipalityVenues(){
   if(!window.storage || !selectedMunicipality) return;
 
   try{
-    const listResult = await window.storage.list('venue:', true);
-    const keys = (listResult && listResult.keys) || [];
-    // Same system-wide-fetch-then-filter pattern as loadMunicipalityAdItems()
-    // above — see that function's comment on why the fetches below run
-    // concurrently rather than one-at-a-time-with-a-pause.
-    const fetched = await Promise.all(keys.map(async key => {
-      try{
-        const result = await window.storage.get(key, true);
-        if(result && result.value) return JSON.parse(result.value);
-      } catch(err){ /* skip unreadable */ }
-      return null;
-    }));
-    fetched.forEach(v => { if(v && v.muniId === selectedMunicipality.id) dbVenues.push(v); });
+    // A venue record carries the owner's name/address/phone alongside the
+    // applicant-facing fields — unlike adItem (loadMunicipalityAdItems()
+    // above), a plain anon-readable RLS policy on the raw 'venue:' prefix
+    // would let anyone bulk-list every registered venue's owner contact
+    // details nationwide. So on the real backend this goes through
+    // publicVenues() (Fix #25, backend/fix25_venue_public_read.sql) — a
+    // SECURITY DEFINER function scoped to one municipality at a time —
+    // instead of the raw list()+get() pattern loadMunicipalityAdItems() uses.
+    // The local-storage-shim fallback (no backend configured — sandboxed
+    // preview only) has no RLS to work around, so it keeps the old
+    // system-wide-fetch-then-filter approach.
+    if(window.ATDBackend && window.ATDBackend.isConfigured()){
+      const rows = await window.ATDBackend.publicVenues(selectedMunicipality.id);
+      dbVenues = rows || [];
+    } else {
+      const listResult = await window.storage.list('venue:', true);
+      const keys = (listResult && listResult.keys) || [];
+      const fetched = await Promise.all(keys.map(async key => {
+        try{
+          const result = await window.storage.get(key, true);
+          if(result && result.value) return JSON.parse(result.value);
+        } catch(err){ /* skip unreadable */ }
+        return null;
+      }));
+      fetched.forEach(v => { if(v && v.muniId === selectedMunicipality.id) dbVenues.push(v); });
+    }
   } catch(err){ return; }
 
   dbVenues.forEach(v=>{
@@ -16536,10 +16614,17 @@ function muniNameById(id){
 
 const DEMO_PASSWORD = 'Password@123';
 
+// approveCapped is a new, narrower grant (see saveUser/openUserModal below):
+// approve or reject only an application whose expected patron count is
+// 500 or fewer (see muni_expectedPatronsForApp/muni_canDecideApp near
+// setFinalStatus). CEO already has unrestricted `approve` and doesn't need
+// this too; it defaults off for Accountant/Supervisor so a CEO opts a
+// specific staffer into it deliberately, per user, rather than it being on
+// by default for a role that previously had no approval authority at all.
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, manageUsers: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, manageUsers: false },
-  Supervisor: { view: true, payment: false, review: true, approve: false, manageUsers: false }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false }
 };
 
 let municipalUsers = [];
@@ -19406,7 +19491,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', manageUsers: 'Manage users' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -19446,6 +19531,7 @@ function applyRoleDefaults(){
   document.getElementById('permPayment').checked = defaults.payment;
   document.getElementById('permReview').checked = defaults.review;
   document.getElementById('permApprove').checked = defaults.approve;
+  document.getElementById('permApproveCapped').checked = !!defaults.approveCapped;
   document.getElementById('permManageUsers').checked = defaults.manageUsers;
 }
 
@@ -19475,6 +19561,7 @@ function openUserModal(id){
     document.getElementById('permPayment').checked = !!u.permissions.payment;
     document.getElementById('permReview').checked = !!u.permissions.review;
     document.getElementById('permApprove').checked = !!u.permissions.approve;
+    document.getElementById('permApproveCapped').checked = !!u.permissions.approveCapped;
     document.getElementById('permManageUsers').checked = !!u.permissions.manageUsers;
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
@@ -19506,6 +19593,7 @@ async function saveUser(){
     payment: document.getElementById('permPayment').checked,
     review: document.getElementById('permReview').checked,
     approve: document.getElementById('permApprove').checked,
+    approveCapped: document.getElementById('permApproveCapped').checked,
     manageUsers: document.getElementById('permManageUsers').checked
   };
 
@@ -20210,7 +20298,7 @@ async function renderAppDetail(){
 
   // ---- Final decision card ----
   cardsHtml += `<div class="official-card"><h4>Final Decision</h4>`;
-  if(hasPerm('approve')){
+  if(muni_canDecideApp(a)){
     if(a.status === 'Pending Approval'){
       const missingItems = [];
       if(!a.paymentVerified) missingItems.push('payment has not been verified');
@@ -20233,6 +20321,8 @@ async function renderAppDetail(){
     } else {
       cardsHtml += `<p class="recommendation-note">A final decision can be made once the application reaches Pending Approval.</p>`;
     }
+  } else if(hasPerm('approveCapped')){
+    cardsHtml += `<p class="no-permission-note">Your approval permission is limited to applications with 500 or fewer expected patrons — this application's expected patron count is ${muni_escapeHtml(String(muni_expectedPatronsForApp(a) ?? 'not on file'))}.</p>`;
   } else {
     cardsHtml += `<p class="no-permission-note">You don't have permission to approve or reject applications.</p>`;
   }
@@ -20857,8 +20947,42 @@ function generatePermit(a){
   return permit;
 }
 
+// Same isAnnual/venue.maxCap-vs-amusement.patrons logic generatePermit()
+// already uses to fill in a permit's own "expected patrons" field — reused
+// here so approveCapped's ≤500 check reads the identical number a CEO
+// would see anywhere else on the application, rather than a second,
+// possibly-diverging computation of the same thing. Returns null (not 0)
+// when there's nothing usable to compare, so a missing/blank patron count
+// never silently qualifies as "≤500."
+function muni_expectedPatronsForApp(a){
+  const r = a && a.raw;
+  const isAnnual = r && r.amusement && r.amusement.licenseType === 'Annual';
+  const raw = isAnnual ? (r && r.venue && r.venue.maxCap) : (r && r.amusement && r.amusement.patrons);
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// The single gate for "can this signed-in officer approve/reject THIS
+// application" — full `approve` (unrestricted, e.g. CEO) always can;
+// `approveCapped` only can when the application's own expected patron
+// count is a real number and is 500 or fewer. Used both to show/hide the
+// Final Decision buttons and, just as importantly, inside setFinalStatus()
+// itself — the buttons being hidden was never actual enforcement on its
+// own, since nothing previously stopped a direct call.
+function muni_canDecideApp(a){
+  if(hasPerm('approve')) return true;
+  if(!hasPerm('approveCapped')) return false;
+  const patrons = muni_expectedPatronsForApp(a);
+  return patrons !== null && patrons <= 500;
+}
+
 function setFinalStatus(status){
   const a = applications.find(a => a.id === activeAppId);
+
+  if(!muni_canDecideApp(a)){
+    muni_showToast("You don't have permission to approve or reject this application.");
+    return;
+  }
 
   if(status === 'Approved'){
     const missingItems = [];
