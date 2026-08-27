@@ -3050,38 +3050,69 @@
   }
 
   async function offloadLargeFields(key, obj) {
-    var fields = FILE_FIELDS_BY_PREFIX[prefixOf(key)];
-    if (!fields || !client) return obj;
     var out = Object.assign({}, obj);
-    for (var i = 0; i < fields.length; i++) {
-      var f = fields[i];
-      var val = out[f];
-      if (typeof val === 'string' && val.indexOf('data:') === 0 && val.length > OFFLOAD_THRESHOLD_BYTES) {
-        var path = await storagePath(key, f);
-        var blob = dataUrlToBlob(val);
-        var up = await client.storage.from(BUCKET).upload(path, blob, { upsert: true, contentType: blob.type });
-        if (!up.error) {
-          out[f] = { __storageRef: path, __mime: blob.type };
+    var fields = FILE_FIELDS_BY_PREFIX[prefixOf(key)];
+    if (fields && client) {
+      for (var i = 0; i < fields.length; i++) {
+        var f = fields[i];
+        var val = out[f];
+        if (typeof val === 'string' && val.indexOf('data:') === 0 && val.length > OFFLOAD_THRESHOLD_BYTES) {
+          var path = await storagePath(key, f);
+          var blob = dataUrlToBlob(val);
+          var up = await client.storage.from(BUCKET).upload(path, blob, { upsert: true, contentType: blob.type });
+          if (!up.error) {
+            out[f] = { __storageRef: path, __mime: blob.type };
+          }
         }
       }
+    }
+    // Regulatory documents (Fire/Health Certification, Police Approval,
+    // etc. — see mmDocFileChosen in atendify.html) embed their fileData
+    // directly under the 'application' row's own regulatoryDocuments.<name>
+    // field, rather than one of the flat FILE_FIELDS_BY_PREFIX keys above —
+    // a real scanned certificate can easily clear OFFLOAD_THRESHOLD_BYTES,
+    // so each one gets the same offload treatment, just keyed by document
+    // name instead of a fixed field name.
+    if (client && out.regulatoryDocuments && typeof out.regulatoryDocuments === 'object') {
+      var regOut = Object.assign({}, out.regulatoryDocuments);
+      var docNames = Object.keys(regOut);
+      for (var j = 0; j < docNames.length; j++) {
+        var docName = docNames[j];
+        var doc = regOut[docName];
+        if (doc && typeof doc.fileData === 'string' && doc.fileData.indexOf('data:') === 0 && doc.fileData.length > OFFLOAD_THRESHOLD_BYTES) {
+          var docField = 'regulatoryDocuments__' + docName.replace(/[^a-zA-Z0-9]+/g, '_');
+          var docPath = await storagePath(key, docField);
+          var docBlob = dataUrlToBlob(doc.fileData);
+          var docUp = await client.storage.from(BUCKET).upload(docPath, docBlob, { upsert: true, contentType: docBlob.type });
+          if (!docUp.error) {
+            regOut[docName] = Object.assign({}, doc, { fileData: { __storageRef: docPath, __mime: docBlob.type } });
+          }
+        }
+      }
+      out.regulatoryDocuments = regOut;
     }
     return out;
   }
 
+  // Recurses one extra level (rather than only checking top-level fields)
+  // so a nested offloaded field — regulatoryDocuments.<name>.fileData above
+  // — rehydrates correctly too, not just the flat FILE_FIELDS_BY_PREFIX
+  // fields. Safe for every existing record: this only ever replaces a value
+  // that actually carries the __storageRef marker offloadLargeFields wrote,
+  // so a record with no nested offloaded fields behaves exactly as before.
   async function rehydrateLargeFields(obj) {
     if (!obj || typeof obj !== 'object' || !client) return obj;
-    var out = Object.assign({}, obj);
+    if (obj.__storageRef) {
+      var selfDl = await client.storage.from(BUCKET).download(obj.__storageRef);
+      return selfDl.error ? null : await blobToDataUrl(selfDl.data);
+    }
+    var out = Array.isArray(obj) ? obj.slice() : Object.assign({}, obj);
     var keys = Object.keys(out);
     for (var i = 0; i < keys.length; i++) {
       var f = keys[i];
       var val = out[f];
-      if (val && typeof val === 'object' && val.__storageRef) {
-        var dl = await client.storage.from(BUCKET).download(val.__storageRef);
-        if (!dl.error) {
-          out[f] = await blobToDataUrl(dl.data);
-        } else {
-          out[f] = null;
-        }
+      if (val && typeof val === 'object') {
+        out[f] = await rehydrateLargeFields(val);
       }
     }
     return out;
@@ -3664,6 +3695,38 @@
       });
       if (res.error) { window.atdShowDebugError('trackApplication(' + appNumber + ')', res.error); return null; }
       return res.data || null;
+    },
+    // The write-side counterpart to trackApplication() above (Fix #26): a
+    // guest applicant's very first save of their new application succeeds
+    // (a plain INSERT, see isWriteOnceAnonPrefix in set() below), but every
+    // later save from the same guest — uploading a regulatory document,
+    // paying the application fee — re-saves that SAME key, which needs real
+    // update-in-place semantics no anonymous RLS policy can safely grant
+    // (RLS can't check "did the caller also supply the matching tracking
+    // code" — that's a request argument, not a column). This goes through
+    // the matching SECURITY DEFINER function instead
+    // (atd_save_tracked_application, see
+    // backend/fix26_tracked_application_self_service_writes.sql), which
+    // verifies the tracking code matches this row's own, server-side,
+    // before writing anything — safe for a genuinely anonymous caller, and
+    // works identically for a signed-in poa account (they always know their
+    // own record's tracking code too). mmPersist() in atendify.html is the
+    // caller.
+    saveTrackedApplication: async function (appNumber, trackingCode, valueObj) {
+      if (!client) return false;
+      try {
+        var offloaded = await offloadLargeFields('application:' + appNumber, valueObj);
+        var res = await atdWithClockSkewRetry(function () {
+          return client.rpc('atd_save_tracked_application', {
+            p_app_number: appNumber, p_tracking_code: trackingCode, p_value: offloaded
+          });
+        });
+        if (res.error) { window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', res.error); return false; }
+        return res.data === true;
+      } catch (e) {
+        window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', e);
+        return false;
+      }
     },
     // generateAppNumber() (below submitApp()) used to work out the next
     // sequence number by listing existing `application:` keys and counting
@@ -15559,9 +15622,28 @@ async function mmRefreshRecord(){
 }
 
 async function mmPersist(){
-  if(!window.storage || !currentAppKey || !currentAppRecord) return;
+  if(!currentAppKey || !currentAppRecord) return;
   try{
-    await window.storage.set(currentAppKey, JSON.stringify(currentAppRecord), true);
+    // Whoever reaches this Main Menu — a genuinely anonymous guest who came
+    // back via "Track Application", or a signed-in poa account — is saving
+    // over the SAME 'application:<appNumber>' key their submission already
+    // created. A signed-in poa account has a real UPDATE policy for its own
+    // applications, but a pure guest never does (RLS can't check "did the
+    // caller also supply the matching tracking code" the way
+    // ATDBackend.saveTrackedApplication() does server-side — see Fix #26,
+    // backend/fix26_tracked_application_self_service_writes.sql).
+    // The tracking-code-verified RPC works for both cases identically (a
+    // signed-in poa account always knows its own record's tracking code
+    // too), so it replaces the old plain window.storage.set() call
+    // entirely rather than branching on session state here.
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.saveTrackedApplication){
+      const ok = await window.ATDBackend.saveTrackedApplication(currentAppRecord.appNumber, currentAppRecord.trackingCode, currentAppRecord);
+      if(!ok) throw new Error('saveTrackedApplication did not confirm the save');
+    } else if(window.storage){
+      // Local-storage-shim fallback (no real backend configured) — there's
+      // no RLS to work around here, so the plain path is fine.
+      await window.storage.set(currentAppKey, JSON.stringify(currentAppRecord), true);
+    }
   } catch(err){
     poa_showToast('Could not save your changes right now. Please try again.');
   }
@@ -16463,19 +16545,21 @@ function renderMmDocuments(){
     }
     const doc = (r.regulatoryDocuments && r.regulatoryDocuments[docName]) || { uploaded: false, status: 'Not Uploaded' };
     const status = doc.status || (doc.uploaded ? 'Submitted' : 'Not Uploaded');
-    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
+    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : (status === 'Submitted' || status === 'Not Applicable') ? 'pending' : '';
     const icon = status === 'Rejected'
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-      : doc.uploaded
+      : (doc.uploaded || status === 'Not Applicable')
         ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
         : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>';
-    const statusText = { 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending review (locked)', 'Approved': 'Approved (locked)', 'Rejected': 'Rejected — please re-upload' }[status] || status;
-    // Once a file has been submitted (or approved), the upload slot locks —
-    // the applicant can no longer pick a new file to silently replace what
-    // an officer is reviewing or already approved. It only unlocks again if
-    // an officer rejects the document, which is what "please re-upload"
-    // above refers to.
+    const statusText = { 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending review (locked)', 'Approved': 'Approved (locked)', 'Rejected': 'Rejected — please re-upload', 'Not Applicable': 'Marked Not Applicable — pending officer review' }[status] || status;
+    // Once a file has been submitted (or approved, or marked Not
+    // Applicable), the upload slot locks — the applicant can no longer pick
+    // a new file (or flip the N/A checkbox) to silently replace what an
+    // officer is reviewing or already approved. It only unlocks again if an
+    // officer rejects the document, which is what "please re-upload" above
+    // refers to.
     const canUpload = status === 'Not Uploaded' || status === 'Rejected';
+    const showNaCheckbox = canUpload && poa_isConditionalDoc(docName);
 
     return `
       <div class="mm-doc-item">
@@ -16485,6 +16569,11 @@ function renderMmDocuments(){
         <div class="mm-doc-label">${poa_escapeHtml(docName)} *</div>
         <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
         ${status === 'Rejected' && doc.officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(doc.officerNote)}"</div>` : ''}
+        ${showNaCheckbox ? `
+        <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; color:var(--text-muted); cursor:pointer;">
+          <input type="checkbox" onchange='mmDocNotApplicableToggled(this, ${JSON.stringify(docName)})'>
+          Not applicable to my event
+        </label>` : ''}
         <input type="file" id="mmDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmDocFileChosen(${i}, ${JSON.stringify(docName)}, this)'>
       </div>
     `;
@@ -16503,6 +16592,31 @@ function poa_readFileAsDataUrl(file){
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
+}
+
+// A doc counts toward "required documents submitted" once it's either
+// actually uploaded and not currently rejected (Submitted/Approved), or the
+// applicant has declared it Not Applicable (see mmDocMarkNotApplicable) —
+// pending an officer's review either way, same as an upload always was.
+function poa_docSatisfied(d){
+  return !!(d && (d.status === 'Submitted' || d.status === 'Approved' || d.status === 'Not Applicable'));
+}
+function poa_recomputeRequiredDocumentsSubmitted(){
+  const list = currentAppRecord.regulatoryDocList || [];
+  currentAppRecord.requiredDocumentsSubmitted = list.every(name => {
+    if(name === POA_POLICE_APPROVAL_DOC_NAME){
+      return !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
+    }
+    return poa_docSatisfied(currentAppRecord.regulatoryDocuments && currentAppRecord.regulatoryDocuments[name]);
+  });
+}
+
+// A document name phrased as conditional ("Fire Certification (if there
+// will be open fire)") doesn't apply to every applicant it's listed for —
+// see renderMmDocuments()'s "Not applicable to my event" checkbox, shown
+// only for a doc name matching this.
+function poa_isConditionalDoc(docName){
+  return /\(if\b/i.test(docName);
 }
 
 async function mmDocFileChosen(index, docName, input){
@@ -16531,19 +16645,49 @@ async function mmDocFileChosen(index, docName, input){
     officerNote: ''
   };
 
-  const list = currentAppRecord.regulatoryDocList || [];
-  currentAppRecord.requiredDocumentsSubmitted = list.every(name => {
-    if(name === POA_POLICE_APPROVAL_DOC_NAME){
-      return !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
-    }
-    const d = currentAppRecord.regulatoryDocuments[name];
-    return !!(d && d.uploaded && d.status !== 'Rejected');
-  });
+  poa_recomputeRequiredDocumentsSubmitted();
 
   input.value = '';
   await mmPersist();
   renderMmDocuments();
   poa_showToast(`${docName} uploaded and submitted.`);
+}
+
+// Lets an applicant waive a conditional document (see poa_isConditionalDoc)
+// that genuinely doesn't apply to their event — e.g. no open fire planned,
+// so there's nothing for a Fire Certification to certify. Still goes to
+// officer review (status 'Not Applicable', same locked/pending treatment as
+// an upload) rather than silently auto-satisfying the requirement client-
+// side, so a mistaken or false claim can still be caught and rejected —
+// see updateDocStatus() on the Municipal officer's side.
+async function mmDocNotApplicableToggled(checkbox, docName){
+  if(!checkbox.checked) return;
+  const confirmed = await window.atdConfirm(`Mark "${docName}" as Not Applicable?\n\nYou're confirming this requirement doesn't apply to your event. A municipal officer will review this before your application can proceed — if they disagree, you'll be asked to upload the actual document instead.`);
+  if(!confirmed){
+    checkbox.checked = false;
+    return;
+  }
+  await mmDocMarkNotApplicable(docName);
+}
+window.mmDocNotApplicableToggled = mmDocNotApplicableToggled;
+
+async function mmDocMarkNotApplicable(docName){
+  if(!currentAppRecord.regulatoryDocuments) currentAppRecord.regulatoryDocuments = {};
+  currentAppRecord.regulatoryDocuments[docName] = {
+    uploaded: false,
+    fileName: '',
+    fileData: null,
+    uploadedDate: new Date().toISOString().slice(0,10),
+    status: 'Not Applicable',
+    officerNote: '',
+    notApplicable: true
+  };
+
+  poa_recomputeRequiredDocumentsSubmitted();
+
+  await mmPersist();
+  renderMmDocuments();
+  poa_showToast(`${docName} marked Not Applicable — pending officer review.`);
 }
 
 // ---- Permit ----
@@ -20052,16 +20196,20 @@ function renderSubmissionColumn(a){
         return;
       }
       const d = docs[name] || { uploaded: false, status: 'Not Uploaded' };
-      const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
+      const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red', 'Not Applicable': 'badge-amber' }[d.status] || 'badge-gray';
+      // A doc the applicant marked Not Applicable has no file to view, but
+      // still needs an officer's Approve/Reject — same review controls as
+      // an upload, just no file preview (see openDocModal's own branch).
+      const canReview = d.uploaded || d.status === 'Not Applicable';
       html += `
         <div class="doc-review-row">
           <div>
             <div class="cell-primary">${muni_escapeHtml(name)}</div>
-            <div class="cell-sub">${d.uploaded ? `${muni_escapeHtml(d.fileName || 'Uploaded file')} · ${muni_escapeHtml(d.uploadedDate || '')}` : 'Not yet uploaded'}</div>
+            <div class="cell-sub">${d.uploaded ? `${muni_escapeHtml(d.fileName || 'Uploaded file')} · ${muni_escapeHtml(d.uploadedDate || '')}` : d.status === 'Not Applicable' ? 'Applicant declared: Not Applicable' : 'Not yet uploaded'}</div>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
             <span class="badge ${statusClass}">${d.status}</span>
-            <button class="btn btn-sm" ${d.uploaded ? '' : 'disabled'} onclick='openDocModal(${JSON.stringify(name)})'>View</button>
+            <button class="btn btn-sm" ${canReview ? '' : 'disabled'} onclick='openDocModal(${JSON.stringify(name)})'>View</button>
           </div>
         </div>`;
     });
@@ -20547,10 +20695,14 @@ function openDocModal(docName){
 
   document.getElementById('docNoteGroup').classList.remove('hidden');
   document.getElementById('docModalTitle').textContent = docName;
-  document.getElementById('docModalSub').textContent = `${d.fileName || 'Uploaded file'} · Uploaded ${d.uploadedDate || ''}`;
+  document.getElementById('docModalSub').textContent = d.status === 'Not Applicable' && !d.uploaded
+    ? 'Applicant declared this document Not Applicable'
+    : `${d.fileName || 'Uploaded file'} · Uploaded ${d.uploadedDate || ''}`;
 
   const previewBox = document.getElementById('docPreviewBox');
-  if(d.fileData){
+  if(d.status === 'Not Applicable' && !d.uploaded){
+    previewBox.innerHTML = `<div class="doc-preview-placeholder">The applicant marked this document as Not Applicable and did not upload a file. Review the rest of the application to confirm this is correct before approving.</div>`;
+  } else if(d.fileData){
     const mime = guessMimeFromDataUrl(d.fileData);
     if(mime.startsWith('image/')){
       previewBox.innerHTML = `<img src="${d.fileData}" alt="${muni_escapeHtml(docName)}">`;
@@ -20563,7 +20715,7 @@ function openDocModal(docName){
     previewBox.innerHTML = `<div class="doc-preview-placeholder">No inline preview available for this file (demo data or file too large to preview). Filename: ${muni_escapeHtml(d.fileName || 'N/A')}</div>`;
   }
 
-  const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
+  const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red', 'Not Applicable': 'badge-amber' }[d.status] || 'badge-gray';
   document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${d.status}</span>` +
     (d.status === 'Rejected' && d.officerNote ? `<div class="readback-row">Previous note: ${muni_escapeHtml(d.officerNote)}</div>` : '');
 
@@ -20725,7 +20877,10 @@ async function updateDocStatus(newStatus, toastMessage){
       return !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated);
     }
     const doc = r.regulatoryDocuments[name];
-    return !!(doc && doc.uploaded && doc.status !== 'Rejected');
+    // A doc the applicant marked Not Applicable (see mmDocMarkNotApplicable
+    // in the public wizard) counts as satisfied too, same as an upload —
+    // both are still gated on officer review via Approve/Reject above.
+    return !!(doc && (doc.status === 'Submitted' || doc.status === 'Approved' || doc.status === 'Not Applicable'));
   });
   r.requiredDocumentsSubmitted = computed;
   a.requiredDocumentsSubmitted = computed;
