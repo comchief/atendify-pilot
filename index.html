@@ -4331,8 +4331,13 @@
       district: {label:'Venue district (manual entry)', step:'Step 4 — Venue'},
       maxCap: {label:'Venue max capacity (manual entry)', step:'Step 4 — Venue'},
       maxParking: {label:'Venue max parking capacity (manual entry)', step:'Step 4 — Venue'},
-      useOfVenue: {label:'Use of venue (manual entry)', step:'Step 4 — Venue'},
-      fileOwnership: {label:'Proof of ownership/authorization upload (manual entry)', step:'Step 4 — Venue'}
+      // useOfVenue and both Documents fields below now show regardless of
+      // whether the venue was picked from the database or entered
+      // manually — see the "move Use of venue/Documents out of the
+      // manual-entry wrapper" fix — so none of the three is "(manual
+      // entry)"-only anymore.
+      useOfVenue: {label:'Use of venue', step:'Step 4 — Venue'},
+      fileOwnership: {label:'Proof of ownership/authorization upload', step:'Step 4 — Venue'}
     },
     jcf: {
       jcfEventName: {label:'Event name', step:'Step 1 — Event Overview'},
@@ -14501,6 +14506,14 @@ function computeCosts(){
   const venueSearchVal = poa_val('venueSearch');
   const venueNameVal = poa_val('poa_venueName');
   let venueLabel, venueCostGross, venueIsNew;
+  // Distinct from venueIsNew: venueIsNew is false both when a database venue
+  // is selected AND when nothing's been selected yet, so it can't tell those
+  // two apart on its own. renderCosts()'s payment summary needs that
+  // distinction to label this line correctly — "Permit Fee (Venue)" for a
+  // registered venue (already assessed, no new inspection needed) vs "Venue
+  // Inspection Fee" for a manually-added one (or nothing selected yet, which
+  // defaults to the same standard-inspection assumption).
+  let venueFromDb;
   if(venueSearchVal && venueSearchVal.startsWith('db-')){
     // A venue selected from the municipality's own database already has an
     // assessed, venue-specific fee on file (set by the municipality when the
@@ -14514,14 +14527,17 @@ function computeCosts(){
       : 'Existing venue (from database) — no venue fee on file';
     venueCostGross = fee;
     venueIsNew = false;
+    venueFromDb = true;
   } else if(venueNameVal){
     venueLabel = 'New venue — standard inspection fee';
     venueCostGross = VENUE_INSPECTION_FEE;
     venueIsNew = true;
+    venueFromDb = false;
   } else {
     venueLabel = 'No venue added yet';
     venueCostGross = 0;
     venueIsNew = false;
+    venueFromDb = false;
   }
 
   const adItems = [];
@@ -14570,7 +14586,7 @@ function computeCosts(){
   const total = APPLICATION_FEE + venueCost + adTotal;
 
   return {
-    venueLabel, venueCost, venueCostGross, venueIsNew,
+    venueLabel, venueCost, venueCostGross, venueIsNew, venueFromDb,
     adItems, adTotal, adTotalGross, total,
     promoApplied: !!appliedPromotion,
     promoDiscountAmount,
@@ -14590,7 +14606,11 @@ function renderCosts(){
   html += `<div class="cost-row"><span class="cost-label">Places of Amusement License — application fee</span><span class="cost-amount">${poa_formatCurrency(APPLICATION_FEE)}</span></div>`;
 
   html += `<div class="cost-group-header">Venue Cost</div>`;
-  html += `<div class="cost-row"><span class="cost-label">Venue inspection</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
+  // A registered venue (picked from the municipality's own database) already
+  // has an assessed fee on file — no new inspection needed, so this reads as
+  // "Permit Fee (Venue)". A manually-added venue (or nothing selected yet)
+  // still needs the standard inspection, so it stays "Venue Inspection Fee".
+  html += `<div class="cost-row"><span class="cost-label">${c.venueFromDb ? 'Permit Fee (Venue)' : 'Venue Inspection Fee'}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
 
   html += `<div class="cost-group-header">Advertisement Costs</div>`;
   if(c.adItems.length){
@@ -14705,9 +14725,11 @@ async function poa_goReview(){
     ? fileHasValue('fileLogo')
     : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData);
   const flierHasFile = fileHasValue('fileFlier');
+  const ownershipHasFile = fileHasValue('fileOwnership');
   document.getElementById('poa_revUploads').innerHTML =
     poa_uploadRowHtml(idLabel, idKind, idHasFile) +
-    poa_uploadRowHtml('Event Flier', 'flier', flierHasFile);
+    poa_uploadRowHtml('Event Flier', 'flier', flierHasFile) +
+    poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', ownershipHasFile);
 
   // Costs
   const c = computeCosts();
@@ -14774,7 +14796,8 @@ async function poa_previewUpload(kind){
   const CONFIG = {
     photoId: { title: 'Photo ID', inputId: 'filePhotoId' },
     logo: { title: 'Company Logo', inputId: 'fileLogo' },
-    flier: { title: 'Event Flier', inputId: 'fileFlier' }
+    flier: { title: 'Event Flier', inputId: 'fileFlier' },
+    ownership: { title: 'Proof of Ownership/Authorization', inputId: 'fileOwnership' }
   };
   const cfg = CONFIG[kind];
   if(!cfg) return;
@@ -14871,10 +14894,9 @@ async function buildApplicationRecord(appNumber){
   }
 
   // Capture the Proof of Ownership/Authorization document — same bug, same
-  // fix. This one lives inside Step 4's "manually add venue details" panel,
-  // so it's optional even when provided (the applicant may instead pick an
-  // existing venue from the municipality's database, which has no upload
-  // slot at all).
+  // fix. This lives in Step 4's Documents section, shown regardless of
+  // whether the applicant picked a registered venue or entered one
+  // manually, and is optional either way.
   let ownershipFileName = '';
   let ownershipFileData = null;
   {
