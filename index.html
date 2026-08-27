@@ -3379,12 +3379,26 @@
             : client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
         if (res.error) {
-          window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), res.error);
+          // systemError: is intentionally admin-only-writable (see
+          // supabase_schema.sql's own comment on it) — atdLogSystemError()
+          // calls this for every real client-side error the app catches, on
+          // every visitor including anonymous ones, purely as a best-effort
+          // admin diagnostics log. For anyone who isn't admin, RLS denying
+          // that write is the EXPECTED outcome, not a real failure — showing
+          // it on the same debug panel used to report the original error
+          // would turn one real error into two visible ones for the visitor
+          // (this is exactly how "clearDbVenueSelection is not defined"
+          // turned into a second, unrelated-looking RLS error on screen).
+          // Stay silent for this one specific, by-design case; every other
+          // prefix still surfaces normally.
+          var isExpectedSystemErrorRlsDenial = key.indexOf('systemError:') === 0;
+          if (!isExpectedSystemErrorRlsDenial) window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), res.error);
           return Promise.reject(res.error);
         }
         return resolved({ ok: true });
       } catch (e) {
-        window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), e);
+        var isExpectedSystemErrorRlsDenial2 = key.indexOf('systemError:') === 0;
+        if (!isExpectedSystemErrorRlsDenial2) window.atdShowDebugError('storage.set(' + key + ')' + atdSummarizeValue(parsed), e);
         return Promise.reject(e);
       }
     },
@@ -5390,6 +5404,32 @@
           <div id="dbVenueCard"></div>
         </div>
 
+        <!-- Use of venue + Documents apply to a venue either way — picked
+             from the municipality's own database, or entered manually below
+             — so these two live outside manualVenueFields and stay visible
+             regardless of which path the applicant takes. -->
+        <div class="field-group">
+          <label for="useOfVenue">Use of venue</label>
+          <select id="useOfVenue">
+            <option value="">Select an option</option>
+            <option>Grounds Only</option>
+            <option>Building Only</option>
+            <option>Grounds and Building</option>
+          </select>
+        </div>
+
+        <div class="section-title">Documents <span class="optional">(Optional)</span></div>
+        <div class="upload-row" onclick="document.getElementById('fileOwnership').click()">
+          <div class="upload-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+          </div>
+          <div>
+            <div class="upload-title">Proof of ownership/authorization</div>
+            <div class="upload-sub" id="ownershipLabel">Click to upload document</div>
+          </div>
+          <input type="file" id="fileOwnership" onchange="fileChosen(this,'ownershipLabel')">
+        </div>
+
         <div class="divider"></div>
 
         <div id="manualVenueToggleWrap">
@@ -5436,32 +5476,11 @@
 
           <div id="additionalParkingList" class="record-list" style="margin-bottom:10px;"></div>
 
-          <div class="field-group">
-            <label for="useOfVenue">Use of venue</label>
-            <select id="useOfVenue">
-              <option value="">Select an option</option>
-              <option>Grounds Only</option>
-              <option>Building Only</option>
-              <option>Grounds and Building</option>
-            </select>
-          </div>
-
-          <div class="section-title">Documents <span class="optional">(Optional)</span></div>
-          <div class="upload-row" onclick="document.getElementById('fileOwnership').click()">
-            <div class="upload-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
-            </div>
-            <div>
-              <div class="upload-title">Proof of ownership/authorization</div>
-              <div class="upload-sub" id="ownershipLabel">Click to upload document</div>
-            </div>
-            <input type="file" id="fileOwnership" onchange="fileChosen(this,'ownershipLabel')">
-          </div>
-
-          <div class="field-group" style="margin-top:16px;">
+          <div class="field-group" style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn btn-primary" type="button" onclick="saveVenueDetails()">Save venue details</button>
-            <div class="upload-sub" id="venueSaveStatus" style="margin-top:10px;"></div>
+            <button class="btn" type="button" onclick="clearManualVenueForm()">Clear form</button>
           </div>
+          <div class="upload-sub" id="venueSaveStatus" style="margin-top:10px;"></div>
 
           <div id="savedVenueCardWrap" class="hidden" style="margin-top:10px;">
             <div class="section-title" style="font-size:14px;">Saved venue</div>
@@ -5491,7 +5510,12 @@
             <label for="poa_promoCode">Promo code</label>
             <input type="text" id="poa_promoCode" placeholder="e.g. SUMMER26" style="text-transform:uppercase;">
           </div>
-          <button class="btn" type="button" style="margin-bottom:16px;" onclick="poa_applyPromoCode()">Apply</button>
+          <!-- margin-bottom must match .field-group's own 26px (see the
+               shared .field-group rule) — align-items:flex-end on the row
+               above aligns each child's MARGIN box, so a mismatched
+               margin-bottom here (previously 16px) put this button 10px
+               lower than the promo code input instead of level with it. -->
+          <button class="btn" type="button" style="margin-bottom:26px;" onclick="poa_applyPromoCode()">Apply</button>
         </div>
         <div id="poa_promoMessage" class="hidden" style="font-size:13px; margin:-8px 0 14px;"></div>
 
@@ -14241,6 +14265,43 @@ function saveVenueDetails(){
   renderSavedVenueCard(index);
 }
 
+// Wipes whatever's currently typed into the manual "Add Venue Information"
+// fields so the applicant can start over — previously there was no way to
+// back out of a half-filled manual entry short of retyping over every field
+// by hand. Only clears these manual fields (name/address/district/capacity/
+// parking) and any not-yet-saved state around them; it does not delete an
+// already-saved venue (use the saved venue card's own "Delete" for that) and
+// does not touch Use of Venue / Documents, which now live outside this
+// section and apply whether the venue came from the database or here.
+function clearManualVenueForm(){
+  document.getElementById('poa_venueName').value = '';
+  document.getElementById('vAddr1').value = '';
+  document.getElementById('vAddr2').value = '';
+  document.getElementById('district').value = '';
+  document.getElementById('maxCap').value = '';
+  document.getElementById('maxParking').value = '';
+  additionalParkingList = [];
+  renderAdditionalParking();
+
+  const status = document.getElementById('venueSaveStatus');
+  status.style.color = 'var(--text-muted)';
+  status.textContent = '';
+
+  document.getElementById('savedVenueCardWrap').classList.add('hidden');
+  document.getElementById('savedVenueCard').innerHTML = '';
+
+  // If the dropdown is still pointed at a locally-saved entry (e.g. the
+  // applicant was editing one via editSavedVenue()), clear that selection
+  // too so it doesn't look like these now-blank fields still belong to it.
+  // Leave a database selection ('db-...') alone — this button only lives
+  // inside the manual-entry section, which is hidden whenever a database
+  // venue is selected, but stay defensive in case both are visible at once.
+  const select = document.getElementById('venueSearch');
+  if(select.value && !select.value.startsWith('db-')) select.value = '';
+
+  poa_showToast('Manual venue form cleared.');
+}
+
 function renderSavedVenueCard(index){
   const wrap = document.getElementById('savedVenueCardWrap');
   const card = document.getElementById('savedVenueCard');
@@ -16587,6 +16648,8 @@ window.submitApplicationFeeBankTransfer = submitApplicationFeeBankTransfer;
 window.submitLicenseFeePayment = submitLicenseFeePayment;
 window.submitTrackApplication = submitTrackApplication;
 window.toggleManualVenue = toggleManualVenue;
+window.clearDbVenueSelection = clearDbVenueSelection;
+window.clearManualVenueForm = clearManualVenueForm;
 })();</script>
 <script>(function(){
 'use strict';
