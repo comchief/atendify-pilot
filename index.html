@@ -3409,7 +3409,28 @@
         var useInsertOnly = isAuditLog;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
-          if (!sessionRes || !sessionRes.data || !sessionRes.data.session) useInsertOnly = true;
+          if (!sessionRes || !sessionRes.data || !sessionRes.data.session) {
+            // getSession() reads the locally-cached session and can come
+            // back empty for a real, still-logged-in Admin/Muni/JCFD user —
+            // e.g. another tab in the same browser signed out (Supabase
+            // persists its session under one shared localStorage key, so
+            // that clears every tab's copy), or the access token simply
+            // needs refreshing. Wrongly treating that as "nobody is signed
+            // in" forces this write down the anonymous-insert-only path,
+            // which then fails with a confusing RLS 42501 on a row that
+            // already exists (an authenticated admin/muni/jcfd update, not
+            // a fresh anonymous submission). Try one real refresh — which
+            // hits the network using the refresh token already in storage —
+            // before concluding this caller is genuinely anonymous; a
+            // truly-logged-out caller still safely falls through to
+            // useInsertOnly, same as before.
+            try {
+              var refreshRes = await client.auth.refreshSession();
+              if (!refreshRes || !refreshRes.data || !refreshRes.data.session) useInsertOnly = true;
+            } catch (refreshErr) {
+              useInsertOnly = true;
+            }
+          }
         }
         var res = await atdWithClockSkewRetry(function () {
           return useInsertOnly
@@ -23272,6 +23293,22 @@ async function admin_openApplicationFeeReceiptModal(){
   const fileName = payment.fileName || '';
   const title = 'Application Fee Payment Receipt';
 
+  // #docModal's markup lives nested inside the Municipal officer portal's
+  // own shell (#shell-muni) in the HTML — harmless for Muni's own use of
+  // it, since #shell-muni is visible whenever a Muni officer is using it,
+  // but fatal for Admin: #shell-muni stays hidden (display:none) for the
+  // entire time an Admin is signed in, and a `display:none` ancestor hides
+  // every descendant no matter what "hidden" classes are toggled on
+  // #docModal itself. That silently swallowed this modal's own
+  // classList.remove('hidden') below — the click did open it, the preview
+  // did render, none of it was ever visible. Re-parenting the (same, not
+  // cloned) node to <body> first escapes that hidden ancestor for good;
+  // this is idempotent, so calling it again on a later open is harmless.
+  const docModalEl = document.getElementById('docModal');
+  if(docModalEl && docModalEl.parentElement !== document.body){
+    document.body.appendChild(docModalEl);
+  }
+
   if(window.atdLogAudit){
     await window.atdLogAudit({
       portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator',
@@ -23319,15 +23356,30 @@ async function admin_openApplicationFeeReceiptModal(){
 }
 window.admin_openApplicationFeeReceiptModal = admin_openApplicationFeeReceiptModal;
 
+// Returns true only if the write to backend storage actually succeeded.
+// Callers must not report success, log an audit entry, or leave the
+// optimistic in-memory flag set unless this returns true — otherwise a
+// failed save (e.g. an RLS rejection) silently shows "Payment verified" in
+// the UI while nothing was actually persisted for the applicant/Muni side
+// to see.
 async function admin_persistPaymentVerification(a){
-  if(!a.raw || !a._storageKey || !window.storage) return;
+  if(!a.raw || !a._storageKey || !window.storage) return false;
+  const prevRaw = { verified: a.raw.applicationFeeVerified, by: a.raw.applicationFeeVerifiedBy, date: a.raw.applicationFeeVerifiedDate };
   a.raw.applicationFeeVerified = a.applicationFeeVerified;
   a.raw.applicationFeeVerifiedBy = a.applicationFeeVerifiedBy || '';
   a.raw.applicationFeeVerifiedDate = a.applicationFeeVerifiedDate || '';
   try{
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
+    return true;
   }catch(e){
-    admin_showToast('Verification saved here, but syncing back to the applicant record failed.');
+    a.raw.applicationFeeVerified = prevRaw.verified;
+    a.raw.applicationFeeVerifiedBy = prevRaw.by;
+    a.raw.applicationFeeVerifiedDate = prevRaw.date;
+    const isSessionIssue = e && (e.code === '42501' || /row-level security/i.test(e.message || ''));
+    admin_showToast(isSessionIssue
+      ? 'Could not save — your session may have expired. Please log out and back in, then try again.'
+      : 'Could not save this change — please try again.');
+    return false;
   }
 }
 
@@ -23338,10 +23390,16 @@ async function admin_verifyApplicationFeePayment(){
     admin_showToast('The applicant has not submitted a payment yet — there is nothing to verify.');
     return;
   }
+  const prevVerified = a.applicationFeeVerified, prevBy = a.applicationFeeVerifiedBy, prevDate = a.applicationFeeVerifiedDate;
   a.applicationFeeVerified = true;
   a.applicationFeeVerifiedBy = adminActorEmail;
   a.applicationFeeVerifiedDate = admin_todayIso();
-  await admin_persistPaymentVerification(a);
+  const ok = await admin_persistPaymentVerification(a);
+  if(!ok){
+    a.applicationFeeVerified = prevVerified; a.applicationFeeVerifiedBy = prevBy; a.applicationFeeVerifiedDate = prevDate;
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
   admin_showToast(`Application fee payment verified for ${a.appNumber}.`);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeVerified', details: `${a.appNumber}: Atendify application fee verified.`, muniId: a.muniId });
   admin_renderPaymentVerificationCard(a);
@@ -23360,10 +23418,16 @@ async function admin_unverifyApplicationFeePayment(){
     admin_renderPaymentVerificationCard(a);
     return;
   }
+  const prevVerified = a.applicationFeeVerified, prevBy = a.applicationFeeVerifiedBy, prevDate = a.applicationFeeVerifiedDate;
   a.applicationFeeVerified = false;
   a.applicationFeeVerifiedBy = '';
   a.applicationFeeVerifiedDate = '';
-  await admin_persistPaymentVerification(a);
+  const ok = await admin_persistPaymentVerification(a);
+  if(!ok){
+    a.applicationFeeVerified = prevVerified; a.applicationFeeVerifiedBy = prevBy; a.applicationFeeVerifiedDate = prevDate;
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
   admin_showToast(`Application fee payment unverified for ${a.appNumber}.`);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeUnverified', details: `${a.appNumber}: Atendify application fee unverified.`, muniId: a.muniId });
   admin_renderPaymentVerificationCard(a);
