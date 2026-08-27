@@ -2177,6 +2177,13 @@
     display:flex; align-items:center; justify-content:center;
     z-index: 300; padding: 20px;
   }
+  /* #docModal can now also open as a file viewer launched from on top of
+     another already-open modal (the National Admin portal's Payment
+     Verification card opens it to show the Atendify application-fee
+     receipt while its own appModal is still open behind it). An ID
+     selector always outranks a class one, so this guarantees docModal
+     stays the visible, topmost modal regardless of source order. */
+  #docModal{ z-index: 310; }
   .modal-box{
     background: var(--bg);
     border-radius: 16px;
@@ -7305,6 +7312,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <div class="panel">
+        <div class="panel-head"><h2>Payment Verification Needed</h2></div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Applications where the applicant has submitted their Atendify application fee, but it hasn't been verified yet. Each stays flagged with a red marker everywhere it's listed until you verify or it's resolved — the Municipal officer can't approve the application or issue a permit until then.</p>
+        <div id="admin_ovwPaymentVerificationBanner"></div>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table>
+            <thead><tr><th>Application #</th><th>Applicant</th><th>Municipality</th><th>Amount</th><th>Submitted</th><th></th></tr></thead>
+            <tbody id="admin_ovwPaymentVerificationBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head"><h2>Applications</h2></div>
         <div class="stat-grid" id="admin_ovwApplicationsStats"></div>
       </div>
@@ -8047,6 +8066,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <button class="btn" onclick="closeAppModal()">Close</button>
       <button class="btn btn-primary" onclick="saveAppStatus()">Save status</button>
     </div>
+
+    <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);">
+
+    <div class="field-group" id="appPaymentVerificationCard"></div>
 
     <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);">
 
@@ -15064,6 +15087,16 @@ async function buildApplicationRecord(appNumber){
     paymentAmount: c.total,
     applicationFeePaid: false,
     applicationFeePayment: { method: '', referenceNumber: '', fileName: '', uploadedDate: '' },
+    // Distinct from paymentVerified below — that one is the LICENSE fee
+    // (payable to the municipality), verified by a Municipal officer. This
+    // is the ATENDIFY application fee, verified by the National Admin —
+    // see fix27_application_fee_verification.sql / admin_openAppModal's new
+    // Payment Verification card. Until this is true, setFinalStatus() won't
+    // let a Municipal officer approve the application or generate a permit,
+    // so the applicant can't download one either.
+    applicationFeeVerified: false,
+    applicationFeeVerifiedBy: '',
+    applicationFeeVerifiedDate: '',
     paymentVerified: false,
     paymentReceiptNumber: '',
     paymentNotes: '',
@@ -16294,7 +16327,7 @@ function renderMmSummary(){
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Payment</div>`;
-  html += mmDetailRow('Application Fee (to Atendify)', r.applicationFeePaid ? `${poa_formatCurrency(r.costs.applicationFee)} — Paid via ${r.applicationFeePayment?.method || 'N/A'}` : `${poa_formatCurrency(r.costs.applicationFee)} — Not yet paid`);
+  html += mmDetailRow('Application Fee (to Atendify)', r.applicationFeePaid ? `${poa_formatCurrency(r.costs.applicationFee)} — Paid via ${r.applicationFeePayment?.method || 'N/A'}, ${r.applicationFeeVerified ? 'verified' : 'awaiting verification'}` : `${poa_formatCurrency(r.costs.applicationFee)} — Not yet paid`);
   const licenseFeeAmount = r.costs.total - (r.costs.applicationFee || 0);
   html += mmDetailRow(`License Fee (to ${r.municipalityName})`, (r.paymentReceipt && r.paymentReceipt.fileName) ? `${poa_formatCurrency(licenseFeeAmount)} — Submitted, ${r.paymentVerified ? 'verified' : 'awaiting verification'}` : `${poa_formatCurrency(licenseFeeAmount)} — Not yet paid`);
   (r.additionalPaymentRequests || []).forEach(req=>{
@@ -20568,6 +20601,11 @@ async function renderAppDetail(){
     if(a.status === 'Pending Approval'){
       const missingItems = [];
       if(!a.paymentVerified) missingItems.push('payment has not been verified');
+      // Separate from the license-fee check above — this is the Atendify
+      // application fee, verified by the National Admin portal (see its
+      // Payment Verification card), not by this Municipal officer.
+      if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
+      else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
       if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
       if(!a.venueApproved) missingItems.push('the venue has not been approved');
       if(missingItems.length){
@@ -21260,6 +21298,13 @@ function setFinalStatus(status){
   if(status === 'Approved'){
     const missingItems = [];
     if(!a.paymentVerified) missingItems.push('payment has not been verified');
+    // Real enforcement (not just the UI hint in renderAppDetail above) — a
+    // signed applicant's Permits tab only ever shows a permit once
+    // permitGenerated is true, and that only happens right below via
+    // generatePermit(a), so blocking it here is what actually prevents
+    // downloading a permit while the Atendify application fee is unverified.
+    if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
+    else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
     if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
     if(missingItems.length){
@@ -21355,6 +21400,12 @@ async function loadSubmittedApplications(){
         paymentVerified: !!rec.paymentVerified,
         paymentReceiptNumber: rec.paymentReceiptNumber || '',
         paymentNotes: rec.paymentNotes || '',
+        // The Atendify application fee's OWN verification, set by the
+        // National Admin portal (separate from paymentVerified above, which
+        // is the license fee this Municipal officer verifies) — read here so
+        // setFinalStatus()'s approval gate can block on it too.
+        applicationFeePaid: !!rec.applicationFeePaid,
+        applicationFeeVerified: !!rec.applicationFeeVerified,
         recommendation: rec.recommendation || '',
         recommendedBy: rec.recommendedBy || '',
         recommendationWithdrawalRequested: !!rec.recommendationWithdrawalRequested,
@@ -21792,6 +21843,16 @@ async function admin_loadApplications(){
           // buildApplicationRecord().
           municipalityRevenue: (rec.costs ? ((rec.costs.venueCost || 0) + (rec.costs.adTotal || 0)) : 0),
           paymentVerified: !!rec.paymentVerified,
+          // Atendify's own application-fee verification, distinct from
+          // paymentVerified above (the municipality's license fee, verified
+          // by a Municipal officer) — this one is verified from right here,
+          // by the National Admin, via the Payment Verification card in
+          // admin_openAppModal.
+          applicationFeePaid: !!rec.applicationFeePaid,
+          applicationFeeVerified: !!rec.applicationFeeVerified,
+          applicationFeeVerifiedBy: rec.applicationFeeVerifiedBy || '',
+          applicationFeeVerifiedDate: rec.applicationFeeVerifiedDate || '',
+          permitGenerated: !!rec.permitGenerated,
           waiverAmount: rec.waiverAmount || 0,
           discountAmount: rec.discountAmount || 0,
           refundAmount: rec.refundAmount || 0,
@@ -22219,8 +22280,17 @@ function admin_isExpired(a){
 // A waiver reduces what the municipality is owed (the party actually able
 // to grant one on its own fee); Atendify's flat application fee is
 // unaffected by a municipality-granted waiver.
-function admin_amountOwed(a, amount, applyWaiver){
-  if(a.paymentVerified) return 0;
+//
+// verifiedField picks which of the two independent verification flags
+// counts as "paid": the municipality's own paymentVerified (default — set
+// by a Municipal officer verifying the license fee) or
+// applicationFeeVerified (set by this National Admin portal's own Payment
+// Verification card, verifying the separate Atendify application fee) —
+// pass the latter when computing what's still owed to Atendify itself, so
+// the license fee's verification state never accidentally marks Atendify's
+// own fee as collected, or vice versa.
+function admin_amountOwed(a, amount, applyWaiver, verifiedField){
+  if(a[verifiedField || 'paymentVerified']) return 0;
   if(a.status === 'Rejected' || a.status === 'Withdrawn' || admin_isExpired(a)) return 0;
   const base = amount == null ? (a.paymentAmount || 0) : amount;
   const waiver = applyWaiver === false ? 0 : (a.waiverAmount || 0);
@@ -22265,6 +22335,34 @@ function admin_ovwStatCard(label, value){
 async function admin_renderNationalOverview(){
   const appStatsEl = document.getElementById('admin_ovwApplicationsStats');
   if(!appStatsEl) return;
+
+  // ---- Payment Verification Needed ----
+  // Computed live off the real applications, same as every other panel on
+  // this dashboard — not a stored notification record, so it can never
+  // drift out of sync with what verifyPayment/unverifyPayment actually did.
+  const awaitingFeeVerification = applications.filter(a => a.applicationFeePaid && !a.applicationFeeVerified);
+  const pvBannerEl = document.getElementById('admin_ovwPaymentVerificationBanner');
+  if(pvBannerEl){
+    pvBannerEl.innerHTML = awaitingFeeVerification.length
+      ? `<div class="status-banner bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${awaitingFeeVerification.length} application${awaitingFeeVerification.length === 1 ? '' : 's'} awaiting Atendify application fee verification.</div>`
+      : `<div class="status-banner good"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> No applications are awaiting payment verification.</div>`;
+  }
+  const pvBody = document.getElementById('admin_ovwPaymentVerificationBody');
+  if(pvBody){
+    const sortedAwaiting = [...awaitingFeeVerification].sort((a,b) => (a.submitted || '').localeCompare(b.submitted || ''));
+    pvBody.innerHTML = sortedAwaiting.length
+      ? sortedAwaiting.map(a => `
+          <tr>
+            <td class="cell-primary">${admin_paymentAlertBadge(a)}${admin_escapeHtml(a.appNumber)}</td>
+            <td>${admin_escapeHtml(a.applicant)}</td>
+            <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
+            <td>${admin_formatCurrency(a.applicationFee || 0)}</td>
+            <td>${admin_escapeHtml(a.submitted)}</td>
+            <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">Review</button></td>
+          </tr>
+        `).join('')
+      : `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`;
+  }
 
   // ---- Applications ----
   const today = admin_todayIso();
@@ -22400,8 +22498,12 @@ async function admin_renderNationalOverview(){
   const atendifyStatsEl = document.getElementById('admin_ovwAtendifyRevenueStats');
   if(atendifyStatsEl){
     const atdBilled = applications.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
-    const atdCollected = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.applicationFee || 0) : 0), 0);
-    const atdOutstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.applicationFee, false), 0);
+    // Gated on applicationFeeVerified (this Admin portal's own Payment
+    // Verification card), not paymentVerified (the municipality's license
+    // fee, verified by a Municipal officer instead) — these two fees are
+    // collected by different parties and verified independently.
+    const atdCollected = applications.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
+    const atdOutstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.applicationFee, false, 'applicationFeeVerified'), 0);
     atendifyStatsEl.innerHTML = [
       ['Application fees billed', admin_formatCurrency(atdBilled)],
       ['Application fees collected', admin_formatCurrency(atdCollected)],
@@ -22413,7 +22515,7 @@ async function admin_renderNationalOverview(){
     atendifyByMuniBody.innerHTML = corporations.map(m => {
       const apps = applications.filter(a => a.muniId === m.muniNumber);
       const billed = apps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
-      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.applicationFee || 0) : 0), 0);
+      const collected = apps.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
       return `<tr>
         <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
         <td>${apps.length}</td>
@@ -22508,7 +22610,7 @@ function admin_renderRecentApps(){
   }
   body.innerHTML = recent.map(a => `
     <tr>
-      <td class="cell-primary">${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
       <td>${a.licenseType}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
@@ -22569,7 +22671,7 @@ function admin_renderApplications(){
 
   body.innerHTML = list.map(a => `
     <tr>
-      <td class="cell-primary">${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
       <td>${a.licenseType}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
@@ -23043,8 +23145,188 @@ function admin_openAppModal(id){
   document.getElementById('appWaiverAmount').value = a.waiverAmount || 0;
   document.getElementById('appDiscountAmount').value = a.discountAmount || 0;
   document.getElementById('appRefundAmount').value = a.refundAmount || 0;
+  admin_renderPaymentVerificationCard(a);
   document.getElementById('appModal').classList.remove('hidden');
 }
+
+// ---- Payment Verification card (Atendify application fee) ----
+// Shown above Fee adjustments in the application modal — lets the National
+// Admin see exactly what the applicant submitted for the Atendify
+// application fee (method, amount, date, and the receipt file if one was
+// attached) and confirm it actually arrived before the Municipal officer is
+// allowed to approve the application and issue a permit (see the
+// applicationFeeVerified checks added to renderAppDetail's Final Decision
+// card and setFinalStatus() in the Municipal officer portal's own script).
+function admin_renderPaymentVerificationCard(a){
+  const container = document.getElementById('appPaymentVerificationCard');
+  if(!container) return;
+  const payment = (a.raw && a.raw.applicationFeePayment) || {};
+  const amount = admin_formatCurrency(a.applicationFee || 0);
+
+  let html = `<label>Payment Verification</label>`;
+
+  if(!a.applicationFeePaid){
+    html += `<div class="status-banner warn">The applicant has not yet submitted the Atendify application fee payment — nothing to verify yet.</div>`;
+    container.innerHTML = html;
+    return;
+  }
+
+  html += `<div class="readback-row">Payment method: <strong>${admin_escapeHtml(payment.method || 'N/A')}</strong></div>`;
+  html += `<div class="readback-row">Amount: <strong>${amount}</strong></div>`;
+  html += `<div class="readback-row">Date of payment: <strong>${admin_escapeHtml(payment.uploadedDate || 'N/A')}</strong></div>`;
+  if(payment.fileName){
+    html += `<div class="readback-row">Receipt file: ${admin_escapeHtml(payment.fileName)}
+      <button class="btn btn-sm" style="margin-left:8px;" onclick="admin_openApplicationFeeReceiptModal()">View</button></div>`;
+  } else {
+    html += `<div class="readback-row">No receipt file was attached to this payment.</div>`;
+  }
+
+  if(a.applicationFeeVerified){
+    html += `<div class="status-banner good" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Payment verified${a.applicationFeeVerifiedBy ? ' by ' + admin_escapeHtml(a.applicationFeeVerifiedBy) : ''}${a.applicationFeeVerifiedDate ? ' on ' + admin_escapeHtml(a.applicationFeeVerifiedDate) : ''}</div>`;
+    if(a.permitGenerated){
+      html += `<div class="field-hint">Payment can no longer be unverified — this application has already been approved and its permit generated.</div>`;
+    } else {
+      html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="admin_unverifyApplicationFeePayment()">Unverify payment</button></div>`;
+    }
+  } else {
+    html += `<div class="status-banner bad" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Payment not verified</div>`;
+    html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-success btn-sm" onclick="admin_verifyApplicationFeePayment()">✔ Verify Payment</button></div>`;
+    html += `<div class="field-hint" style="margin-top:8px;">The Municipal officer cannot approve this application or issue a permit until this payment is verified.</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+// Own, admin-scoped file viewer for the Atendify application-fee receipt —
+// deliberately NOT reusing the Municipal officer portal's own
+// openApplicantFileModal/renderApplicantFilePreview. Those live in a
+// separate script scope with their own private `applications`/`activeAppId`
+// (the same "closure variables aren't reachable from outside" trap this
+// file has hit before) — calling them from here would look up the wrong
+// application entirely. This reuses only the shared #docModal DOM element
+// (plain markup, not scoped to any script) and reimplements the small
+// preview-by-mime-type logic locally.
+function admin_guessMimeFromDataUrl(dataUrl){
+  const match = /^data:([^;]+);/.exec(dataUrl || '');
+  return match ? match[1] : '';
+}
+
+async function admin_openApplicationFeeReceiptModal(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a || !a.raw) return;
+  const payment = a.raw.applicationFeePayment || {};
+  const fileName = payment.fileName || '';
+  const title = 'Application Fee Payment Receipt';
+
+  if(window.atdLogAudit){
+    await window.atdLogAudit({
+      portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator',
+      action: 'document.viewed',
+      details: `Viewed ${title} for application ${a.appNumber}.`,
+      muniId: a.muniId != null ? a.muniId : null
+    });
+  }
+
+  document.getElementById('docModalTitle').textContent = title;
+  document.getElementById('docModalSub').textContent = fileName || 'Uploaded file';
+  document.getElementById('docStatusRow').innerHTML = '';
+  document.getElementById('docNoteGroup').classList.add('hidden');
+  document.getElementById('docModalActions').innerHTML = '';
+  document.getElementById('docPreviewBox').innerHTML = `<div class="doc-preview-placeholder">${window.atdLoadingHtml ? window.atdLoadingHtml('Loading preview…') : 'Loading preview…'}</div>`;
+  document.getElementById('docModal').classList.remove('hidden');
+
+  let fileData = null;
+  if(window.storage){
+    try{
+      const result = await window.storage.get(`applicationFeeReceipt:${a.appNumber}`, true);
+      if(result && result.value){
+        fileData = JSON.parse(result.value).fileData || null;
+      }
+    }catch(err){
+      // no separately-stored file data available for this application
+    }
+  }
+  // Bail out if the modal was closed while the fetch was in flight.
+  if(document.getElementById('docModal').classList.contains('hidden')) return;
+
+  const previewBox = document.getElementById('docPreviewBox');
+  if(fileData){
+    const mime = admin_guessMimeFromDataUrl(fileData);
+    if(mime.startsWith('image/')){
+      previewBox.innerHTML = `<img src="${fileData}" alt="${admin_escapeHtml(title)}">`;
+    } else if(mime === 'application/pdf'){
+      previewBox.innerHTML = `<iframe src="${fileData}"></iframe>`;
+    } else {
+      previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${admin_escapeHtml(fileName)}</div>`;
+    }
+  } else {
+    previewBox.innerHTML = `<div class="doc-preview-placeholder">No inline preview available for this file (demo data or file too large to preview). Filename: ${admin_escapeHtml(fileName || 'N/A')}</div>`;
+  }
+}
+window.admin_openApplicationFeeReceiptModal = admin_openApplicationFeeReceiptModal;
+
+async function admin_persistPaymentVerification(a){
+  if(!a.raw || !a._storageKey || !window.storage) return;
+  a.raw.applicationFeeVerified = a.applicationFeeVerified;
+  a.raw.applicationFeeVerifiedBy = a.applicationFeeVerifiedBy || '';
+  a.raw.applicationFeeVerifiedDate = a.applicationFeeVerifiedDate || '';
+  try{
+    await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
+  }catch(e){
+    admin_showToast('Verification saved here, but syncing back to the applicant record failed.');
+  }
+}
+
+async function admin_verifyApplicationFeePayment(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a) return;
+  if(!a.applicationFeePaid){
+    admin_showToast('The applicant has not submitted a payment yet — there is nothing to verify.');
+    return;
+  }
+  a.applicationFeeVerified = true;
+  a.applicationFeeVerifiedBy = adminActorEmail;
+  a.applicationFeeVerifiedDate = admin_todayIso();
+  await admin_persistPaymentVerification(a);
+  admin_showToast(`Application fee payment verified for ${a.appNumber}.`);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeVerified', details: `${a.appNumber}: Atendify application fee verified.`, muniId: a.muniId });
+  admin_renderPaymentVerificationCard(a);
+  admin_renderAll();
+}
+window.admin_verifyApplicationFeePayment = admin_verifyApplicationFeePayment;
+
+async function admin_unverifyApplicationFeePayment(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a) return;
+  if(a.permitGenerated){
+    // Defensive re-check: the button is hidden once a permit has been
+    // issued, but guard the action itself too in case this is ever invoked
+    // directly.
+    admin_showToast('Payment can no longer be unverified — this application has already been approved and its permit generated.');
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
+  a.applicationFeeVerified = false;
+  a.applicationFeeVerifiedBy = '';
+  a.applicationFeeVerifiedDate = '';
+  await admin_persistPaymentVerification(a);
+  admin_showToast(`Application fee payment unverified for ${a.appNumber}.`);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeUnverified', details: `${a.appNumber}: Atendify application fee unverified.`, muniId: a.muniId });
+  admin_renderPaymentVerificationCard(a);
+  admin_renderAll();
+}
+window.admin_unverifyApplicationFeePayment = admin_unverifyApplicationFeePayment;
+
+// A small red indicator next to an application's number anywhere it's
+// listed in the National Admin portal (Applications table, Recent
+// applications, Payment Verification Needed panel) — stays lit until the
+// Atendify application fee is verified, so a flagged application is never
+// silently lost in a long list.
+function admin_paymentAlertBadge(a){
+  if(!(a.applicationFeePaid && !a.applicationFeeVerified)) return '';
+  return `<span title="Awaiting Atendify application fee verification" style="display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--red); box-shadow:0 0 0 2px var(--red-tint); margin-right:6px; vertical-align:middle;"></span>`;
+}
+
 function closeAppModal(){
   document.getElementById('appModal').classList.add('hidden');
   activeAppId = null;
@@ -23097,7 +23379,13 @@ async function admin_saveFeeAdjustments(){
       }
     }
   }
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(refund)}.`, muniId: a.muniId });
+  // Pre-existing bug fixed in passing: this referenced an undefined
+  // `refund` variable (this function's own credit-note input is
+  // creditNoteTotal), which threw a ReferenceError on every single save —
+  // silently skipping the "Fee adjustments saved." toast and the dashboard
+  // refresh below even though the adjustment itself had already persisted
+  // fine at the storage.set() call above.
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(creditNoteTotal)}.`, muniId: a.muniId });
   admin_showToast('Fee adjustments saved.');
   admin_renderNationalOverview();
   admin_renderReports();
