@@ -3724,6 +3724,23 @@
       if (res.error) { window.atdShowDebugError('trackApplication(' + appNumber + ')', res.error); return null; }
       return res.data || null;
     },
+    // The read-side counterpart, for the linked JCF Noise Abatement filing
+    // instead of the POA application itself (Fix #28). A genuinely
+    // anonymous "Track Application" guest has no RLS SELECT grant at all on
+    // jcfApplication rows — only a signed-in poa account (matched by
+    // ownerEmail) or JCF Division staff do — so a plain table read here
+    // always came back empty for a guest, even once their JCF filing had
+    // been submitted and stored successfully. Same pattern as
+    // atd_track_application: a SECURITY DEFINER RPC that only returns the
+    // row when the caller also supplies the matching tracking code.
+    trackLinkedJcfApplication: async function (poaAppNumber, trackingCode) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_track_linked_jcf_application', { p_poa_app_number: poaAppNumber, p_tracking_code: trackingCode });
+      });
+      if (res.error) { window.atdShowDebugError('trackLinkedJcfApplication(' + poaAppNumber + ')', res.error); return null; }
+      return res.data || null;
+    },
     // The write-side counterpart to trackApplication() above (Fix #26): a
     // guest applicant's very first save of their new application succeeds
     // (a plain INSERT, see isWriteOnceAnonPrefix in set() below), but every
@@ -4366,7 +4383,7 @@
       promoterName: false, promoterPhone: false, promoterTrn: false, promoterAddr1: false, promoterAddr2: false,
       promoterDistrict: false, promoterParish: false, dateOfBirth: false, patronsExpected: false,
       ownerBreached: false, ownerBreachReason: true,
-      venueOwner: false, ownerContact: false, ownerAddr1: false, ownerAddr2: false, ownerDistrict: false, ownerParish: false,
+      venueOwner: false, ownerContact: false, ownerAddress: false,
       jcf_businessType: false, permissionLetterFile: false,
       spiritLicense: false, communityArrangements: false, parkingArrangements: false, securityArrangements: false
     }
@@ -4450,12 +4467,9 @@
       ownerBreachReason: {label:'Breach details (when answer is Yes)', step:'Step 2 — Venue Details'},
       venueOwner: {label:"Venue's owner name", step:'Step 2 — Venue Details'},
       ownerContact: {label:"Owner's contact number", step:'Step 2 — Venue Details'},
-      ownerAddr1: {label:"Owner's street number", step:'Step 2 — Venue Details'},
-      ownerAddr2: {label:"Owner's street name", step:'Step 2 — Venue Details'},
-      ownerDistrict: {label:"Owner's district", step:'Step 2 — Venue Details'},
-      ownerParish: {label:"Owner's parish", step:'Step 2 — Venue Details'},
+      ownerAddress: {label:"Owner's address", step:'Step 2 — Venue Details'},
       jcf_businessType: {label:'Type of business conducted at venue', step:'Step 2 — Venue Details'},
-      permissionLetterFile: {label:"Venue owner's letter of permission upload", step:'Step 2 — Venue Details'},
+      permissionLetterFile: {label:"Proof of Ownership/Authorization upload", step:'Step 2 — Venue Details'},
       spiritLicense: {label:'Valid spirit license in place? (Yes/No/N-A answer)', step:'Step 2 — Venue Details'},
       communityArrangements: {label:'Arrangements made with community members? (answer)', step:'Step 2 — Venue Details'},
       parkingArrangements: {label:'Arrangements made for parking? (answer)', step:'Step 2 — Venue Details'},
@@ -8487,32 +8501,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <label for="jcf_venueName">Venue Name</label>
           <input type="text" id="jcf_venueName" readonly>
         </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="venueAddr1">Street Number</label>
-            <input type="text" id="venueAddr1" readonly>
-          </div>
-          <div>
-            <label for="venueAddr2">Street Name</label>
-            <input type="text" id="venueAddr2" readonly>
-          </div>
-        </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="venueDistrict">District</label>
-            <input type="text" id="venueDistrict" readonly>
-          </div>
-          <div>
-            <label for="venueParish">Parish</label>
-            <select id="venueParish" disabled>
-              <option value="">Select an option</option>
-              <option>Kingston</option><option>St. Andrew</option><option>St. Thomas</option><option>Portland</option>
-              <option>St. Mary</option><option>St. Ann</option><option>Trelawny</option><option>St. James</option>
-              <option>Hanover</option><option>Westmoreland</option><option>St. Elizabeth</option><option>Manchester</option>
-              <option>Clarendon</option><option>St. Catherine</option>
-          <option>Portmore</option>
-            </select>
-          </div>
+        <div class="field-group">
+          <label for="venueAddress">Address</label>
+          <input type="text" id="venueAddress" readonly>
         </div>
 
         <div class="field-row">
@@ -8526,40 +8517,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
 
-        <div class="field-group field-row">
-          <div>
-            <label for="ownerAddr1">Street Number</label>
-            <input type="text" id="ownerAddr1">
-          </div>
-          <div>
-            <label for="ownerAddr2">Street Name</label>
-            <input type="text" id="ownerAddr2">
-          </div>
-        </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="ownerDistrict">District</label>
-            <input type="text" id="ownerDistrict">
-          </div>
-          <div>
-            <label for="ownerParish">Parish</label>
-            <select id="ownerParish">
-              <option value="">Select an option</option>
-              <option>Kingston</option><option>St. Andrew</option><option>St. Thomas</option><option>Portland</option>
-              <option>St. Mary</option><option>St. Ann</option><option>Trelawny</option><option>St. James</option>
-              <option>Hanover</option><option>Westmoreland</option><option>St. Elizabeth</option><option>Manchester</option>
-              <option>Clarendon</option><option>St. Catherine</option>
-          <option>Portmore</option>
-            </select>
-          </div>
+        <div class="field-group">
+          <label for="ownerAddress">Address</label>
+          <input type="text" id="ownerAddress">
         </div>
 
         <div>
-          <div class="id-flyer-box-title">Venue owner's letter of permission</div>
+          <div class="id-flyer-box-title">Proof of Ownership/Authorization</div>
+          <div id="permissionLetterFromPoaTag" class="from-poa-tag hidden">✓ From your POA application</div>
           <div class="flyer-upload-box" id="permissionLetterBox" onclick="document.getElementById('permissionLetterFile').click()">
             <div id="permissionLetterPreviewWrap">
               <div class="fu-icon">⤒</div>
-              <div class="fu-label">Upload letter of permission</div>
+              <div class="fu-label">Upload proof of ownership/authorization</div>
             </div>
             <input type="file" id="permissionLetterFile" accept="image/*,.pdf" style="display:none;" onchange="permissionLetterFileChosen(this)">
           </div>
@@ -8913,7 +8882,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <p class="col-desc">The Jamaica Constabulary Force division serving your event's parish will review this application. You'll be notified through your Places of Amusement Application Main Menu once a decision is made.</p>
       <div class="btn-row" style="justify-content:center;">
         <button class="btn" onclick="window.print()">🖨 Print confirmation</button>
-        <button class="btn btn-primary hidden" id="confirmBackToPoaBtn" onclick="showHub('poa')">Return to my Places of Amusement Application</button>
+        <button class="btn btn-primary hidden" id="confirmBackToPoaBtn" onclick="jcf_returnToPoaMainMenu()">Return to my Places of Amusement Application</button>
       </div>
     </div>
   </section>
@@ -10104,7 +10073,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         '</div>';
       html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>' +
         acctDetailRow('Venue name', vi.venueName) +
-        acctDetailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict].filter(Boolean).join(', ')) +
+        acctDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', ')) +
         acctDetailRow("Venue's owner", vi.venueOwner) +
         acctDetailRow('Owner contact', vi.ownerContact) +
         '</div>';
@@ -11503,10 +11472,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     html += `<div class="panel"><div class="detail-section-title">Venue Information</div>`;
     html += jcfd_detailRow('Venue name', vi.venueName);
-    html += jcfd_detailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
+    html += jcfd_detailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
     html += jcfd_detailRow("Venue's owner", vi.venueOwner);
     html += jcfd_detailRow('Owner contact', vi.ownerContact);
-    html += jcfd_detailRow("Owner's address", [vi.ownerAddr1, vi.ownerAddr2, vi.ownerDistrict, vi.ownerParish].filter(Boolean).join(', '));
+    html += jcfd_detailRow("Owner's address", vi.ownerAddress || [vi.ownerAddr1, vi.ownerAddr2, vi.ownerDistrict, vi.ownerParish].filter(Boolean).join(', '));
     html += jcfd_detailRow('Owner previously breached the Noise Abatement Act', vi.ownerBreachedNoiseAct);
     if(vi.ownerBreachedNoiseAct === 'Yes'){
       html += jcfd_detailRow('Breach details', vi.ownerBreachReason);
@@ -11542,7 +11511,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
     html += jcfd_detailRowAction('Photo ID', eo.photoIdFileName || 'Not uploaded', 'photoId', !!eo.photoIdFileName);
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName);
-    html += jcfd_detailRowAction("Venue owner's letter of permission", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
+    html += jcfd_detailRowAction("Proof of Ownership/Authorization", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -12590,10 +12559,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     list.forEach(r => { statusCounts[jcfd_statusBadgeLabel(r)] = (statusCounts[jcfd_statusBadgeLabel(r)] || 0) + 1; });
     document.getElementById('jcfd_reportStatusChart').innerHTML = jcfd_reportBarRows(statusCounts);
 
+    // The JCF form's venue-address fields used to include a dedicated Parish
+    // dropdown (vi.venueParish); that's now folded into the single
+    // free-text vi.venueAddress field (see prefillFromPoa()/submitJcfApp()),
+    // which is always built as "..., <district>, <parish>" when a parish is
+    // known — so the last comma-separated segment is the parish whenever it
+    // matches this list. Falls back to the old vi.venueParish field for
+    // applications submitted before that change.
+    const jcfd_parishNames = ['Kingston','St. Andrew','St. Thomas','Portland','St. Mary','St. Ann','Trelawny','St. James','Hanover','Westmoreland','St. Elizabeth','Manchester','Clarendon','St. Catherine','Portmore'];
     const parishCounts = {};
     list.forEach(r => {
       const vi = r.venueInfo || {};
-      if(vi.venueParish) parishCounts[vi.venueParish] = (parishCounts[vi.venueParish] || 0) + 1;
+      let parish = vi.venueParish || '';
+      if(!parish && vi.venueAddress){
+        const lastPart = vi.venueAddress.split(',').pop().trim();
+        if(jcfd_parishNames.includes(lastPart)) parish = lastPart;
+      }
+      if(parish) parishCounts[parish] = (parishCounts[parish] || 0) + 1;
     });
     document.getElementById('jcfd_reportParishChart').innerHTML = jcfd_reportBarRows(parishCounts);
 
@@ -12650,7 +12632,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // for. One call here covers every document kind this modal handles.
     if(window.atdLogAudit && jcfdCurrentUser){
       const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
-        : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission" : kind === 'signature' ? 'Signature on File' : kind;
+        : kind === 'permissionLetter' ? "Proof of Ownership/Authorization" : kind === 'signature' ? 'Signature on File' : kind;
       await window.atdLogAudit({
         portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
         action: 'document.viewed',
@@ -15542,7 +15524,7 @@ let currentLinkedJcfApp = null;
 let currentMuniSettings = null;
 
 async function poa_findLinkedJcfApplication(poaAppNumber){
-  if(!window.storage || !poaAppNumber) return null;
+  if(!poaAppNumber) return null;
   // A JCF application submitted via the POA-to-JCF handoff is always stored
   // under the exact same appNumber as its parent POA application (see
   // submitJcfApp(): `number = jcfAppNumber || ...`, and jcf_ingestPayload()
@@ -15552,6 +15534,26 @@ async function poa_findLinkedJcfApplication(poaAppNumber){
   // (That list+per-key-get scan used to fire a burst of storage calls that
   // grew with the total number of JCF applications ever submitted, which is
   // what triggered "Message rate limit exceeded" errors on POA submission.)
+  //
+  // A plain read of that key only works for a signed-in poa account or JCF
+  // Division staff — the RLS policies on jcfApplication rows have no grant
+  // at all for a genuinely anonymous "Track Application" guest (see
+  // supabase_schema.sql). That's exactly why a not-logged-in applicant's
+  // Main Menu never showed their Noise Abatement filing as submitted even
+  // though it had gone through fine and was already visible to JCF Division:
+  // this read was being silently denied by RLS on every attempt, not just
+  // returning stale data. atd_track_linked_jcf_application (Fix #28) is a
+  // SECURITY DEFINER RPC — same pattern as atd_track_application already
+  // used for the POA application itself — that bypasses RLS but only
+  // returns the row when the caller also supplies the matching tracking
+  // code, so try it first whenever we have one.
+  if(currentAppRecord && currentAppRecord.trackingCode && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.trackLinkedJcfApplication){
+    try{
+      const rpcRec = await window.ATDBackend.trackLinkedJcfApplication(poaAppNumber, currentAppRecord.trackingCode);
+      if(rpcRec && rpcRec.poaAppNumber === poaAppNumber) return rpcRec;
+    } catch(err){ /* fall through to the plain read below */ }
+  }
+  if(!window.storage) return null;
   try{
     const result = await window.storage.get(`jcfApplication:${poaAppNumber}`, true);
     if(result && result.value){
@@ -16248,6 +16250,23 @@ async function openJcfForm(){
       // no separately-stored flier available for this application
     }
   }
+  // Same handoff for the Proof of Ownership/Authorization document: stored
+  // under its own `applicationOwnership:<appNumber>` key (see
+  // buildApplicationRecord's _ownershipFileDataPending note), not embedded
+  // in currentAppRecord. The JCF form's own upload for this same document
+  // used to be titled "Venue owner's letter of permission" — a different
+  // name for what is really the same document the POA application already
+  // asked for — which is why it was never auto-carried over before; now
+  // both forms use the same title and this fetch links them.
+  let ownershipFileData = null;
+  if(window.storage && r.appNumber){
+    try{
+      const result = await window.storage.get(`applicationOwnership:${r.appNumber}`, true);
+      if(result && result.value) ownershipFileData = JSON.parse(result.value).fileData || null;
+    } catch(err){
+      // no separately-stored ownership document available for this application
+    }
+  }
   const payload = {
     appNumber: r.appNumber,
     trackingCode: r.trackingCode,
@@ -16278,7 +16297,9 @@ async function openJcfForm(){
     venueParish: r.applicant.parish || '',
     venueOwnerName: r.venue.ownerName || '',
     venueOwnerAddress: r.venue.ownerAddress || '',
-    venueOwnerPhone: r.venue.ownerPhone || ''
+    venueOwnerPhone: r.venue.ownerPhone || '',
+    ownershipFileName: r.venue.ownershipFileName || '',
+    ownershipFileData
   };
   // Everything lives in one document now, so hand the payload straight to
   // the JCF applicant shell in memory and switch hubs in the same window —
@@ -16419,7 +16440,7 @@ function renderMmNoise(){
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>`;
   html += mmDetailRow('Venue name', vi.venueName);
-  html += mmDetailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict].filter(Boolean).join(', '));
+  html += mmDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
   html += mmDetailRow("Venue's owner", vi.venueOwner);
   html += mmDetailRow('Owner contact', vi.ownerContact);
   html += `</div>`;
@@ -24836,7 +24857,7 @@ function prefillFromPoa(){
   const lockedIds = [
     'dateOfApplication','dateOfEvent','jcfEventName','promoterName','promoterPhone','promoterTrn',
     'promoterAddr1','promoterAddr2','promoterDistrict','patronsExpected',
-    'jcf_venueName','venueAddr1','venueAddr2','venueDistrict','dateOfBirth'
+    'jcf_venueName','venueAddress','dateOfBirth'
   ];
 
   document.getElementById('dateOfApplication').value = new Date().toISOString().slice(0,10);
@@ -24845,7 +24866,6 @@ function prefillFromPoa(){
     unlinkedBanner.classList.remove('hidden');
     lockedIds.forEach(id => document.getElementById(id).removeAttribute('readonly'));
     document.getElementById('promoterParish').removeAttribute('disabled');
-    document.getElementById('venueParish').removeAttribute('disabled');
     jcf_applyProfileAutofill();
     return;
   }
@@ -24864,10 +24884,12 @@ function prefillFromPoa(){
   document.getElementById('promoterParish').value = poaData.applicantParish || '';
   document.getElementById('patronsExpected').value = poaData.patrons || '';
   document.getElementById('jcf_venueName').value = poaData.venueName || '';
-  document.getElementById('venueAddr1').value = poaData.venueAddr1 || '';
-  document.getElementById('venueAddr2').value = poaData.venueAddr2 || '';
-  document.getElementById('venueDistrict').value = poaData.venueDistrict || '';
-  document.getElementById('venueParish').value = poaData.venueParish || '';
+  // The venue's address arrives from the POA side as separate
+  // street/district/parish parts (that's still how the Municipal officer's
+  // venue database itself stores it — unchanged by this), but the JCF form
+  // only ever displayed this read-only, so it's combined into the one
+  // "Address" field the applicant actually sees here.
+  document.getElementById('venueAddress').value = [poaData.venueAddr1, poaData.venueAddr2, poaData.venueDistrict, poaData.venueParish].filter(Boolean).join(', ');
 
   // Venue owner details: only known when the applicant picked a venue from
   // the municipality's registered venues database on the POA side (see
@@ -24883,7 +24905,7 @@ function prefillFromPoa(){
     document.getElementById('ownerContact').value = jcf_formatPhoneValue((poaData.venueOwnerPhone || '').replace(/\D/g,''));
   }
   if(poaData.venueOwnerAddress){
-    document.getElementById('ownerAddr1').value = poaData.venueOwnerAddress;
+    document.getElementById('ownerAddress').value = poaData.venueOwnerAddress;
   }
 
   // Date of Birth: carried over from the POA application when the applicant
@@ -24921,6 +24943,22 @@ function prefillFromPoa(){
     const flyerBoxEl = document.getElementById('flyerBox');
     flyerBoxEl.onclick = null;
     flyerBoxEl.style.cursor = 'default';
+  }
+
+  // Proof of Ownership/Authorization: same handoff as Photo ID/Event flyer
+  // above. This form's own upload for the same document used to be titled
+  // "Venue owner's letter of permission" — a different name for what the
+  // POA application already asked for under this title — so it was never
+  // linked before; matching the title on both forms and carrying the file
+  // over here means the applicant isn't asked to find and upload it twice.
+  if(poaData.ownershipFileData){
+    permissionLetterFileData = poaData.ownershipFileData;
+    permissionLetterFileName = poaData.ownershipFileName || 'Proof of Ownership/Authorization';
+    renderPermissionLetterPreview();
+    document.getElementById('permissionLetterFromPoaTag').classList.remove('hidden');
+    const permissionLetterBoxEl = document.getElementById('permissionLetterBox');
+    permissionLetterBoxEl.onclick = null;
+    permissionLetterBoxEl.style.cursor = 'default';
   }
 
   if(poaData.securityRecords && poaData.securityRecords.length){
@@ -25120,12 +25158,9 @@ const JCF_FIELD_CHECKS = {
     { key:'ownerBreachReason', kind:'text', id:'ownerBreachReason', label:'Breach details' },
     { key:'venueOwner', kind:'text', id:'venueOwner', label:"Venue's owner name" },
     { key:'ownerContact', kind:'text', id:'ownerContact', label:"Owner's contact number" },
-    { key:'ownerAddr1', kind:'text', id:'ownerAddr1', label:"Owner's street number" },
-    { key:'ownerAddr2', kind:'text', id:'ownerAddr2', label:"Owner's street name" },
-    { key:'ownerDistrict', kind:'text', id:'ownerDistrict', label:"Owner's district" },
-    { key:'ownerParish', kind:'text', id:'ownerParish', label:"Owner's parish" },
+    { key:'ownerAddress', kind:'text', id:'ownerAddress', label:"Owner's address" },
     { key:'jcf_businessType', kind:'text', id:'jcf_businessType', label:'Type of business conducted at venue' },
-    { key:'permissionLetterFile', kind:'file', label:"Venue owner's letter of permission" },
+    { key:'permissionLetterFile', kind:'file', label:"Proof of Ownership/Authorization" },
     { key:'spiritLicense', kind:'radio', name:'spiritLicense', label:'Valid spirit license in place?' },
     { key:'communityArrangements', kind:'radio', name:'communityArrangements', label:'Arrangements made with community members?' },
     { key:'parkingArrangements', kind:'radio', name:'parkingArrangements', label:'Arrangements made for parking?' },
@@ -25487,7 +25522,7 @@ function renderPermissionLetterPreview(){
   if(permissionLetterFileData){
     wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(permissionLetterFileName)}</div>`;
   } else {
-    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload letter of permission</div>`;
+    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload proof of ownership/authorization</div>`;
   }
 }
 window.permissionLetterFileChosen = permissionLetterFileChosen;
@@ -25594,7 +25629,7 @@ function jcf_previewUpload(kind){
   const CONFIG = {
     photoId: { title: 'Photo ID', data: photoIdFileData, name: photoIdFileName },
     flyer: { title: 'Event Flyer', data: flyerFileData, name: flyerFileName },
-    permissionLetter: { title: 'Venue Permission Letter', data: permissionLetterFileData, name: permissionLetterFileName }
+    permissionLetter: { title: 'Proof of Ownership/Authorization', data: permissionLetterFileData, name: permissionLetterFileName }
   };
   const cfg = CONFIG[kind];
   if(!cfg || !window.atdOpenFilePreview) return;
@@ -25634,10 +25669,10 @@ function jcf_goReview(){
 
   const venue = [
     ['Venue Name', jcf_val('jcf_venueName')],
-    ['Venue Address', [jcf_val('venueAddr1'), jcf_val('venueAddr2'), jcf_val('venueDistrict'), jcf_val('venueParish')].filter(Boolean).join(', ')],
+    ['Venue Address', jcf_val('venueAddress')],
     ["Venue's Owner", jcf_val('venueOwner')],
     ['Owner Contact', jcf_val('ownerContact')],
-    ["Owner's Address", [jcf_val('ownerAddr1'), jcf_val('ownerAddr2'), jcf_val('ownerDistrict'), jcf_val('ownerParish')].filter(Boolean).join(', ')],
+    ["Owner's Address", jcf_val('ownerAddress')],
     ['Has owner ever breached Noise Abatement Act?', radioVal('ownerBreached')]
   ];
   if(radioVal('ownerBreached') === 'Yes'){
@@ -25677,7 +25712,7 @@ function jcf_goReview(){
   document.getElementById('jcf_revUploads').innerHTML =
     jcf_uploadRowHtml('Photo ID', 'photoId', !!photoIdFileData) +
     jcf_uploadRowHtml('Event Flyer', 'flyer', !!flyerFileData) +
-    jcf_uploadRowHtml('Venue Permission Letter', 'permissionLetter', !!permissionLetterFileData);
+    jcf_uploadRowHtml('Proof of Ownership/Authorization', 'permissionLetter', !!permissionLetterFileData);
 
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -25810,10 +25845,10 @@ async function submitJcfApp(){
     },
     venueInfo: {
       venueName: jcf_val('jcf_venueName'),
-      venueAddr1: jcf_val('venueAddr1'), venueAddr2: jcf_val('venueAddr2'), venueDistrict: jcf_val('venueDistrict'), venueParish: jcf_val('venueParish'),
+      venueAddress: jcf_val('venueAddress'),
       venueOwner: jcf_val('venueOwner'),
       ownerContact: jcf_val('ownerContact'),
-      ownerAddr1: jcf_val('ownerAddr1'), ownerAddr2: jcf_val('ownerAddr2'), ownerDistrict: jcf_val('ownerDistrict'), ownerParish: jcf_val('ownerParish'),
+      ownerAddress: jcf_val('ownerAddress'),
       ownerBreachedNoiseAct: radioVal('ownerBreached'),
       ownerBreachReason: radioVal('ownerBreached') === 'Yes' ? jcf_val('ownerBreachReason') : '',
       businessType: jcf_val('jcf_businessType'),
@@ -25881,6 +25916,23 @@ async function submitJcfApp(){
     submitBtn.textContent = 'Submit application';
   }
 }
+
+// Called by the confirmation page's "Return to my Places of Amusement
+// Application" button. A bare showHub('poa') alone would leave the Main
+// Menu showing whatever tab/data it had cached from BEFORE this JCF
+// application existed — the Main Menu only re-fetches the linked JCF
+// application's status (currentLinkedJcfApp) when its Noise Abatement tab
+// is opened (see poa_refreshLinkedJcfApp/mmGoView in the POA script), not
+// on every hub switch. That's exactly what made the Main Menu look like it
+// never registered a JCF submission that had, in fact, already gone
+// through (and was visible on the JCF Division dashboard the whole time).
+// Jumping straight to that tab forces mmGoView('noise') to refresh against
+// storage, so the applicant sees their submission immediately.
+function jcf_returnToPoaMainMenu(){
+  showHub('poa');
+  setTimeout(function(){ if(window.mmGoView) window.mmGoView('noise'); }, 50);
+}
+window.jcf_returnToPoaMainMenu = jcf_returnToPoaMainMenu;
 
 // Theme toggle
 const themeToggle = document.getElementById('jcf_themeToggle');
