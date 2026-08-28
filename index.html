@@ -21003,8 +21003,15 @@ function saveDocNote(){
   updateDocStatus(d.status, 'Note saved.');
 }
 
+// Returns true only if the write to backend storage actually succeeded
+// (or there was nothing to persist). Most callers historically ignored the
+// return value — safe, since it used to be undefined either way — but
+// verifyPayment()/unverifyPayment() below now check it: on a failed save
+// (e.g. an RLS rejection) they roll their optimistic in-memory flags back
+// and say so, instead of showing "Payment verified" while nothing was
+// actually saved for anyone else to see.
 async function persistIfFromStorage(a){
-  if(!a._fromStorage || !a.raw || !window.storage) return;
+  if(!a._fromStorage || !a.raw || !window.storage) return true;
   try{
     a.raw.status = a.status;
     a.raw.paymentVerified = a.paymentVerified;
@@ -21027,12 +21034,17 @@ async function persistIfFromStorage(a){
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
+    return true;
   } catch(err){
-    muni_showToast('Change saved locally, but syncing back to the applicant record failed.');
+    const isSessionIssue = err && (err.code === '42501' || /row-level security/i.test(err.message || ''));
+    muni_showToast(isSessionIssue
+      ? 'Could not save — your account may not have permission for this, or your session may have expired. Please log out and back in, and contact an Administrator if it keeps happening.'
+      : 'Change saved locally, but syncing back to the applicant record failed.');
+    return false;
   }
 }
 
-function verifyPayment(){
+async function verifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   const receiptInput = document.getElementById('paymentReceiptInput');
   const notesInput = document.getElementById('paymentNotesInput');
@@ -21043,6 +21055,11 @@ function verifyPayment(){
     return;
   }
 
+  // Captured so a failed save (e.g. an RLS rejection) can be rolled back
+  // instead of leaving this screen showing "Payment verified" while nothing
+  // was actually saved for anyone else — Supervisor, CEO, the applicant — to
+  // see. See persistIfFromStorage()'s own note above.
+  const prev = { paymentVerified: a.paymentVerified, paymentReceiptNumber: a.paymentReceiptNumber, paymentNotes: a.paymentNotes, status: a.status, paymentVerifiedAt: a.paymentVerifiedAt };
   a.paymentVerified = true;
   a.paymentReceiptNumber = receiptNumber;
   a.paymentNotes = notesInput ? notesInput.value.trim() : '';
@@ -21051,8 +21068,13 @@ function verifyPayment(){
   // clocks (see computeSlaBreaches) — only stamped the first time payment is
   // verified, so a later unverify-then-reverify doesn't reset it.
   if(!a.paymentVerifiedAt) a.paymentVerifiedAt = new Date().toISOString();
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    a.paymentVerified = prev.paymentVerified; a.paymentReceiptNumber = prev.paymentReceiptNumber; a.paymentNotes = prev.paymentNotes; a.status = prev.status; a.paymentVerifiedAt = prev.paymentVerifiedAt;
+    renderAppDetail();
+    return;
+  }
   muni_showToast(`Payment verified for ${a.appNumber}.`);
-  persistIfFromStorage(a);
   window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.paymentVerified', details: `${a.appNumber}: receipt ${receiptNumber}.`, muniId: currentUser.muniId });
   // Notify Supervisor + CEO (via the shared 'review' permission) that this
   // application is ready for the next step — the message adapts depending
@@ -21065,7 +21087,7 @@ function verifyPayment(){
   renderAppDetail();
   muni_renderAll();
 }
-function unverifyPayment(){
+async function unverifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   if(a.permitGenerated){
     // Defensive re-check: the button is hidden once a permit has been issued,
@@ -21074,11 +21096,17 @@ function unverifyPayment(){
     renderAppDetail();
     return;
   }
+  const prevU = { paymentVerified: a.paymentVerified, paymentVerifiedAt: a.paymentVerifiedAt, status: a.status };
   a.paymentVerified = false;
   a.paymentVerifiedAt = '';
   if(a.status === 'Payment Received') a.status = 'Submitted';
+  const okU = await persistIfFromStorage(a);
+  if(!okU){
+    a.paymentVerified = prevU.paymentVerified; a.paymentVerifiedAt = prevU.paymentVerifiedAt; a.status = prevU.status;
+    renderAppDetail();
+    return;
+  }
   muni_showToast(`Payment unverified for ${a.appNumber}.`);
-  persistIfFromStorage(a);
   renderAppDetail();
   muni_renderAll();
 }
