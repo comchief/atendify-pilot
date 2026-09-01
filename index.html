@@ -784,7 +784,7 @@
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
   .permit-doc-muniblock{ text-align:center; }
-  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; }
+  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
   .permit-doc-qr{ text-align:center; }
   .permit-doc-qr .qr-box{ display:inline-block; padding:4px; border:1px solid #ccc; }
@@ -1739,7 +1739,7 @@
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
   .permit-doc-muniblock{ text-align:center; }
-  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; }
+  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
   .permit-doc-qr{ text-align:center; }
   .permit-doc-qr .qr-box{ display:inline-block; padding:4px; border:1px solid #ccc; }
@@ -3406,7 +3406,28 @@
         // signed-in staff session — so gating on "no active session" (same
         // as the other prefixes here) keeps that update path on upsert.
         var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles|notification):/.test(key);
-        var useInsertOnly = isAuditLog;
+        // Same class of bug again, found live when a CEO approved/rejected a
+        // permit or requested an additional payment: setFinalStatus() and
+        // requestAdditionalPayment() write a fresh 'applicantNotification:'
+        // key (always a brand-new anotif-${Date.now()}-${random} id, never
+        // re-saved) from an authenticated 'muni' session. That prefix is
+        // NOT one of the literal alternatives in isWriteOnceAnonPrefix above
+        // (it starts with "applicantNotification:", not "notification:", so
+        // the regex never matches it), so every write to it always fell
+        // through to the plain upsert() path below. 'muni' has a correctly
+        // scoped INSERT policy for this prefix (covering exactly the
+        // application_approved / application_rejected /
+        // additional_payment_requested types these call sites ever send),
+        // but no SELECT policy at all on it — so upsert()'s implicit "does
+        // this key already exist?" conflict probe failed RLS with 42501 on
+        // a row that didn't even exist yet, before ever reaching the INSERT
+        // policy that would have allowed it. There is no case where a
+        // 'muni' session re-saves an existing applicantNotification key, so
+        // (like auditLog) this is always safe to force to a plain insert,
+        // which only needs the INSERT policy and never touches the
+        // conflict probe.
+        var isApplicantNotification = key.indexOf('applicantNotification:') === 0;
+        var useInsertOnly = isAuditLog || isApplicantNotification;
         var useUpdateOnly = false;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
@@ -15821,17 +15842,24 @@ async function mmGoView(view){
   const targetView = document.getElementById('mmView-' + view);
   targetView.classList.remove('hidden');
 
+  if(view === 'summary' || view === 'documents' || view === 'payment' || view === 'noise' || view === 'permit'){
+    await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
+  }
+
   if(view === 'summary' || view === 'permit' || view === 'payment'){
     await mmRefreshRecord();
     const poa_statusBadge = document.getElementById('mmStatusBadge');
     poa_statusBadge.textContent = currentAppRecord.status || 'Submitted';
     poa_statusBadge.className = 'mm-status-badge' +
       (currentAppRecord.status === 'Approved' ? ' approved' : currentAppRecord.status === 'Rejected' ? ' rejected' : '');
-    document.getElementById('mmPermitNav').disabled = !currentAppRecord.permitGenerated;
-  }
-
-  if(view === 'summary' || view === 'documents' || view === 'payment' || view === 'noise'){
-    await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
+    // The Permit nav tab used to only unlock once the MUNICIPAL permit was
+    // generated — an applicant whose JCF Noise Abatement Permit was issued
+    // first (JCF approval often lands before the municipality's own
+    // decision) couldn't even open this tab to see it. Unlock it as soon as
+    // EITHER permit exists.
+    const hasEitherPermit = !!(currentAppRecord.permitGenerated) ||
+      !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
+    document.getElementById('mmPermitNav').disabled = !hasEitherPermit;
   }
 
   // Blur/lock every other section until the Application Fee has been paid
@@ -16892,15 +16920,15 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo">`
-          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px;">LOGO OF MC</div>`}
-        <div class="permit-doc-muniblock">
-          <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
-        </div>
+          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
         </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
       </div>
       <div class="permit-doc-reg">PLACES OF AMUSEMENT REGULATION 1999</div>
       <div class="permit-doc-title-box">AMUSEMENT LICENSE</div>
@@ -16933,6 +16961,46 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   `;
 }
 
+// The JCF Noise Abatement Permit is a completely separate document from
+// the Municipal Corporation's Places of Amusement permit above — issued by
+// the JCF Division (see jcfd_approve() in the JCF Officer Portal's own
+// script scope), not the municipality, and carrying a much smaller record
+// shape ({number, permitTypeLabel, issuedDate, expiresDate} — no venue,
+// applicant address, or signature data the way the municipal permit has).
+// Reuses the same .permit-doc/.permit-doc-top/.permit-doc-grid styling for
+// visual consistency rather than a second, divergent template.
+function poa_buildJcfPermitDocHtml(p, appNumber, qrTargetId){
+  qrTargetId = qrTargetId || 'jcfPermitQrTarget';
+  return `
+    <div class="permit-doc">
+      <div class="permit-doc-top">
+        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
+        <div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">JCF</div>
+        <div class="permit-doc-qr">
+          <div class="qr-box" id="${qrTargetId}"></div>
+          <div class="qr-scan-label">SCAN ME</div>
+        </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">JAMAICA CONSTABULARY FORCE</div>
+      </div>
+      <div class="permit-doc-reg">NOISE ABATEMENT ACT</div>
+      <div class="permit-doc-title-box">NOISE ABATEMENT PERMIT</div>
+
+      <div class="permit-doc-grid">
+        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</div><div class="pdg-label">DATE ISSUED</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(p.number || '')}</div><div class="pdg-label">PERMIT NO.</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.expiresDate))}</div><div class="pdg-label">EVENT DATE</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(p.permitTypeLabel || 'JCF Noise Abatement Permit')}</div><div class="pdg-label">PERMIT TYPE</div></div>
+      </div>
+
+      <p class="permit-doc-body">This Noise Abatement Permit is granted by the Jamaica Constabulary Force in respect of application <strong>${poa_escapeHtml(appNumber || '')}</strong>, authorizing the noise-generating activity described in that application on the date(s) noted above, subject to the conditions of the Noise Abatement Act.</p>
+
+      <div class="permit-doc-efile">e-File</div>
+    </div>
+  `;
+}
+
 function poa_renderPermitQr(targetId, data){
   const el = document.getElementById(targetId);
   if(!el || typeof QRCode === 'undefined') return;
@@ -16942,26 +17010,64 @@ function poa_renderPermitQr(targetId, data){
   } catch(err){ /* QR library unavailable — box stays empty */ }
 }
 
+// The Application Permit tab used to show only the Municipal Corporation's
+// own Places of Amusement permit — never the separate JCF Noise Abatement
+// Permit an applicant may also have been issued (via the linked JCF filing,
+// see poa_refreshLinkedJcfApp/currentLinkedJcfApp), even once the JCF
+// Division had approved it. Both are real, independently-issued documents
+// for the same event, so both belong here once each exists.
 async function renderMmPermit(){
   const r = currentAppRecord;
   const body = document.getElementById('mmPermitBody');
-  if(!r.permitGenerated || !r.permit){
-    body.innerHTML = `<p class="col-desc">Your permit will appear here once your application has been approved.</p>`;
+  const jcfApp = currentLinkedJcfApp;
+  const hasMuniPermit = !!(r.permitGenerated && r.permit);
+  const hasJcfPermit = !!(jcfApp && jcfApp.permitGenerated && jcfApp.permit);
+
+  if(!hasMuniPermit && !hasJcfPermit){
+    body.innerHTML = `<p class="col-desc">Your permit(s) will appear here once your application has been approved.</p>`;
     return;
   }
-  const p = r.permit;
-  const signature = await fetchMuniSignature(r.muniId);
-  const logo = await window.fetchMuniLogo(r.muniId);
-  body.innerHTML = poa_buildPermitDocHtml(p, signature, 'mmPermitQrTarget', logo) + `
-    <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
-      <button class="btn" onclick="printPermitFromMenu()">🖨 Print permit</button>
-    </div>
-  `;
-  poa_renderPermitQr('mmPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+
+  let html = '';
+  if(hasMuniPermit){
+    const signature = await fetchMuniSignature(r.muniId);
+    const logo = await window.fetchMuniLogo(r.muniId);
+    html += `
+      <h3 style="margin:0 0 10px;">Places of Amusement Permit</h3>
+      ${poa_buildPermitDocHtml(r.permit, signature, 'mmPermitQrTarget', logo)}
+      <div class="btn-row" style="justify-content:flex-start; margin:14px 0 28px;">
+        <button class="btn" onclick="printPermitFromMenu('muni')">🖨 Print permit</button>
+      </div>`;
+  }
+  if(hasJcfPermit){
+    html += `
+      <h3 style="margin:0 0 10px;">JCF Noise Abatement Permit</h3>
+      ${poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'mmJcfPermitQrTarget')}
+      <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+        <button class="btn" onclick="printPermitFromMenu('jcf')">🖨 Print permit</button>
+      </div>`;
+  }
+  body.innerHTML = html;
+
+  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', r.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
 }
 
-async function printPermitFromMenu(){
+async function printPermitFromMenu(kind){
+  kind = kind || 'muni';
   const r = currentAppRecord;
+  const jcfApp = currentLinkedJcfApp;
+
+  if(kind === 'jcf'){
+    if(!jcfApp || !jcfApp.permitGenerated || !jcfApp.permit) return;
+    document.getElementById('printArea').innerHTML = poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'printPermitQrTarget');
+    poa_renderPermitQr('printPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+    document.body.classList.add('printing-doc');
+    window.print();
+    setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
+    return;
+  }
+
   if(!r.permitGenerated || !r.permit) return;
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
@@ -17002,6 +17108,7 @@ window.mmGoView = mmGoView;
 window.openMainMenu = openMainMenu;
 window.poa_getCurrentAppRecord = function(){ return currentAppRecord; };
 window.poa_buildPermitDocHtml = poa_buildPermitDocHtml;
+window.poa_buildJcfPermitDocHtml = poa_buildJcfPermitDocHtml;
 window.poa_renderPermitQr = poa_renderPermitQr;
 window.onApMethodChange = onApMethodChange;
 window.onApplyParishChange = onApplyParishChange;
