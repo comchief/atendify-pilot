@@ -2774,13 +2774,28 @@
 <body>
 <script>
   // ---- Public QR verify route (Fix: public QR permit-verification page) ----
-  // A permit's QR code encodes https://atendifyapp.com/verify/{appNumber}.
-  // This has to be decided before anything else on the page runs: a scanned
+  // A permit's QR code encodes {origin}/verify/{appNumber} (see
+  // window.atdVerifyUrl below). This has to be decided before anything else
+  // on the page runs: a scanned
   // visitor should see ONLY the verification result, never the normal
   // landing page, a login form, or the (slow, admin-only) session-restore
   // flow below. window.ATD_IS_VERIFY_ROUTE gates both of those.
   window.ATD_VERIFY_MATCH = /^\/verify\/([^\/?#]+)/.exec(location.pathname);
   window.ATD_IS_VERIFY_ROUTE = !!window.ATD_VERIFY_MATCH;
+
+  // Fix: QR codes were hardcoded to `https://atendifyapp.com/verify/...`
+  // (no `www.`) while the only domain actually registered/verified on
+  // Railway is `www.atendifyapp.com` — every scanned QR was landing on a
+  // domain that either doesn't resolve or drops the /verify/{appNumber}
+  // path on the way to www, so every scan showed "not found" regardless of
+  // whether the permit existed. Build the verify URL from location.origin
+  // instead of a hardcoded string, so it always matches whatever domain the
+  // app is actually being served from (this one call site feeds every QR
+  // generated anywhere in the app, old permits included, since it's called
+  // fresh at render/print time rather than trusting a stored value).
+  window.atdVerifyUrl = function(appNumber){
+    return location.origin + '/verify/' + encodeURIComponent(appNumber || '');
+  };
 
   // ---- Staff/Admin direct-URL routes (domain separation) ----
   // www.atendifyapp.com/portal is the only door to the Agency (Municipal +
@@ -11961,7 +11976,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(jcfdPrintArea){
       if(rec.permitGenerated && rec.permit){
         jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, undefined, jcfdCachedCrest);
-        jcfd_renderPermitQr('jcfdPermitQrTarget', rec.permit.qrData);
+        // Always rebuild from the app number rather than trusting the
+        // stored qrData — permits issued before the www-domain fix have a
+        // stale/wrong domain baked into that stored value, and this way
+        // already-issued permits render a correct QR too, not just new ones.
+        jcfd_renderPermitQr('jcfdPermitQrTarget', window.atdVerifyUrl(rec.jcfAppNumber));
       } else {
         jcfdPrintArea.innerHTML = '';
       }
@@ -13284,7 +13303,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // page the Municipal side uses, keyed off jcfdActiveAppKey (the exact
       // storage key this record lives under — right regardless of whether
       // that's the linked poaAppNumber or this filing's own jcfAppNumber).
-      qrData: `https://atendifyapp.com/verify/${(jcfdActiveAppKey || '').replace('jcfApplication:', '')}`
+      qrData: window.atdVerifyUrl((jcfdActiveAppKey || '').replace('jcfApplication:', ''))
     };
 
     await jcfd_saveActiveApp(rec);
@@ -13963,7 +13982,24 @@ function poa_findMissingRequiredField(stepNum, cfg){
   const checks = POA_FIELD_CHECKS[stepNum] || [];
   for(const f of checks){
     if(!cfg.poa[f.key]) continue; // not marked required by the admin
-    const visEl = document.getElementById(f.kind === 'radio' ? f.visId : f.id);
+    // Every file upload (Photo ID, Company Logo, Event Flier, Proof of
+    // Ownership) is a real <input type="file"> that is ALWAYS display:none
+    // by design — the visible control is the styled ".upload-row" div
+    // around it (see the dropzone markup: the row's own onclick proxies to
+    // the hidden input's .click()). Checking the input's own offsetParent
+    // for visibility therefore always came back null, whether or not its
+    // surrounding step/section was actually shown to the applicant — so
+    // marking any of these four uploads "required" in Admin > Application
+    // Forms silently did nothing: this check always treated the field as
+    // "not currently visible" and skipped it, letting every applicant
+    // continue with no upload at all. The row's own offsetParent correctly
+    // reflects the real, conditionally-toggled visibility (e.g.
+    // photoIdUploadGroup/companyLogoGroup for Individual vs Company) since
+    // only the input itself carries the permanent display:none, never its
+    // wrapping row.
+    const visEl = f.kind === 'radio' ? document.getElementById(f.visId)
+      : f.kind === 'file' ? document.getElementById(f.id)?.parentElement
+      : document.getElementById(f.id);
     if(!poa_fieldIsVisible(visEl)) continue; // hidden/disabled right now — not applicable
     if(!poa_fieldHasValue(f)) return f.label;
   }
@@ -17144,8 +17180,9 @@ async function renderMmPermit(){
   }
   body.innerHTML = html;
 
-  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', r.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
-  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', window.atdVerifyUrl(r.appNumber));
+  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', window.atdVerifyUrl(r.appNumber));
 }
 
 async function printPermitFromMenu(kind){
@@ -17158,7 +17195,7 @@ async function printPermitFromMenu(kind){
     const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
     const jcfCrest = await fetchJcfCrest();
     document.getElementById('printArea').innerHTML = window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'printPermitQrTarget', jcfCrest);
-    poa_renderPermitQr('printPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+    poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(r.appNumber));
     document.body.classList.add('printing-doc');
     window.print();
     setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
@@ -17170,7 +17207,7 @@ async function printPermitFromMenu(kind){
   const signature = await fetchMuniSignature(r.muniId);
   const logo = await window.fetchMuniLogo(r.muniId);
   document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo);
-  poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(r.appNumber));
   document.body.classList.add('printing-doc');
   window.print();
   setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
@@ -21045,7 +21082,8 @@ async function renderAppDetail(){
   if(printArea){
     if(a.permitGenerated && a.permit){
       printArea.innerHTML = muni_buildPermitDocHtml(a.permit, cachedSignature);
-      muni_renderPermitQr('permitQrTarget', a.permit.qrData);
+      // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+      muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(a.appNumber));
     } else {
       printArea.innerHTML = '';
     }
@@ -21669,7 +21707,7 @@ function generatePermit(a){
     validity: isAnnual ? `1 April ${permitYear} – 31 March ${permitYear + 1}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
-    qrData: `https://atendifyapp.com/verify/${a.appNumber}`
+    qrData: window.atdVerifyUrl(a.appNumber)
   };
   a.permit = permit;
   a.permitGenerated = true;
@@ -24937,7 +24975,7 @@ const ADMIN_SAMPLE_POA_PERMIT = {
   expectedPatrons: '250',
   issuedDate: admin_todayIso(),
   expiresDate: '2026-12-16',
-  qrData: 'https://atendifyapp.com/preview/sample-poa-permit'
+  qrData: location.origin + '/preview/sample-poa-permit'
 };
 
 const ADMIN_SAMPLE_JCF_PERMIT = {
@@ -24954,7 +24992,7 @@ const ADMIN_SAMPLE_JCF_PERMIT = {
   issuedDate: admin_todayIso(),
   expiresDate: '2026-12-16',
   expectedPatrons: '250',
-  qrData: 'https://atendifyapp.com/preview/sample-jcf-permit'
+  qrData: location.origin + '/preview/sample-jcf-permit'
 };
 
 const ADMIN_DOC_PREVIEW_QR_ID = 'adminDocPreviewQrTarget';
@@ -25538,8 +25576,8 @@ const JCF_FIELD_CHECKS = {
     { key:'promoterParish', kind:'text', id:'promoterParish', label:'Promoter parish' },
     { key:'dateOfBirth', kind:'text', id:'dateOfBirth', label:'Promoter date of birth' },
     { key:'patronsExpected', kind:'text', id:'patronsExpected', label:'Number of patrons expected' },
-    { key:'photoIdFile', kind:'file', label:'Photo ID' },
-    { key:'flyerFile', kind:'file', label:'Event flyer' }
+    { key:'photoIdFile', kind:'file', id:'photoIdFile', label:'Photo ID' },
+    { key:'flyerFile', kind:'file', id:'flyerFile', label:'Event flyer' }
   ],
   2: [
     { key:'ownerBreached', kind:'radio', name:'ownerBreached', label:'Has venue owner ever breached the Act?' },
@@ -25548,7 +25586,7 @@ const JCF_FIELD_CHECKS = {
     { key:'ownerContact', kind:'text', id:'ownerContact', label:"Owner's contact number" },
     { key:'ownerAddress', kind:'text', id:'ownerAddress', label:"Owner's address" },
     { key:'jcf_businessType', kind:'text', id:'jcf_businessType', label:'Type of business conducted at venue' },
-    { key:'permissionLetterFile', kind:'file', label:"Proof of Ownership/Authorization" },
+    { key:'permissionLetterFile', kind:'file', id:'permissionLetterFile', label:"Proof of Ownership/Authorization" },
     { key:'spiritLicense', kind:'radio', name:'spiritLicense', label:'Valid spirit license in place?' },
     { key:'communityArrangements', kind:'radio', name:'communityArrangements', label:'Arrangements made with community members?' },
     { key:'parkingArrangements', kind:'radio', name:'parkingArrangements', label:'Arrangements made for parking?' },
@@ -25563,6 +25601,20 @@ const JCF_FIELD_CHECKS = {
 // field isn't currently editable/shown to the applicant, it isn't currently
 // enforceable.
 function jcf_fieldIsVisible(f){
+  // Same fix as the POA wizard's own poa_findMissingRequiredField: Photo ID,
+  // Event flyer, and Proof of Ownership are each a real <input type="file">
+  // that is ALWAYS style="display:none" by design (see photoIdFile/
+  // flyerFile/permissionLetterFile above — the visible control is the
+  // .flyer-upload-box div around it). Checking the input's own offsetParent
+  // for visibility always came back null regardless of whether its box was
+  // actually shown, so marking any of these three "required" in Admin >
+  // Application Forms silently never enforced it. The box (the input's own
+  // parentElement in all three cases) correctly reflects real visibility.
+  if(f.kind === 'file'){
+    const input = document.getElementById(f.id);
+    const box = input ? input.parentElement : null;
+    return !!(box && !input.disabled && box.offsetParent !== null);
+  }
   const el = f.kind === 'radio' ? document.querySelector(`input[name="${f.name}"]`) : document.getElementById(f.id);
   return !!(el && !el.disabled && el.offsetParent !== null);
 }
