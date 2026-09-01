@@ -780,9 +780,15 @@
     grid-template-columns: 70px 1fr 100px;
     align-items:center;
     gap: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
+  /* Agency (Municipal Corporation / JCF) logo -- sized separately from the
+     Atendify logo above (1.5-2x it, per request) and pinned to the bottom
+     of the row with align-self so it sits right against the muniname/reg
+     text that follows, instead of being centered against the taller QR
+     column and leaving visible empty space below it. */
+  .permit-doc-top img.pd-logo-agency{ height: 100px; width:auto; object-fit:contain; align-self:end; }
   .permit-doc-muniblock{ text-align:center; }
   .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
@@ -1735,9 +1741,15 @@
     grid-template-columns: 70px 1fr 100px;
     align-items:center;
     gap: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
+  /* Agency (Municipal Corporation / JCF) logo -- sized separately from the
+     Atendify logo above (1.5-2x it, per request) and pinned to the bottom
+     of the row with align-self so it sits right against the muniname/reg
+     text that follows, instead of being centered against the taller QR
+     column and leaving visible empty space below it. */
+  .permit-doc-top img.pd-logo-agency{ height: 100px; width:auto; object-fit:contain; align-self:end; }
   .permit-doc-muniblock{ text-align:center; }
   .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
@@ -13322,7 +13334,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // NOTE: this is a generic, neutral shield/badge icon — not a reproduction
   // of the actual Jamaica Constabulary Force coat of arms. Real government
   // insignia is intentionally not replicated here.
-  const JCFD_CREST_SVG = '<svg width="40" height="40" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block; margin:0 auto 3px;"><path d="M22 2 L40 8 V20 C40 30 33 38 22 42 C11 38 4 30 4 20 V8 Z" fill="#0a2f5c" stroke="#c9a227" stroke-width="1.5"/><path d="M22 6 L36 11 V20 C36 28 30 34.5 22 38 C14 34.5 8 28 8 20 V11 Z" fill="none" stroke="#c9a227" stroke-width="1"/><path d="M22 14 L25.5 21 H18.5 Z" fill="#c9a227"/><circle cx="22" cy="26" r="3.5" fill="none" stroke="#c9a227" stroke-width="1.2"/></svg>';
+  const JCFD_CREST_SVG = '<svg width="72" height="72" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block; margin:0 auto 2px;"><path d="M22 2 L40 8 V20 C40 30 33 38 22 42 C11 38 4 30 4 20 V8 Z" fill="#0a2f5c" stroke="#c9a227" stroke-width="1.5"/><path d="M22 6 L36 11 V20 C36 28 30 34.5 22 38 C14 34.5 8 28 8 20 V11 Z" fill="none" stroke="#c9a227" stroke-width="1"/><path d="M22 14 L25.5 21 H18.5 Z" fill="#c9a227"/><circle cx="22" cy="26" r="3.5" fill="none" stroke="#c9a227" stroke-width="1.2"/></svg>';
 
   function jcfd_formatLongDate(isoDate){
     if(!isoDate) return 'N/A';
@@ -13348,7 +13360,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
-            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:40px; width:auto; object-fit:contain; display:block; margin:0 auto 3px;">` : JCFD_CREST_SVG}
+            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
             <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
@@ -17074,8 +17086,8 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
-          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">LOGO OF MC</div>`}
+          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
