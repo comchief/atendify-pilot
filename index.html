@@ -10170,6 +10170,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('acct_appView').classList.add('hidden');
     document.getElementById('acct_loginEmail').value = '';
     document.getElementById('acct_loginPassword').value = '';
+    // A signed-in applicant who opened an application (acct_viewApplication
+    // -> openMainMenu) leaves behind the same refresh-restore marker a guest
+    // tracking flow does (see poa_rememberMainMenuForRefresh) — clear it on
+    // an explicit logout, so a shared/public computer doesn't silently drop
+    // the NEXT person who refreshes straight into this account's
+    // application after they've logged out.
+    try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e){}
     if(window.atdUpdateAuthNav) window.atdUpdateAuthNav();
   }
   window.acct_logout = acct_logout;
@@ -15983,6 +15990,37 @@ function showTrackApplication(){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
+// Shared by submitTrackApplication() (a person typing in their app number +
+// tracking code) and poa_tryRestoreMainMenu() (silently re-doing the exact
+// same lookup after a page refresh — see that function below) — pulled out
+// so the RLS-safe lookup path only has to be gotten right in one place.
+// Throws on "not found" / tracking code mismatch; returns the record on
+// success. See the original inline comment (kept below) for why this can't
+// just be a plain window.storage.get() once a real backend is configured.
+async function poa_lookupTrackedApplication(appNumber, code){
+  if(!window.storage) throw new Error('storage unavailable');
+  // A plain window.storage.get() here would hit the exact same RLS wall
+  // guest submission did (see phase1b_migration.sql Fix #18): there is no
+  // SELECT policy letting an anonymous caller read an 'application' row it
+  // doesn't own, and RLS has no way to check "did they also supply the
+  // right tracking code" on its own. Where a real backend is configured,
+  // go through the matching SECURITY DEFINER function instead, which
+  // checks both values together server-side. The plain get() is kept as
+  // the fallback for the local-only preview environment, which has no RLS
+  // (and no rpc()) to begin with.
+  const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+  if(usingRealAuth){
+    const record = await window.ATDBackend.trackApplication(appNumber, code);
+    if(!record) throw new Error('not found');
+    return record;
+  }
+  const result = await window.storage.get(`application:${appNumber}`, true);
+  if(!result || !result.value) throw new Error('not found');
+  const record = JSON.parse(result.value);
+  if(record.trackingCode !== code) throw new Error('tracking code mismatch');
+  return record;
+}
+
 async function submitTrackApplication(){
   const appNumber = document.getElementById('trackAppNumber').value.trim();
   const code = document.getElementById('trackCode').value.trim();
@@ -16004,37 +16042,12 @@ async function submitTrackApplication(){
   btn.disabled = true;
   btn.textContent = 'Looking up…';
   try{
-    // A plain window.storage.get() here would hit the exact same RLS wall
-    // guest submission did (see phase1b_migration.sql Fix #18): there is no
-    // SELECT policy letting an anonymous caller read an 'application' row it
-    // doesn't own, and RLS has no way to check "did they also supply the
-    // right tracking code" on its own. Where a real backend is configured,
-    // go through the matching SECURITY DEFINER function instead, which
-    // checks both values together server-side. The plain get() is kept as
-    // the fallback for the local-only preview environment, which has no RLS
-    // (and no rpc()) to begin with.
-    const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
-    let record = null;
-    if(usingRealAuth){
-      record = await window.ATDBackend.trackApplication(appNumber, code);
-      if(!record){
-        throw new Error('not found');
-      }
-    } else {
-      const result = await window.storage.get(`application:${appNumber}`, true);
-      if(!result || !result.value){
-        throw new Error('not found');
-      }
-      record = JSON.parse(result.value);
-      if(record.trackingCode !== code){
-        errorBox.textContent = 'That tracking code does not match this application number.';
-        errorBox.classList.remove('hidden');
-        return;
-      }
-    }
+    const record = await poa_lookupTrackedApplication(appNumber, code);
     openMainMenu(record, `application:${appNumber}`);
   } catch(err){
-    errorBox.textContent = 'We could not find an application with that number and tracking code.';
+    errorBox.textContent = err && err.message === 'tracking code mismatch'
+      ? 'That tracking code does not match this application number.'
+      : 'We could not find an application with that number and tracking code.';
     errorBox.classList.remove('hidden');
   } finally{
     btn.disabled = false;
@@ -16042,9 +16055,53 @@ async function submitTrackApplication(){
   }
 }
 
+// Called on every fresh page load (see poa_tryRestoreMainMenu below) as well
+// as whenever a real lookup succeeds — a plain refresh used to always lose
+// this in-memory record and drop the visitor straight back to the public
+// landing page, even mid-application, because nothing persisted which
+// application they were looking at. Re-saving the same {appNumber,
+// trackingCode} pair here on every call is what makes that restore possible
+// without a separate "remember this" call at every entry point (guest
+// tracking, and a signed-in applicant's "View" from their account
+// dashboard — see acct_viewApplication — both funnel through here).
+function poa_rememberMainMenuForRefresh(record){
+  try{
+    sessionStorage.setItem('atdMainMenuRestore', JSON.stringify({
+      appNumber: record.appNumber, trackingCode: record.trackingCode
+    }));
+  }catch(e){
+    // Private-browsing mode, storage disabled, quota — refresh just won't
+    // restore. Never let this block opening the Main Menu itself.
+  }
+}
+
+// Companion to the staff-portal session restore below (see
+// atdBootstrapSessionRestore) — same idea, applied to a visitor sitting on
+// the Main Menu (guest tracking-code flow, or a signed-in applicant's own
+// application) instead of a logged-in officer. Returns true if it
+// successfully re-opened the Main Menu, false if there was nothing to
+// restore (or the lookup no longer succeeds — e.g. the tracking code was
+// somehow invalidated), in which case the normal public landing page falls
+// through exactly as before this existed.
+async function poa_tryRestoreMainMenu(){
+  let saved = null;
+  try{ saved = JSON.parse(sessionStorage.getItem('atdMainMenuRestore') || 'null'); }catch(e){}
+  if(!saved || !saved.appNumber || !saved.trackingCode) return false;
+  try{
+    const record = await poa_lookupTrackedApplication(saved.appNumber, saved.trackingCode);
+    openMainMenu(record, `application:${saved.appNumber}`);
+    return true;
+  }catch(e){
+    try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e2){}
+    return false;
+  }
+}
+window.poa_tryRestoreMainMenu = poa_tryRestoreMainMenu;
+
 function openMainMenu(record, storageKey){
   currentAppRecord = record;
   currentAppKey = storageKey || `application:${record.appNumber}`;
+  poa_rememberMainMenuForRefresh(record);
 
   ['poa_infoPage','muniSelectPage','trackPage'].forEach(id=>{
     document.getElementById(id).classList.add('hidden');
@@ -26969,6 +27026,17 @@ window.updateWordCount = updateWordCount;
           restored = await window.admin_tryRestoreSession(profile);
         }
       }
+    }
+    // Not a staff session (or none restored) — a visitor sitting on the
+    // applicant Main Menu (tracked as a guest, or viewing their own
+    // application while signed into their account) used to lose that view
+    // on every refresh for the same reason staff did before the restore
+    // above existed: nothing persisted which application they were on, so
+    // a refresh always dropped back to the public landing page mid-review.
+    // This doesn't depend on ATDBackend being configured — it works the
+    // same way in the local-only preview environment.
+    if(!restored && window.poa_tryRestoreMainMenu){
+      restored = await window.poa_tryRestoreMainMenu();
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
