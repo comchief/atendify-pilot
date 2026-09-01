@@ -557,6 +557,7 @@
   .mm-nav-item.active{ background: var(--green); border-color: var(--green); color: #fff; }
   .mm-nav-item:disabled{ color: var(--text-muted); cursor:not-allowed; opacity:0.6; }
   .mm-nav-item:disabled:hover{ background: var(--bg); }
+  .mm-nav-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background: var(--red); margin-left:7px; vertical-align:middle; }
 
   .mm-content{
     background: var(--bg);
@@ -2809,6 +2810,19 @@
     return location.origin + '/verify/' + encodeURIComponent(appNumber || '');
   };
 
+  // Fix: the on-screen error/debug panel (see atdShowDebugError further
+  // down) used to pop up for EVERY visitor — applicant, officer, anyone —
+  // any time an uncaught error or unhandled promise rejection happened
+  // anywhere in the app, showing raw technical detail (stack traces, RLS
+  // error codes) with no explanation. That's exactly the "bubble" an
+  // officer would see mid-task with no idea what it means. It's genuinely
+  // useful for tracking down a bug (that's why it exists), so it isn't
+  // removed — it just no longer shows itself uninvited. Add ?debug=1 to the
+  // URL to see it live; without that, errors are still recorded (the count
+  // in atdDebugErrors) so asking someone to add ?debug=1 and reproduce
+  // still works for remote troubleshooting.
+  window.ATD_DEBUG_MODE = /(?:^|[?&])debug=1(?:&|$)/.test(location.search);
+
   // ---- Staff/Admin direct-URL routes (domain separation) ----
   // www.atendifyapp.com/portal is the only door to the Agency (Municipal +
   // JCF) login hub; www.atendifyapp.com/admin is the only door to the Admin
@@ -3235,7 +3249,11 @@
   window.atdShowDebugError = function(context, err){
     try{
       var panel = atdEnsureDebugPanel();
-      panel.style.display = 'flex';
+      // See window.ATD_DEBUG_MODE (top of <body>) — errors are always
+      // recorded below, but the panel only auto-shows itself when that flag
+      // is on, instead of surprising every ordinary visitor with a raw
+      // technical bubble.
+      if(window.ATD_DEBUG_MODE) panel.style.display = 'flex';
       var entry = { time: new Date().toLocaleTimeString(), context: context, detail: atdFormatErr(err) };
       atdDebugErrors.push(entry);
       panel.querySelector('#atd-debug-title').textContent = 'Errors (' + atdDebugErrors.length + ')';
@@ -3596,6 +3614,12 @@
     signUp: function (email, password) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.signUp({ email: email, password: password });
+    },
+    // Re-sends the signup confirmation email (Confirm email account
+    // creation) for an account that hasn't clicked the link yet.
+    resendConfirmation: function (email) {
+      if (!client) return Promise.reject(new Error('Backend not configured'));
+      return client.auth.resend({ type: 'signup', email: email });
     },
     // scope:'local' is deliberate, not the default: Supabase's own default
     // scope is 'global', meaning every ordinary "Log out" click in every
@@ -4339,6 +4363,51 @@
       console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', err);
       return { ok: false, error: err && err.message ? err.message : String(err) };
     }
+  };
+
+  // ---- Shared watch list check (Applicant/DJ/Sound System auto-reject) ----
+  // Checks a single TRN against BOTH the Municipal Corporation watch list
+  // (`watchlist:<trn>`) and the JCF Noise Abatement watch list
+  // (`jcfWatchlist:<trn>`) — the same two keys poa_'s own pre-submission
+  // check and jcfd_muniFlagForTrn/jcfFlagForTrn already read elsewhere.
+  // Returns { fullName, agencyName } for the first Active match found, or
+  // null. Used at submission time for both wizards so a flagged applicant,
+  // DJ, or Sound System auto-rejects the application, per the mandatory
+  // (non-toggleable) watch list policy — see submitApp()/submitJcfApp().
+  window.atdCheckWatchlistFlag = async function(trn){
+    const norm = String(trn || '').replace(/\D/g, '');
+    if(!norm || !window.storage) return null;
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    try{
+      const muniRes = await window.storage.get(`watchlist:${norm}`, true);
+      if(muniRes && muniRes.value){
+        const w = JSON.parse(muniRes.value);
+        if(w.status === 'Active'){
+          const agency = agencies.find(x => x.type === 'Municipal Corporation' && x.id === w.muniId);
+          return { fullName: w.fullName, agencyName: (agency && agency.name) || 'the Municipal Corporation' };
+        }
+      }
+    } catch(e){ /* no Municipal watch list record for this TRN */ }
+    try{
+      const jcfRes = await window.storage.get(`jcfWatchlist:${norm}`, true);
+      if(jcfRes && jcfRes.value){
+        const w = JSON.parse(jcfRes.value);
+        if(w.status === 'Active'){
+          const agency = agencies.find(x => x.type === 'JCF' && x.id === w.agencyId);
+          return { fullName: w.fullName, agencyName: (agency && agency.name) || 'the Jamaica Constabulary Force' };
+        }
+      }
+    } catch(e){ /* no JCF watch list record for this TRN */ }
+    return null;
+  };
+
+  // Builds the required wording for a watch-list-triggered auto-rejection —
+  // role is one of 'Applicant' / 'DJ' / 'Sound System'.
+  window.atdWatchlistRejectionMessage = function(role, flag){
+    const agency = (flag && flag.agencyName) || 'the flagging agency';
+    const name = (flag && flag.fullName) || role;
+    return `${role} ${name} has been flagged by ${agency} and cannot be part of this application. `
+      + `Please remove and resubmit your application. If you believe this was done in error, you may contact ${agency}.`;
   };
 
   // ---- Shared phone/TRN input formatting ----
@@ -5878,7 +5947,7 @@
         <button class="mm-nav-item active" data-view="payment" onclick="mmGoView('payment')">Application Payment</button>
         <button class="mm-nav-item" data-view="summary" onclick="mmGoView('summary')">Places Of Amusement License</button>
         <button class="mm-nav-item" data-view="noise" onclick="mmGoView('noise')">Noise Abatement (JCF) Permit</button>
-        <button class="mm-nav-item" data-view="documents" onclick="mmGoView('documents')">Upload Documents</button>
+        <button class="mm-nav-item" data-view="documents" onclick="mmGoView('documents')">Upload Documents<span class="mm-nav-dot hidden" id="mmDocsNavDot" title="A document was rejected — needs re-upload"></span></button>
         <button class="mm-nav-item" data-view="permit" id="mmPermitNav" onclick="mmGoView('permit')" disabled>Application Permit</button>
       </aside>
 
@@ -9073,7 +9142,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   <div id="acct_authView" class="acct-auth-wrap">
     <img class="app-logo-img-hub" alt="Atendify logo" style="width:48px; height:48px; display:block; margin:0 auto 20px;">
-    <div class="acct-auth-tabs">
+    <div class="acct-auth-tabs" id="acct_authTabs">
       <button class="acct-auth-tab active" id="acct_tabLogin" onclick="acct_switchAuthTab('login')">Log In</button>
       <button class="acct-auth-tab" id="acct_tabSignup" onclick="acct_switchAuthTab('signup')">Sign Up</button>
     </div>
@@ -9095,6 +9164,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </label>
       <div id="acct_signupError" class="info-banner warn hidden"></div>
       <button class="btn btn-primary" style="width:100%;" onclick="acct_signup()">Create account</button>
+    </div>
+
+    <!-- Shown instead of the tabs/login/signup panes once signUp() succeeds
+         but Supabase returns no session -- i.e. the project's "Confirm
+         email" setting is on and this account can't sign in until the link
+         in that email is clicked. Also shown if an existing unconfirmed
+         account tries to log in (see acct_login()'s email_not_confirmed
+         handling). -->
+    <div id="acct_paneConfirmPending" class="acct-auth-pane">
+      <div class="info-banner good" id="acct_confirmPendingMsg" style="margin-bottom:16px;"></div>
+      <p style="font-size:13px; color:#666; margin:0 0 16px;">Didn't get it? Check your spam folder, or we can send it again.</p>
+      <button class="btn" style="width:100%; margin-bottom:10px;" id="acctResendBtn" onclick="acct_resendConfirmation()">Resend confirmation email</button>
+      <button class="btn btn-primary" style="width:100%;" onclick="acct_switchAuthTab('login')">Back to Log In</button>
     </div>
   </div>
 
@@ -9617,6 +9699,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             </div>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2 style="font-size:18px;">Municipal Integration</h2></div>
+          <div class="toggle-row" style="margin-bottom:14px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="jcfd_settingsAutoRejectToggle" onchange="jcfd_saveSettings()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:14px; font-weight:600;">Auto-reject application if the Municipal Corporation rejects the linked Places of Amusement application</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin:0;">When on, if the Municipal Corporation rejects the linked Places of Amusement application, this JCF Noise Abatement Permit application is automatically marked Rejected as well.</p>
+        </div>
       </div>
 
       <!-- ===== SLA BREACHES PAGE (JCF) ===== -->
@@ -9863,12 +9956,52 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   };
 
   function acct_switchAuthTab(tab){
+    document.getElementById('acct_authTabs').classList.remove('hidden');
+    document.getElementById('acct_paneConfirmPending').classList.remove('active');
     document.getElementById('acct_tabLogin').classList.toggle('active', tab === 'login');
     document.getElementById('acct_tabSignup').classList.toggle('active', tab === 'signup');
     document.getElementById('acct_paneLogin').classList.toggle('active', tab === 'login');
     document.getElementById('acct_paneSignup').classList.toggle('active', tab === 'signup');
   }
   window.acct_switchAuthTab = acct_switchAuthTab;
+
+  // Hides the Log In/Sign Up tabs and shows a single "check your email"
+  // pane instead -- used both right after a signup that Supabase left
+  // unconfirmed, and when an existing unconfirmed account tries to log in.
+  let acct_pendingConfirmEmail = null;
+  function acct_showConfirmPendingPane(email){
+    acct_pendingConfirmEmail = email;
+    document.getElementById('acct_authTabs').classList.add('hidden');
+    document.getElementById('acct_paneLogin').classList.remove('active');
+    document.getElementById('acct_paneSignup').classList.remove('active');
+    document.getElementById('acct_paneConfirmPending').classList.add('active');
+    document.getElementById('acct_confirmPendingMsg').textContent =
+      `We've sent a confirmation link to ${email}. Please check your inbox (and spam folder) and click the link before logging in.`;
+  }
+  window.acct_showConfirmPendingPane = acct_showConfirmPendingPane;
+
+  async function acct_resendConfirmation(){
+    const email = acct_pendingConfirmEmail;
+    const msgEl = document.getElementById('acct_confirmPendingMsg');
+    if(!email || !window.ATDBackend || !window.ATDBackend.resendConfirmation){
+      if(msgEl) msgEl.textContent = 'Could not resend right now -- please try logging in again in a moment.';
+      return;
+    }
+    const btn = document.getElementById('acctResendBtn');
+    const original = btn ? btn.innerHTML : '';
+    if(btn){ btn.disabled = true; btn.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Sending…', 16) : 'Sending…'; }
+    try{
+      const { error } = await window.ATDBackend.resendConfirmation(email);
+      if(msgEl){
+        msgEl.textContent = error
+          ? (error.message || 'Could not resend the confirmation email. Please try again shortly.')
+          : `We've sent another confirmation link to ${email}. Please check your inbox (and spam folder).`;
+      }
+    } finally {
+      if(btn){ btn.disabled = false; btn.innerHTML = original; }
+    }
+  }
+  window.acct_resendConfirmation = acct_resendConfirmation;
 
   async function acct_signup(){
     const name = document.getElementById('acct_signupName').value.trim();
@@ -9908,13 +10041,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // as before — Auth only proves who's signing in, not where their
     // application profile data lives.
     const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+    let signUpData = null;
     if(usingRealAuth){
-      const { error } = await window.ATDBackend.signUp(email, password);
+      const { data, error } = await window.ATDBackend.signUp(email, password);
       if(error){
         errorBox.textContent = error.message || 'Could not create that account.';
         errorBox.classList.remove('hidden');
         return;
       }
+      signUpData = data;
     }
 
     const profile = {
@@ -9928,6 +10063,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       createdDate: new Date().toISOString().slice(0,10)
     };
     await window.storage.set('accountUser:' + email, JSON.stringify(profile), true);
+
+    // With Supabase's "Confirm email" setting on, signUp() succeeds (no
+    // error) but returns no session until the person clicks the link in
+    // that email -- data.user exists, data.session doesn't. Treating that
+    // as "logged in" here would be its own version of this project's
+    // recurring RLS-mismatch bug: the UI would show the app shell while
+    // every read/write silently fails 401/RLS because there's really no
+    // authenticated session yet. Send them to the "check your email" pane
+    // instead. When Confirm email is off (or there's no real Auth backend
+    // configured at all), signUp() returns a session immediately and this
+    // falls through to the normal instant-login path unchanged.
+    if(usingRealAuth && signUpData && !signUpData.session){
+      acct_showConfirmPendingPane(email);
+      return;
+    }
+
     acct_currentUser = profile;
     acct_showLoggedInUI();
     showToastFallback(`Welcome, ${name}! Your account has been created.`);
@@ -9975,8 +10126,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         if(window.ATDBackend.logSession) await window.ATDBackend.logSession('poa');
         acct_showLoggedInUI();
       }catch(e){
-        errorBox.textContent = 'Incorrect email or password.';
-        errorBox.classList.remove('hidden');
+        // Supabase's error for this is code 'email_not_confirmed' on newer
+        // supabase-js, or just the message "Email not confirmed" on older
+        // versions -- check both rather than assume one.
+        const msg = (e && e.message) || '';
+        const isUnconfirmed = (e && e.code === 'email_not_confirmed') || /email.*not.*confirm/i.test(msg);
+        if(isUnconfirmed){
+          acct_showConfirmPendingPane(email);
+        } else {
+          errorBox.textContent = 'Incorrect email or password.';
+          errorBox.classList.remove('hidden');
+        }
       }
       return;
     }
@@ -12497,6 +12657,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaReviewDays').value = rules.review.targetDays;
     document.getElementById('jcfd_slaDecisionToggle').checked = rules.decision.enabled;
     document.getElementById('jcfd_slaDecisionDays').value = rules.decision.targetDays;
+    document.getElementById('jcfd_settingsAutoRejectToggle').checked = !!settings.autoRejectOnMuniReject;
   }
   window.jcfd_loadSettings = jcfd_loadSettings;
 
@@ -12519,8 +12680,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaAssignmentHours').value = slaRules.assignment.targetHours;
     document.getElementById('jcfd_slaReviewDays').value = slaRules.review.targetDays;
     document.getElementById('jcfd_slaDecisionDays').value = slaRules.decision.targetDays;
+    const autoRejectOnMuniReject = document.getElementById('jcfd_settingsAutoRejectToggle').checked;
     try{
-      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules }), true);
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject }), true);
       jcfd_showToast('Settings saved.');
     } catch(err){
       jcfd_showToast('Could not save settings right now.');
@@ -15585,39 +15747,23 @@ async function submitApp(){
   try{
     const trn = poa_normalizeTrn(poa_val('trn'));
     if(trn){
-      try{
-        const watchResult = await window.storage.get(`watchlist:${trn}`, true);
-        if(watchResult && watchResult.value){
-          const watchRecord = JSON.parse(watchResult.value);
-          if(watchRecord.status === 'Active'){
-            errorBox.textContent = 'This Taxpayer Registration Number is currently flagged and cannot be used to submit a new application. Please contact the municipality for more information.';
-            errorBox.classList.remove('hidden');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit application';
-            return;
-          }
+      // Checks BOTH the Municipal and JCF watch lists (window.atdCheckWatchlistFlag,
+      // shared shim) — a JCF flag blocks submission the same way even when the
+      // Municipal Corporation itself has never separately flagged this TRN.
+      const flag = await window.atdCheckWatchlistFlag(trn);
+      if(flag){
+        errorBox.textContent = window.atdWatchlistRejectionMessage('Applicant', flag);
+        errorBox.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit application';
+        const applicantEmail = poa_val('email');
+        if(applicantEmail){
+          window.atdSendEmail('application_watchlist_rejected', applicantEmail, {
+            appNumber: '', applicantName: poa_val('fullName'), role: 'Applicant',
+            flaggedName: flag.fullName, agencyName: flag.agencyName
+          });
         }
-      } catch(watchErr){
-        // no watchlist record found for this TRN — safe to continue
-      }
-      // A JCF flag overrides a non-flagged Municipal Corporation status —
-      // block submission the same way even when the Municipal Corporation
-      // itself has never separately flagged this TRN (shared `jcfWatchlist:`
-      // key — same convention the JCF officer dashboard writes to).
-      try{
-        const jcfWatchResult = await window.storage.get(`jcfWatchlist:${trn}`, true);
-        if(jcfWatchResult && jcfWatchResult.value){
-          const jcfWatchRecord = JSON.parse(jcfWatchResult.value);
-          if(jcfWatchRecord.status === 'Active'){
-            errorBox.textContent = 'This Taxpayer Registration Number is currently flagged by the JCF Noise Abatement Division and cannot be used to submit a new application. Please contact the municipality for more information.';
-            errorBox.classList.remove('hidden');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit application';
-            return;
-          }
-        }
-      } catch(jcfWatchErr){
-        // no JCF watchlist record found for this TRN — safe to continue
+        return;
       }
     }
 
@@ -15922,6 +16068,17 @@ function openMainMenu(record, storageKey){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
+// Lights the small red dot on the "Upload Documents" nav item whenever any
+// regulatory document currently sits Rejected — the applicant otherwise has
+// no way to notice a rejection without clicking into that tab first.
+function mmUpdateDocsNavDot(){
+  const dot = document.getElementById('mmDocsNavDot');
+  if(!dot || !currentAppRecord) return;
+  const docs = currentAppRecord.regulatoryDocuments || {};
+  const anyRejected = Object.keys(docs).some(name => docs[name] && docs[name].status === 'Rejected');
+  dot.classList.toggle('hidden', !anyRejected);
+}
+
 async function mmRefreshRecord(){
   if(!window.storage || !currentAppKey) return;
   try{
@@ -15972,7 +16129,17 @@ async function mmGoView(view){
     await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
   }
 
-  if(view === 'summary' || view === 'permit' || view === 'payment'){
+  // Fix: this used to only refresh currentAppRecord (the actual source of
+  // regulatoryDocuments' statuses) for summary/permit/payment — NOT for
+  // documents or noise, even though those two are exactly the views that
+  // display a document's Rejected state. An applicant who logged in and
+  // went straight to "Upload Documents" (without first visiting one of the
+  // other three tabs) would see whatever stale copy of the record was
+  // loaded when the Main Menu first opened, so a document an officer had
+  // since rejected would silently still show as if nothing had happened
+  // until they happened to visit another tab first. Documents and noise now
+  // refresh the same way.
+  if(view === 'summary' || view === 'documents' || view === 'permit' || view === 'payment' || view === 'noise'){
     await mmRefreshRecord();
     const poa_statusBadge = document.getElementById('mmStatusBadge');
     poa_statusBadge.textContent = currentAppRecord.status || 'Submitted';
@@ -15986,6 +16153,7 @@ async function mmGoView(view){
     const hasEitherPermit = !!(currentAppRecord.permitGenerated) ||
       !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
     document.getElementById('mmPermitNav').disabled = !hasEitherPermit;
+    mmUpdateDocsNavDot();
   }
 
   // Blur/lock every other section until the Application Fee has been paid
@@ -16521,6 +16689,7 @@ async function openJcfForm(){
     muniId: r.muniId,
     municipalityName: r.municipalityName,
     applicantName: r.applicant.name,
+    applicantEmail: r.applicant.email || '',
     applicantPhone: r.applicant.phone,
     applicantTrn: r.applicant.trn,
     applicantAddr1: r.applicant.addr1 || '',
@@ -21348,8 +21517,26 @@ async function openApplicantFileModal(kind){
 async function updateDocStatus(newStatus, toastMessage){
   const a = applications.find(a => a.id === activeAppId);
   const r = a.raw;
-  const d = r.regulatoryDocuments[activeDocName];
+  // Captured now — closeDocModal() below (on success) resets the module-level
+  // activeDocName to null, and the email sent further down needs the name.
+  const docName = activeDocName;
+  const d = r.regulatoryDocuments[docName];
   const note = document.getElementById('docNoteInput').value.trim();
+
+  // Captured so a failed save (e.g. an RLS rejection, an expired session)
+  // can be rolled back instead of showing "Document rejected" and closing
+  // the modal while nothing was actually saved — the same class of bug
+  // verifyPayment() below already guards against, that this function never
+  // did. Previously this always showed the success toast and closed the
+  // modal regardless of whether persistIfFromStorage() actually succeeded,
+  // which is why an officer could reject a document, see no real
+  // confirmation (persistIfFromStorage's own failure toast, if any, was
+  // immediately overwritten by this one), and the applicant's Main Menu
+  // would never show the rejection because it was genuinely never saved.
+  const prevStatus = d.status;
+  const prevNote = d.officerNote;
+  const prevRawRequiredDocs = r.requiredDocumentsSubmitted;
+  const prevRequiredDocs = a.requiredDocumentsSubmitted;
 
   d.status = newStatus;
   d.officerNote = note;
@@ -21363,28 +21550,61 @@ async function updateDocStatus(newStatus, toastMessage){
   r.requiredDocumentsSubmitted = computed;
   a.requiredDocumentsSubmitted = computed;
 
-  await persistIfFromStorage(a);
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    // persistIfFromStorage() has already shown its own failure toast — roll
+    // back the in-memory change and leave the modal open so the officer can
+    // see the real status and retry, instead of silently proceeding as if
+    // this had worked.
+    d.status = prevStatus;
+    d.officerNote = prevNote;
+    r.requiredDocumentsSubmitted = prevRawRequiredDocs;
+    a.requiredDocumentsSubmitted = prevRequiredDocs;
+    return;
+  }
+
   muni_showToast(toastMessage);
   closeDocModal();
   renderAppDetail();
   muni_renderAll();
+
+  if(newStatus === 'Rejected'){
+    const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+    const applicantName = a.raw && a.raw.applicant && a.raw.applicant.name;
+    if(applicantEmail){
+      window.atdSendEmail('document_rejected', applicantEmail, {
+        appNumber: a.appNumber, applicantName, documentName: docName, officerNote: note,
+        municipalityName: (a.raw && a.raw.municipalityName) || myMunicipalityName()
+      });
+      window.atdNotifyApplicant(applicantEmail, 'document_rejected',
+        `${docName} on your application ${a.appNumber} was rejected: "${note}". Please log in and re-upload.`, a.appNumber);
+    }
+  }
 }
 
-function approveDocument(){
-  updateDocStatus('Approved', `${activeDocName} approved.`);
+// These three are the only callers of updateDocStatus() and are themselves
+// only ever invoked from onclick="" handlers, which never look at a return
+// value — so returning the promise here changes nothing about how the UI
+// behaves. It's still worth doing: without it, updateDocStatus()'s save,
+// rollback-on-failure, toast, and email all run as an unobserved
+// fire-and-forget promise, which is easy to accidentally race against
+// elsewhere (e.g. an automated test, or future code that wants to know the
+// reject actually finished) with no way to tell it's still in flight.
+async function approveDocument(){
+  return updateDocStatus('Approved', `${activeDocName} approved.`);
 }
-function rejectDocument(){
+async function rejectDocument(){
   const note = document.getElementById('docNoteInput').value.trim();
   if(!note){
     muni_showToast('Please add a note explaining why this document is being rejected.');
     return;
   }
-  updateDocStatus('Rejected', `${activeDocName} rejected. The applicant will see your note and be asked to re-upload.`);
+  return updateDocStatus('Rejected', `${activeDocName} rejected. The applicant will see your note and be asked to re-upload.`);
 }
-function saveDocNote(){
+async function saveDocNote(){
   const a = applications.find(a => a.id === activeAppId);
   const d = a.raw.regulatoryDocuments[activeDocName];
-  updateDocStatus(d.status, 'Note saved.');
+  return updateDocStatus(d.status, 'Note saved.');
 }
 
 // Returns true only if the write to backend storage actually succeeded
@@ -21809,12 +22029,46 @@ function setFinalStatus(status){
       window.atdNotifyApplicant(applicantEmail, 'application_rejected',
         `Your application ${a.appNumber} was not approved by ${municipalityName}.`, a.appNumber);
     }
+    if(status === 'Rejected') muni_autoRejectLinkedJcfIfEnabled(a);
     muni_showToast(`${a.appNumber} marked as ${status}.`);
   }
 
   persistIfFromStorage(a);
   renderAppDetail();
   muni_renderAll();
+}
+
+// Mirrors jcfd_autoRejectLinkedPoaIfEnabled (JCF script scope) in the other
+// direction: if the JCF Division serving this application's parish has
+// turned on "Auto-reject application if the Municipal Corporation rejects"
+// (Settings → SLA Policy → Municipal Integration), mark the linked JCF
+// Noise Abatement Permit application Rejected too. Best-effort — any
+// failure here must not affect the Municipal rejection itself, which has
+// already been saved above.
+async function muni_autoRejectLinkedJcfIfEnabled(a){
+  if(!window.storage || !a || !a.appNumber) return;
+  try{
+    const jcfApp = await muni_findLinkedJcfApplication(a.appNumber);
+    if(!jcfApp || jcfApp.status === 'Rejected') return;
+
+    const parish = a.raw && a.raw.parish;
+    if(!parish) return;
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    const branch = agencies.find(x => x.type === 'JCF' && x.parish === parish);
+    if(!branch) return;
+
+    const settingsResult = await window.storage.get(`jcfBranch:${branch.id}:settings`, true);
+    const settings = (settingsResult && settingsResult.value) ? JSON.parse(settingsResult.value) : {};
+    if(!settings.autoRejectOnMuniReject) return;
+
+    const rejectedBy = currentUser ? currentUser.name : ((a.raw && a.raw.municipalityName) || myMunicipalityName());
+    jcfApp.status = 'Rejected';
+    jcfApp.finalDecision = `Auto-rejected: linked Places of Amusement application ${a.appNumber} was rejected by ${rejectedBy}.`;
+    jcfApp.permitGenerated = false;
+    await window.storage.set(`jcfApplication:${a.appNumber}`, JSON.stringify(jcfApp), true);
+  } catch(err){
+    // best-effort only — the Municipal rejection itself already succeeded
+  }
 }
 
 function printPermit(){
@@ -26254,6 +26508,34 @@ async function submitJcfApp(){
   const number = jcfAppNumber || ('JCF' + Date.now().toString().slice(-8));
   const signature = getSignatureValue();
 
+  // Mandatory watch list check -- not a toggleable setting like the SLA
+  // auto-reject options below, since this is a compliance rule rather than
+  // a workflow preference. An Active Applicant/DJ/Sound System match on
+  // EITHER the Municipal or JCF watch list auto-rejects this application
+  // immediately, before it ever reaches an officer's queue. Checked in
+  // order (promoter, then each DJ, then each Sound System) and stops at the
+  // first match -- one flagged party is enough to reject the whole filing.
+  let watchlistHit = null;
+  const promoterTrnForWatchlist = jcf_val('promoterTrn');
+  if(promoterTrnForWatchlist){
+    const flag = await window.atdCheckWatchlistFlag(promoterTrnForWatchlist);
+    if(flag) watchlistHit = { role: 'Applicant', flag };
+  }
+  if(!watchlistHit){
+    for(const d of djs){
+      const flag = await window.atdCheckWatchlistFlag(d.trn);
+      if(flag){ watchlistHit = { role: 'DJ', flag }; break; }
+    }
+  }
+  if(!watchlistHit){
+    for(const s of soundSystems){
+      const flag = await window.atdCheckWatchlistFlag(s.trn);
+      if(flag){ watchlistHit = { role: 'Sound System', flag }; break; }
+    }
+  }
+  const watchlistRejectionMessage = watchlistHit
+    ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
+
   const record = {
     jcfAppNumber: number,
     poaAppNumber: poaData ? poaData.appNumber : null,
@@ -26266,14 +26548,14 @@ async function submitJcfApp(){
     // code) — used by the Municipal dashboard's JCF Approval Granted tile to
     // show exactly when the linked JCF application was submitted.
     submittedAt: new Date().toISOString(),
-    status: 'Submitted',
+    status: watchlistHit ? 'Rejected' : 'Submitted',
     assignedOfficerId: null,
     assignedOfficerName: '',
     comments: [],
     recommendation: '',
     recommendationNotes: '',
-    recommendedBy: '',
-    finalDecision: '',
+    recommendedBy: watchlistHit ? 'Auto-rejected: watch list match' : '',
+    finalDecision: watchlistRejectionMessage,
     permitGenerated: false,
     permit: null,
     eventOverview: {
@@ -26349,9 +26631,45 @@ async function submitJcfApp(){
     document.getElementById('confirmPage').classList.remove('hidden');
     document.getElementById('confirmAppNumber').textContent = number;
     document.getElementById('confirmBackToPoaBtn').classList.toggle('hidden', !poaData);
-    jcf_showToast('JCF Noise Abatement application submitted.');
     if(window.AccountBridge && window.AccountBridge.getCurrentUser()){
       window.AccountBridge.clearDraft('jcf');
+    }
+
+    if(watchlistHit){
+      jcf_showToast('This application was rejected — see the confirmation screen for details.');
+      const confirmMsgEl = document.getElementById('confirmPage');
+      if(confirmMsgEl) confirmMsgEl.insertAdjacentHTML('beforeend',
+        `<div class="info-banner warn" style="margin-top:16px;">${jcf_escapeHtml(watchlistRejectionMessage)}</div>`);
+      // Best-effort email + cascade to the linked Places of Amusement
+      // application, if any -- same mandatory rule, not gated by either
+      // municipality's/division's optional SLA auto-reject toggle.
+      const notifyEmail = (poaData && poaData.applicantEmail) || record.ownerEmail;
+      const applicantName = (poaData && poaData.applicantName) || (record.eventOverview && record.eventOverview.promoterName) || '';
+      if(notifyEmail){
+        window.atdSendEmail('application_watchlist_rejected', notifyEmail, {
+          appNumber: number, applicantName, role: watchlistHit.role,
+          flaggedName: watchlistHit.flag.fullName, agencyName: watchlistHit.flag.agencyName
+        });
+        window.atdNotifyApplicant(notifyEmail, 'application_watchlist_rejected', watchlistRejectionMessage, number);
+      }
+      if(record.poaAppNumber && window.storage){
+        try{
+          const poaResult = await window.storage.get(`application:${record.poaAppNumber}`, true);
+          if(poaResult && poaResult.value){
+            const poaRec = JSON.parse(poaResult.value);
+            if(poaRec.status !== 'Rejected'){
+              poaRec.status = 'Rejected';
+              poaRec.recommendation = 'Recommend Reject';
+              poaRec.recommendedBy = `Auto-rejected: watch list match on linked JCF Noise Abatement Permit application ${number} (${watchlistHit.role} ${watchlistHit.flag.fullName}).`;
+              await window.storage.set(`application:${record.poaAppNumber}`, JSON.stringify(poaRec), true);
+            }
+          }
+        } catch(cascadeErr){
+          // best-effort only -- the JCF rejection itself already succeeded
+        }
+      }
+    } else {
+      jcf_showToast('JCF Noise Abatement application submitted.');
     }
   } catch(err){
     // Same reasoning as submitApp() in the POA script: show the actual
