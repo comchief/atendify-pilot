@@ -3407,6 +3407,7 @@
         // as the other prefixes here) keeps that update path on upsert.
         var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles|notification):/.test(key);
         var useInsertOnly = isAuditLog;
+        var useUpdateOnly = false;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
           if (!sessionRes || !sessionRes.data || !sessionRes.data.session) {
@@ -3431,11 +3432,43 @@
               useInsertOnly = true;
             }
           }
+          // A real session here means this is an authenticated muni/jcfd/
+          // admin write to a key that, by design, was already created
+          // earlier by an anonymous or poa caller (that's the whole point
+          // of isWriteOnceAnonPrefix, see above) — so this is always an
+          // update-in-place, never a fresh insert. Confirmed live, isolating
+          // each step with the Accountant demo account under a simulated
+          // session: a plain SELECT and a plain UPDATE against
+          // application:POA-072026-04 both succeeded under RLS, but the
+          // exact upsert() call below still failed with 42501. That matches
+          // a documented Postgres quirk — an INSERT ... ON CONFLICT DO
+          // UPDATE can still require the row to satisfy the INSERT policy's
+          // WITH CHECK, not just the UPDATE policy's, even when the
+          // ON CONFLICT branch is the one that actually runs. There is no
+          // INSERT policy at all for the 'muni' role on the 'application'
+          // prefix (only 'poa' may create one, since only an applicant is
+          // ever supposed to), so muni's otherwise-correctly-permissioned
+          // update was being rejected purely because of upsert's own
+          // insert-side check. Use a plain UPDATE instead whenever we
+          // already know the row must exist — it only needs the UPDATE
+          // policy, which this same account already passes.
+          if (!useInsertOnly) useUpdateOnly = true;
         }
-        var res = await atdWithClockSkewRetry(function () {
-          return useInsertOnly
-            ? client.from(TABLE).insert({ key: key, value: offloaded })
-            : client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+        var res = await atdWithClockSkewRetry(async function () {
+          if (useInsertOnly) return client.from(TABLE).insert({ key: key, value: offloaded });
+          if (useUpdateOnly) {
+            var updRes = await client.from(TABLE).update({ value: offloaded }).eq('key', key).select('key');
+            if (!updRes.error && (!updRes.data || updRes.data.length === 0)) {
+              // No existing row matched the key — this authenticated write
+              // is (unexpectedly, given isWriteOnceAnonPrefix's own design)
+              // the very first write to this key. Fail safe rather than
+              // silently doing nothing: fall back to the original upsert so
+              // a legitimate first authenticated write still goes through.
+              return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+            }
+            return updRes;
+          }
+          return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
         if (res.error) {
           // systemError: is intentionally admin-only-writable (see
