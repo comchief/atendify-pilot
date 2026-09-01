@@ -3959,6 +3959,31 @@
         </div>`;
       return;
     }
+    // A standalone JCF Noise Abatement Permit (filed directly with a
+    // Division, no linked Municipal Corporation application at all — or one
+    // where the JCF Division approved ahead of the Municipal Corporation) —
+    // see Fix #31 (backend/fix31_verify_standalone_jcf_permits.sql), which
+    // added this shape to atd_verify_permit() specifically because the old
+    // version always required a Municipal Corporation permit to exist first,
+    // so scanning a genuine, already-issued JCF-only permit's own QR code
+    // showed "Not a valid permit" every time.
+    if(result.isJcfOnly){
+      const expiry = [result.expiresDate, result.expiresTime12].filter(Boolean).join(' ');
+      let jcfHtml = `<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;">
+          <div style="font-weight:700; font-size:17px;">${esc(result.divisionName || 'Jamaica Constabulary Force')}</div>
+          ${statusBadge(result.status)}
+        </div>`;
+      jcfHtml += row('Permit No.', result.appNumber);
+      jcfHtml += row('Permit Type', result.permitTypeLabel);
+      jcfHtml += row('Event', result.eventName);
+      jcfHtml += row('Event Date', result.eventDate);
+      jcfHtml += row('Expires', expiry);
+      jcfHtml += row('Venue', result.venueName);
+      jcfHtml += row('Venue Address', result.venueAddress);
+      bodyEl.innerHTML = jcfHtml;
+      return;
+    }
+
     const eventOrBusiness = result.businessOrEventName || 'N/A';
     let html = `<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;">
         <div style="font-weight:700; font-size:17px;">${esc(result.municipalityName || 'Municipal Corporation')}</div>
@@ -16682,6 +16707,46 @@ async function fetchMuniSignature(muniId){
   }
 }
 
+// JCF-side equivalent of fetchMuniSignature above, for rendering the SAME
+// jcfd_buildPermitDocHtml() permit on the applicant's own Main Menu. The
+// signature is stored under `jcfBranch:{branchId}:signature` (see the JCF
+// Officer Portal's own jcfd_renderApplicationDetail()), keyed by the
+// Division's numeric agency id — but the jcfApplication record itself never
+// stores that id directly (only p.parish, e.g. "St. James", stamped onto the
+// permit at approval time). The 'agency' prefix is already fully publicly
+// readable (see supabase_schema.sql — the same directory the JCF login page
+// uses to list divisions before anyone signs in), so the Division's id is
+// found by matching a JCF-type, Active agency on that same parish.
+async function fetchJcfSignature(parish){
+  if(!window.storage || !parish) return null;
+  try{
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    const branch = agencies.find(a => a.type === 'JCF' && a.parish === parish);
+    if(!branch) return null;
+    const result = await window.storage.get(`jcfBranch:${branch.id}:signature`, true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
+  }
+}
+
+// `platform:jcfCrest` is admin-only under current RLS — the JCF Officer
+// Portal's own read of it (jcfdCachedCrest) silently comes back empty for
+// the same reason, so every JCF permit (Chief's own account included) falls
+// back to jcfd_buildPermitDocHtml's generic shield icon today. This mirrors
+// that same best-effort attempt so the applicant's copy stays in lockstep —
+// if a future policy ever exposes this key, both views pick up the real
+// crest with no further change needed here.
+async function fetchJcfCrest(){
+  if(!window.storage) return null;
+  try{
+    const result = await window.storage.get('platform:jcfCrest', true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
+  }
+}
+
 // `previewRecord` (optional) — same purpose as printPaymentAdvice's own
 // param above: lets Admin's document-preview feature call this with a
 // sample record and get the HTML back instead of printing. Real call sites
@@ -16990,46 +17055,21 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   `;
 }
 
-// The JCF Noise Abatement Permit is a completely separate document from
-// the Municipal Corporation's Places of Amusement permit above — issued by
-// the JCF Division (see jcfd_approve() in the JCF Officer Portal's own
-// script scope), not the municipality, and carrying a much smaller record
-// shape ({number, permitTypeLabel, issuedDate, expiresDate} — no venue,
-// applicant address, or signature data the way the municipal permit has).
-// Reuses the same .permit-doc/.permit-doc-top/.permit-doc-grid styling for
-// visual consistency rather than a second, divergent template.
-function poa_buildJcfPermitDocHtml(p, appNumber, qrTargetId){
-  qrTargetId = qrTargetId || 'jcfPermitQrTarget';
-  return `
-    <div class="permit-doc">
-      <div class="permit-doc-top">
-        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
-        <div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">JCF</div>
-        <div class="permit-doc-qr">
-          <div class="qr-box" id="${qrTargetId}"></div>
-          <div class="qr-scan-label">SCAN ME</div>
-        </div>
-      </div>
-      <div class="permit-doc-muniblock">
-        <div class="permit-doc-muniname">JAMAICA CONSTABULARY FORCE</div>
-      </div>
-      <div class="permit-doc-reg">NOISE ABATEMENT ACT</div>
-      <div class="permit-doc-title-box">NOISE ABATEMENT PERMIT</div>
-
-      <div class="permit-doc-grid">
-        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</div><div class="pdg-label">DATE ISSUED</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(p.number || '')}</div><div class="pdg-label">PERMIT NO.</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.expiresDate))}</div><div class="pdg-label">EVENT DATE</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(p.permitTypeLabel || 'JCF Noise Abatement Permit')}</div><div class="pdg-label">PERMIT TYPE</div></div>
-      </div>
-
-      <p class="permit-doc-body">This Noise Abatement Permit is granted by the Jamaica Constabulary Force in respect of application <strong>${poa_escapeHtml(appNumber || '')}</strong>, authorizing the noise-generating activity described in that application on the date(s) noted above, subject to the conditions of the Noise Abatement Act.</p>
-
-      <div class="permit-doc-efile">e-File</div>
-    </div>
-  `;
-}
-
+// The JCF Noise Abatement Permit's applicant-facing copy used to be built
+// by a separate, much-simplified renderer here (poa_buildJcfPermitDocHtml),
+// fed only {number, permitTypeLabel, issuedDate, expiresDate} — a shape that
+// matched the JCF Officer Portal's now-dead jcfd_approve() function, not the
+// real approve flow. The button actually wired up in that portal
+// (jcfd_openApproveModal → jcfd_confirmApprove(), see the JCF script scope)
+// stores a much richer rec.permit — divisionName, issuedTo, applicantAddress,
+// eventName, eventDate, expectedPatrons, parish, permitYear, etc. — and
+// renders it with its own jcfd_buildPermitDocHtml(), giving the JCF Chief's
+// account the full permit layout the applicant never saw. Rather than
+// maintain a second, divergent template that has to be kept in sync by hand,
+// the applicant's copy now calls that SAME renderer (exported as
+// window.jcfd_buildPermitDocHtml) directly on the SAME jcfApp.permit data —
+// guaranteed byte-for-byte identical to what the JCF Division itself prints,
+// pulled straight from the application record.
 function poa_renderPermitQr(targetId, data){
   const el = document.getElementById(targetId);
   if(!el || typeof QRCode === 'undefined') return;
@@ -17069,9 +17109,11 @@ async function renderMmPermit(){
       </div>`;
   }
   if(hasJcfPermit){
+    const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
+    const jcfCrest = await fetchJcfCrest();
     html += `
       <h3 style="margin:0 0 10px;">JCF Noise Abatement Permit</h3>
-      ${poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'mmJcfPermitQrTarget')}
+      ${window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'mmJcfPermitQrTarget', jcfCrest)}
       <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
         <button class="btn" onclick="printPermitFromMenu('jcf')">🖨 Print permit</button>
       </div>`;
@@ -17089,7 +17131,9 @@ async function printPermitFromMenu(kind){
 
   if(kind === 'jcf'){
     if(!jcfApp || !jcfApp.permitGenerated || !jcfApp.permit) return;
-    document.getElementById('printArea').innerHTML = poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'printPermitQrTarget');
+    const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
+    const jcfCrest = await fetchJcfCrest();
+    document.getElementById('printArea').innerHTML = window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'printPermitQrTarget', jcfCrest);
     poa_renderPermitQr('printPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
     document.body.classList.add('printing-doc');
     window.print();
@@ -17137,7 +17181,6 @@ window.mmGoView = mmGoView;
 window.openMainMenu = openMainMenu;
 window.poa_getCurrentAppRecord = function(){ return currentAppRecord; };
 window.poa_buildPermitDocHtml = poa_buildPermitDocHtml;
-window.poa_buildJcfPermitDocHtml = poa_buildJcfPermitDocHtml;
 window.poa_renderPermitQr = poa_renderPermitQr;
 window.onApMethodChange = onApMethodChange;
 window.onApplyParishChange = onApplyParishChange;
