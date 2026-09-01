@@ -5054,7 +5054,7 @@
 
 <div id="publicLanding">
   <header class="pl-header">
-    <div class="logo">
+    <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
       <img class="app-logo-img-hub" alt="Atendify logo">
       <span>Atendify</span>
     </div>
@@ -5126,12 +5126,12 @@
 
 
 <header>
-  <div class="logo">
+  <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
     <img class="app-logo-img" alt="Atendify logo">
     <span>Atendify</span>
   </div>
   <nav>
-    <span class="nav-link" onclick="goHome()">Home</span>
+    <span class="nav-link" onclick="showHub()">Home</span>
     <span class="nav-link" onclick="showTrackApplication()">Track Application</span>
     <span class="nav-link nav-login-btn" onclick="showHub('account')">Login</span>
     <button class="signup-btn nav-signup-btn" onclick="showHub('account'); if(window.acct_switchAuthTab) acct_switchAuthTab('signup');">Sign Up</button>
@@ -8341,7 +8341,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 
 <header>
-  <div class="logo">
+  <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
     <img class="app-logo-img" alt="Atendify logo">
     <span>Atendify</span>
   </div>
@@ -10982,10 +10982,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
     jcfdCurrentUser = null;
     jcfdCurrentBranch = null;
+    // Reset this portal's own internal state (so the next visit here starts
+    // back at its login screen, not wherever the officer's dashboard was
+    // left) — but the actual navigation goes all the way back out to the
+    // shared staff hub (the page with both the Municipal and JCF Officer
+    // Portal cards), not just this one portal's own re-login screen, per
+    // the reported request: "Log out" should return you to the portal
+    // picker, not straight back into the same portal.
     document.getElementById('jcfd_appShell').classList.add('hidden');
     document.getElementById('jcfd_loginScreen').classList.remove('hidden');
     document.getElementById('jcfd_loginEmail').value = '';
     document.getElementById('jcfd_loginPassword').value = '';
+    if(window.showHub) window.showHub('staff');
   }
   window.jcfd_logout = jcfd_logout;
 
@@ -17148,6 +17156,46 @@ const STATUS_FLOW = ["Submitted", "Payment Received", "Processing", "Pending App
 // muni_findLinkedJcfApplication / muni_loadLinkedJcfApp).
 const POLICE_APPROVAL_DOC_NAME = 'Police Approval (apply online)';
 
+// Single source of truth for which of an application's required documents
+// actually count as satisfied right now (uploaded-and-not-rejected, or
+// explicitly marked Not Applicable — Police Approval instead depends on the
+// linked JCF filing's permit being generated). This used to be computed
+// three different ways in three different places: the "Required docs: X ✓"
+// readback row only checked whether a document OBJECT existed at all (true
+// even for one an officer had since Rejected), while updateDocStatus()'s own
+// copy correctly checked .status but only ever ran as a side effect of an
+// officer reviewing one specific document. Between those two, the STORED
+// requiredDocumentsSubmitted field could go stale the moment anything
+// changed without an officer immediately opening the doc review modal —
+// e.g. the linked JCF permit finally being generated, or the applicant
+// uploading a previously-missing document — leaving the "Required documents
+// submitted" checkbox (and the Approve button it gates) stuck showing
+// unsatisfied even once every document genuinely was. Recomputing this live,
+// from the same one function, everywhere it's needed removes that gap
+// entirely instead of chasing each place it could reappear.
+function muni_computeDocBreakdown(a){
+  const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
+  const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
+  const breakdown = [];
+  if(regDocs && regDocList){
+    regDocList.forEach(name => {
+      if(name === POLICE_APPROVAL_DOC_NAME){
+        breakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
+      } else {
+        const d = regDocs[name];
+        breakdown.push([name, !!(d && (d.status === 'Submitted' || d.status === 'Approved' || d.status === 'Not Applicable'))]);
+      }
+    });
+  }
+  return breakdown;
+}
+function muni_computeRequiredDocumentsSubmitted(a){
+  const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
+  const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
+  if(!regDocs || !regDocList) return !!a.requiredDocumentsSubmitted;
+  return muni_computeDocBreakdown(a).every(([, ok]) => ok);
+}
+
 // Phase C of the hardening plan (backend/SETUP.md): used to be 1 hardcoded
 // fictional watchlist entry (Kerry-Ann Fisher, tied to the fictional St.
 // James Municipal Corporation). This one WAS part of the one-time backend
@@ -17480,10 +17528,15 @@ document.getElementById('muni_loginPassword').addEventListener('keydown', e=>{
 function muni_logout(){
   if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
   currentUser = null;
+  // Reset this portal's own internal state (so the next visit here starts
+  // back at its login screen) — but navigate all the way back out to the
+  // shared staff hub (both the Municipal and JCF Officer Portal cards),
+  // not just this one portal's own re-login screen.
   document.getElementById('muni_appShell').classList.add('hidden');
   document.getElementById('muni_loginScreen').classList.remove('hidden');
   document.getElementById('muni_loginEmail').value = '';
   document.getElementById('muni_loginPassword').value = '';
+  if(window.showHub) window.showHub('staff');
 }
 
 function hasPerm(key){
@@ -20510,18 +20563,15 @@ async function renderAppDetail(){
   cardsHtml += `</div>`;
 
   // ---- Document Check card ----
-  const docBreakdown = [];
+  // Computed live (see muni_computeDocBreakdown/muni_computeRequiredDocumentsSubmitted)
+  // rather than trusting the stored requiredDocumentsSubmitted field, which
+  // only gets refreshed as a side effect of an officer reviewing one
+  // specific document and can otherwise go stale — see that function's own
+  // comment for the full story.
+  const docBreakdown = muni_computeDocBreakdown(a);
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
   const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
-  if(regDocs && regDocList){
-    regDocList.forEach(name => {
-      if(name === POLICE_APPROVAL_DOC_NAME){
-        docBreakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
-      } else {
-        docBreakdown.push([name, !!regDocs[name]]);
-      }
-    });
-  }
+  const liveRequiredDocsSubmitted = muni_computeRequiredDocumentsSubmitted(a);
   const canEditDocCheck = hasPerm('review');
   cardsHtml += `<div class="official-card"><h4>Document Check</h4>`;
   cardsHtml += `
@@ -20530,7 +20580,7 @@ async function renderAppDetail(){
       <span>Payment received <span class="cell-sub" style="display:block;">Auto-checked when the Accountant verifies payment</span></span>
     </label>
     <label class="checkbox-row" style="cursor:default;">
-      <input type="checkbox" disabled ${a.requiredDocumentsSubmitted ? 'checked' : ''}>
+      <input type="checkbox" disabled ${liveRequiredDocsSubmitted ? 'checked' : ''}>
       <span>Required documents submitted <span class="cell-sub" style="display:block;">Auto-checked when the applicant uploads all documents required for their event/business type</span></span>
     </label>
     <label class="checkbox-row" style="${canEditDocCheck ? 'cursor:pointer;' : 'cursor:default;'}">
@@ -20748,7 +20798,7 @@ async function renderAppDetail(){
       // Payment Verification card), not by this Municipal officer.
       if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
       else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
-      if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
+      if(!liveRequiredDocsSubmitted) missingItems.push('required documents have not all been uploaded');
       if(!a.venueApproved) missingItems.push('the venue has not been approved');
       if(missingItems.length){
         cardsHtml += `<div class="status-banner warn">Cannot approve yet — ${muni_escapeHtml(missingItems.join('; '))}.</div>`;
@@ -21051,17 +21101,12 @@ async function updateDocStatus(newStatus, toastMessage){
   d.status = newStatus;
   d.officerNote = note;
 
-  const list = r.regulatoryDocList || [];
-  const computed = list.every(name => {
-    if(name === POLICE_APPROVAL_DOC_NAME){
-      return !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated);
-    }
-    const doc = r.regulatoryDocuments[name];
-    // A doc the applicant marked Not Applicable (see mmDocMarkNotApplicable
-    // in the public wizard) counts as satisfied too, same as an upload —
-    // both are still gated on officer review via Approve/Reject above.
-    return !!(doc && (doc.status === 'Submitted' || doc.status === 'Approved' || doc.status === 'Not Applicable'));
-  });
+  // Same live computation renderAppDetail()/setFinalStatus() use (see
+  // muni_computeRequiredDocumentsSubmitted) — kept here too so the
+  // persisted field stays in sync with what's actually being shown, for any
+  // other reader (e.g. the Admin dashboard or reports) that reads the
+  // stored field directly rather than recomputing it live.
+  const computed = muni_computeRequiredDocumentsSubmitted(a);
   r.requiredDocumentsSubmitted = computed;
   a.requiredDocumentsSubmitted = computed;
 
@@ -21475,7 +21520,7 @@ function setFinalStatus(status){
     // downloading a permit while the Atendify application fee is unverified.
     if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
     else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
-    if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
+    if(!muni_computeRequiredDocumentsSubmitted(a)) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
     if(missingItems.length){
       muni_showToast(`Cannot approve — ${missingItems.join('; ')}.`);
@@ -21865,6 +21910,8 @@ window.loadSubmittedApplications = loadSubmittedApplications;
 window.muni_attemptLogin = muni_attemptLogin;
 window.muni_goPage = muni_goPage;
 window.muni_logout = muni_logout;
+window.muni_computeDocBreakdown = muni_computeDocBreakdown;
+window.muni_computeRequiredDocumentsSubmitted = muni_computeRequiredDocumentsSubmitted;
 // Re-fetches MUNICIPALITIES/municipalUsers from the shared registry right
 // before someone reaches the login form, so an agency Admin just
 // created/suspended/reactivated in this same browser session shows up
