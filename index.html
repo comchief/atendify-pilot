@@ -3482,10 +3482,26 @@
             if (!updRes.error && (!updRes.data || updRes.data.length === 0)) {
               // No existing row matched the key — this authenticated write
               // is (unexpectedly, given isWriteOnceAnonPrefix's own design)
-              // the very first write to this key. Fail safe rather than
-              // silently doing nothing: fall back to the original upsert so
-              // a legitimate first authenticated write still goes through.
-              return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+              // the very first write to this key. This used to fall back to
+              // the original upsert() here, on the theory that a legitimate
+              // first authenticated write should still go through — but that
+              // repeated the exact same conflict-probe bug documented above
+              // (auditLog / anon-first-submission / applicantNotification):
+              // confirmed live for a signed-in applicant's first upload of
+              // their Application Fee / License Fee payment receipt
+              // (applicationFeeReceipt:/applicationPaymentReceipt:), which
+              // reliably 42501'd here even though 'poa' has correctly-scoped
+              // INSERT/SELECT/UPDATE policies on that prefix — upsert()'s
+              // internal "does this conflict?" probe is evidently unreliable
+              // under this schema regardless of which policies exist. Since
+              // we already know from the UPDATE above that no row exists for
+              // this key yet, a plain INSERT is the correct — and correctly
+              // provable — next step: it only needs the INSERT policy's
+              // WITH CHECK, never touches the conflict probe, and in the
+              // vanishingly rare case a row was created by a genuine race
+              // between the UPDATE and this INSERT, it fails with a real
+              // unique-violation (23505) rather than a misleading 42501.
+              return client.from(TABLE).insert({ key: key, value: offloaded });
             }
             return updRes;
           }
@@ -9092,6 +9108,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </main>
     </div>
   </div>
+  <div class="toast" id="acct_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
 <div id="shell-jcfd" class="app-shell hidden">
@@ -10105,7 +10122,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.acct_viewApplication = acct_viewApplication;
 
   function showToastFallback(msg){
-    const el = document.getElementById('poa_toast') || document.getElementById('jcf_toast');
+    // Every call site here runs inside the Account dashboard (shell-account)
+    // — "Profile saved.", "Password updated.", "Profile photo updated.",
+    // etc. This used to look for 'poa_toast' or 'jcf_toast' only, but both
+    // of those toast elements live inside DIFFERENT top-level shells
+    // (shell-poa and shell-jcf), which always carry class="hidden"
+    // (display:none) while shell-account is the one showing. A hidden
+    // ancestor keeps its descendants from rendering at all, `.show` class
+    // or not — so every one of these confirmations was silently never
+    // visible to the user. acct_toast (added below shell-account's own
+    // markup) is the one actually visible in this context; poa_toast/
+    // jcf_toast are kept only as a last-resort fallback in case this is
+    // ever called before acct_toast exists in the DOM.
+    const el = document.getElementById('acct_toast') || document.getElementById('poa_toast') || document.getElementById('jcf_toast');
     if(el){ el.textContent = msg; el.classList.add('show'); setTimeout(function(){ el.classList.remove('show'); }, 3000); }
   }
 
