@@ -22157,7 +22157,23 @@ async function admin_persistApplicationStatus(a){
 }
 
 // ---------------- Registry bootstrap (agencies/roles/users/applications) ----------------
-let adminRegistryReady = (async function admin_initRegistryData(){
+// Extracted into a real, re-callable function rather than a one-shot
+// anonymous IIFE. The original version only ever ran once, at page load —
+// before an admin has actually signed in — which was fine for `agencies`
+// (the 'agency' prefix is publicly readable, and the JCF portal's division
+// dropdown genuinely needs it available pre-login). But muniUsers,
+// applications, and venues are NOT publicly readable — they only come back
+// non-empty for a real 'admin'-role session (see the "kv_store: admin full
+// access" policy in supabase_schema.sql) — so that same initial, pre-login
+// run always loaded them as empty arrays and nothing ever loaded them
+// again. admin_tryRestoreSession() and admin_attemptLogin() both used to
+// just `await adminRegistryReady` once login succeeded, which only awaits
+// the ALREADY-SETTLED first (empty) result rather than re-running anything
+// — leaving Admin's Applications, Venues, and Users pages permanently
+// empty even after a real, correctly-permissioned admin signed in. Now
+// both of those call this function again once a real session exists, so
+// the second run actually has the RLS access to see real data.
+async function admin_refreshRegistryData(){
   try{
     agencies = await window.atdLoadAgencies();
   }catch(e){ agencies = []; }
@@ -22183,15 +22199,13 @@ let adminRegistryReady = (async function admin_initRegistryData(){
     loaded.sort((a,b) => a.id - b.id);
     roles = loaded.length ? loaded : ADMIN_ROLE_SEED.slice();
   }catch(e){ roles = ADMIN_ROLE_SEED.slice(); }
-  // Login normally hasn't happened yet by the time this resolves (this is
-  // all near-instant localStorage under the hood), but if it somehow has,
-  // refresh the on-screen tables/stats with the real data instead of the
-  // empty arrays they were rendered with.
   admin_renderNationalOverview();
   if(!document.getElementById('admin_appShell').classList.contains('hidden')){
     admin_renderAll();
   }
-})();
+}
+window.admin_refreshRegistryData = admin_refreshRegistryData;
+let adminRegistryReady = admin_refreshRegistryData();
 // Exposed so jcfd_tryRestoreSession (a different script scope) can await
 // this same registry load — jcfd_agencies() reads the `agencies` array
 // this populates, needed to resolve a restored session's division name.
@@ -22361,6 +22375,13 @@ async function admin_attemptLogin(){
       await window.atdRecordLoginAttempt('admin', email, true);
       if(window.ATDBackend.logSession) await window.ATDBackend.logSession('admin');
       await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
+      // Re-run the registry load now that a real admin session exists —
+      // the very first load (triggered at page load, before this login)
+      // always came back with empty applications/venues/muniUsers, since
+      // those prefixes are only readable under a real admin session, and
+      // nothing previously re-fetched them after signing in (see
+      // admin_refreshRegistryData's own comment).
+      await admin_refreshRegistryData();
       admin_showAppShell();
       return;
     }catch(e){
@@ -22397,11 +22418,14 @@ async function admin_tryRestoreSession(profile){
   try{
     if(profile.role !== 'admin') return false;
     adminActorEmail = profile.email || adminActorEmail;
-    // Same reasoning as muni/jcfd's restore functions: wait for the
-    // fire-and-forget registry bootstrap so admin_renderAll() (called by
-    // admin_showAppShell()) has real agencies/users/applications data to
-    // render instead of running against empty arrays.
-    await adminRegistryReady;
+    // Same reasoning as muni/jcfd's restore functions: re-run the registry
+    // load now that a real admin session actually exists, so
+    // admin_renderAll() (called by admin_showAppShell()) has real
+    // agencies/users/applications/venues data to render instead of the
+    // empty arrays the original pre-login load came back with (see
+    // admin_refreshRegistryData's own comment — awaiting the already-
+    // settled adminRegistryReady here would not re-fetch anything).
+    await admin_refreshRegistryData();
     showHub('admin');
     admin_showAppShell();
     return true;
