@@ -13937,7 +13937,20 @@ function poa_fieldIsVisible(el){
 }
 
 function poa_fieldHasValue(f){
-  if(f.kind === 'file') return fileHasValue(f.id);
+  if(f.kind === 'file'){
+    // Photo ID is the one file field a logged-in applicant can satisfy
+    // without a fresh upload — an ID already on file in their profile is
+    // auto-carried over (see poa_applyProfileAutofill/
+    // poa_profileAutofillPhotoData) rather than re-put into the actual
+    // <input type="file"> element. fileHasValue() alone only checks that
+    // raw input, so whenever a municipality marks "Photo ID upload" as
+    // required (platform:formFieldConfig), this gate used to block "Save
+    // and Continue" for exactly the applicants this handoff was meant to
+    // help — the same gap already fixed in buildApplicationRecord()'s own
+    // `documents.photoId` and the Review page's own idHasFile check.
+    if(f.id === 'filePhotoId') return fileHasValue(f.id) || !!poa_profileAutofillPhotoData;
+    return fileHasValue(f.id);
+  }
   if(f.kind === 'radio') return !!document.querySelector(`input[name="${f.name}"]:checked`);
   const el = document.getElementById(f.id);
   return !!(el && el.value && el.value.trim());
@@ -15141,8 +15154,19 @@ async function buildApplicationRecord(appNumber){
     });
   }
 
+  // photoId: a logged-in applicant's ID already on file in their profile is
+  // auto-carried over (see poa_applyProfileAutofill/poa_profileAutofillPhotoData)
+  // rather than re-put into the actual <input type="file"> element, so
+  // fileHasValue('filePhotoId') alone missed it — this `documents` object is
+  // what the Municipal officer's own "Uploaded Documents" card reads
+  // (r.documents.photoId, see muni_ renderApplicantDocuments/openApplicantFileModal)
+  // to decide "Submitted" vs "Not Uploaded", so an autofilled ID was actually
+  // saved (see photoIdFileData below and applicationPhotoId:<appNumber>) but
+  // still showed as never uploaded on the officer's side. The Review page's
+  // own idHasFile check a few lines up already accounted for this same case;
+  // this is the one spot that hadn't.
   const documents = {
-    photoId: isCompany ? null : fileHasValue('filePhotoId'),
+    photoId: isCompany ? null : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData),
     logo: isCompany ? fileHasValue('fileLogo') : null,
     flier: fileHasValue('fileFlier'),
     ownership: fileHasValue('fileOwnership')
