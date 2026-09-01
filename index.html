@@ -2668,7 +2668,7 @@
   }
 
   .pl-hero{ max-width:900px; margin:0 auto; padding:60px 24px 90px; text-align:center; }
-  .pl-hero-logo{ width:130px; height:auto; margin:0 auto 40px; display:block; object-fit:contain; }
+  .pl-hero-logo{ width:100px; height:auto; margin:0 auto 32px; display:block; object-fit:contain; }
   .pl-title{ font-size:52px; font-weight:800; color:#1a1d24; margin:0 0 18px; letter-spacing:-0.01em; line-height:1.1; }
   .pl-subtitle{ font-size:28px; font-weight:600; color:#1a1d24; margin:0 0 20px; }
   .pl-tagline{ font-size:17px; color:#4b5563; margin:0 0 56px; }
@@ -2780,6 +2780,22 @@
     .pl-header nav{ gap:16px; }
     .pl-title{ font-size:34px; }
     .pl-subtitle{ font-size:20px; }
+  }
+
+  .pl-footer{
+    border-top:1px solid #e2e5ea; margin-top:20px; padding:26px 24px 32px;
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px 28px;
+    max-width:900px; margin-left:auto; margin-right:auto;
+    font-size:13.5px; color:#6b7280;
+  }
+  .pl-footer-links{ display:flex; gap:22px; flex-wrap:wrap; justify-content:center; }
+  .pl-footer-links span{ cursor:pointer; color:#6b7280; }
+  .pl-footer-links span:hover{ color:#1a1d24; text-decoration:underline; }
+  [data-theme="dark"] .pl-footer{ border-color:#2a2d36; color:#9ca3af; }
+  [data-theme="dark"] .pl-footer-links span{ color:#9ca3af; }
+  [data-theme="dark"] .pl-footer-links span:hover{ color:#f0f1f4; }
+  @media (max-width:520px){
+    .pl-footer{ flex-direction:column; gap:14px; text-align:center; }
   }
 
 </style>
@@ -4628,6 +4644,34 @@
     return cfg;
   };
 
+  // ---- Public landing page footer: Privacy Policy / Terms of Use /
+  // Contact / Copyright notice (Admin > Settings > Footer & Legal Content).
+  // Same convention as platform:formTemplates just above: one JSON blob,
+  // merged over these defaults so a field an admin has never touched still
+  // shows sane placeholder wording instead of a blank modal. copyrightNotice
+  // may contain the literal placeholder "{year}", replaced with the current
+  // year wherever this is rendered (see pl_initFooterContent) rather than
+  // baked in here, so the footer never goes stale just because nobody
+  // revisits this settings page every January.
+  window.ATD_DEFAULT_FOOTER_CONTENT = {
+    copyrightNotice: '© {year} Atendify — Places of Amusement Licensing Suite. All rights reserved.',
+    contactInfo: '',
+    privacyPolicy: 'This Privacy Policy has not been configured yet. An administrator can add it under Settings > Footer & Legal Content.',
+    termsOfUse: 'These Terms of Use have not been configured yet. An administrator can add them under Settings > Footer & Legal Content.'
+  };
+  window.atdLoadFooterContent = async function(){
+    const content = Object.assign({}, window.ATD_DEFAULT_FOOTER_CONTENT);
+    if(!window.storage) return content;
+    try{
+      const r = await window.storage.get('platform:footerContent');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        Object.keys(content).forEach(k => { if(saved[k]) content[k] = saved[k]; });
+      }
+    } catch(e){ /* fall back to defaults */ }
+    return content;
+  };
+
   // Human labels + step grouping for the same field keys, used only to
   // render the admin "Required Fields" checkboxes (see renderRequiredFieldsPanel
   // in the Admin script) — kept separate from ATD_DEFAULT_FORM_FIELD_CONFIG so
@@ -5233,7 +5277,7 @@
 
   <div class="pl-hero">
     <img class="app-logo-img-hub pl-hero-logo" alt="Atendify logo">
-    <h1 class="pl-title">Atendify Entertainment Permit Portal</h1>
+    <h1 class="pl-title">Atendify Entertainment<br>Permit Portal</h1>
     <h2 class="pl-subtitle">Online Applications for Permits and Licenses</h2>
     <p class="pl-tagline">Applying for your permits and licenses has never been this easy.</p>
 
@@ -5248,6 +5292,32 @@
       </div>
     </div>
 
+  </div>
+
+  <footer class="pl-footer">
+    <div id="pl_footerCopyright">© 2026 Atendify. All rights reserved.</div>
+    <nav class="pl-footer-links">
+      <span onclick="pl_openLegalModal('privacy')">Privacy Policy</span>
+      <span onclick="pl_openLegalModal('terms')">Terms of Use</span>
+      <span onclick="pl_openLegalModal('contact')">Contact</span>
+    </nav>
+  </footer>
+</div>
+
+<!-- ===== Public footer legal content modal (Privacy Policy / Terms of Use /
+     Contact) — one shared modal, its title and body swapped by
+     pl_openLegalModal() depending on which footer link was clicked. Content
+     itself is authored by Admin under Settings > Footer & Legal Content (see
+     window.atdLoadFooterContent) rather than hardcoded here, so a
+     municipality/agency running its own Atendify deployment can supply its
+     own wording without a code change. ===== -->
+<div class="modal-overlay hidden" id="pl_legalModal">
+  <div class="modal-box">
+    <h3 id="pl_legalModalTitle">Privacy Policy</h3>
+    <div id="pl_legalModalBody" style="white-space:pre-wrap; max-height:60vh; overflow-y:auto; font-size:14px; line-height:1.6; color:var(--text-muted);"></div>
+    <div class="btn-row" style="justify-content:flex-end; margin-top:20px;">
+      <button class="btn btn-primary" onclick="pl_closeLegalModal()">Close</button>
+    </div>
   </div>
 </div>
 
@@ -8142,6 +8212,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
       </div>
 
+      <div class="panel">
+        <div class="panel-head"><h2>Footer &amp; Legal Content</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Shown to every visitor in the footer of the public landing page, before anyone logs in. Leave a field blank to show its placeholder wording until you've written your own.</p>
+
+        <div class="field-group">
+          <label for="admin_footer_copyright">Copyright notice</label>
+          <input type="text" id="admin_footer_copyright">
+          <div class="field-hint">Include the literal text <code>{year}</code> anywhere you want the current year inserted automatically — it updates on its own every January, so this never needs revisiting.</div>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_contact">Contact information</label>
+          <textarea id="admin_footer_contact" rows="4" placeholder="e.g. Atendify Support&#10;support@atendifyapp.com&#10;(876) 555-0100"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_privacy">Privacy Policy</label>
+          <textarea id="admin_footer_privacy" rows="8"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_terms">Terms of Use</label>
+          <textarea id="admin_footer_terms" rows="8"></textarea>
+        </div>
+
+        <div class="btn-row" style="justify-content:flex-start; margin-top:8px;">
+          <button class="btn btn-primary" onclick="admin_saveFooterContent()">Save footer content</button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -9896,6 +9996,37 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }, 0);
   }
   window.publicTrackApplication = publicTrackApplication;
+
+  // ---- Public footer: Privacy Policy / Terms of Use / Contact / Copyright
+  // (content authored by Admin under Settings > Footer & Legal Content — see
+  // window.atdLoadFooterContent in the shared shim near the top of <body>).
+  var PL_LEGAL_MODAL_TITLES = { privacy: 'Privacy Policy', terms: 'Terms of Use', contact: 'Contact' };
+  var PL_LEGAL_MODAL_KEYS = { privacy: 'privacyPolicy', terms: 'termsOfUse', contact: 'contactInfo' };
+  async function pl_openLegalModal(kind){
+    var content = window.atdLoadFooterContent ? await window.atdLoadFooterContent() : window.ATD_DEFAULT_FOOTER_CONTENT;
+    document.getElementById('pl_legalModalTitle').textContent = PL_LEGAL_MODAL_TITLES[kind] || 'Notice';
+    document.getElementById('pl_legalModalBody').textContent = content[PL_LEGAL_MODAL_KEYS[kind]] || '';
+    document.getElementById('pl_legalModal').classList.remove('hidden');
+  }
+  window.pl_openLegalModal = pl_openLegalModal;
+
+  function pl_closeLegalModal(){
+    document.getElementById('pl_legalModal').classList.add('hidden');
+  }
+  window.pl_closeLegalModal = pl_closeLegalModal;
+
+  // Populates the footer's copyright line on every page load — not just
+  // whenever the Privacy/Terms/Contact modal happens to open — and swaps in
+  // the current year wherever the stored text contains the literal
+  // placeholder "{year}" (the default wording uses it; an admin who
+  // overwrites the field can keep or drop the placeholder as they choose).
+  async function pl_initFooterContent(){
+    var el = document.getElementById('pl_footerCopyright');
+    if(!el) return;
+    var content = window.atdLoadFooterContent ? await window.atdLoadFooterContent() : window.ATD_DEFAULT_FOOTER_CONTENT;
+    el.textContent = (content.copyrightNotice || '').replace(/\{year\}/g, String(new Date().getFullYear()));
+  }
+  pl_initFooterContent();
 
   var publicThemeToggle = document.getElementById('publicThemeToggle');
   if(publicThemeToggle){
@@ -23045,6 +23176,7 @@ function admin_goPage(page){
   const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', formtemplates: 'Application Forms', settings: 'Settings' };
   document.getElementById('admin_topbarTitle').textContent = titles[page];
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
+  if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -25067,6 +25199,35 @@ window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
 // Saves everything in the POA tab in one shot: its declaration + the two
 // documents nested under it (Payment Advice notice, Notice of Application
 // intro/closing) from platform:formTemplates, plus the POA half of
+// ---------------- Footer & Legal Content (Settings page) ----------------
+// See window.atdLoadFooterContent / window.ATD_DEFAULT_FOOTER_CONTENT in the
+// shared shim near the top of <body> for the storage shape and defaults —
+// this is a thin editor over that one platform:footerContent blob, same
+// pattern as renderFormTemplatesPage/savePoaFormSettings just below.
+async function renderFooterContentPanel(){
+  const el = document.getElementById('admin_footer_copyright');
+  if(!el) return;
+  const content = await window.atdLoadFooterContent();
+  document.getElementById('admin_footer_copyright').value = content.copyrightNotice;
+  document.getElementById('admin_footer_contact').value = content.contactInfo;
+  document.getElementById('admin_footer_privacy').value = content.privacyPolicy;
+  document.getElementById('admin_footer_terms').value = content.termsOfUse;
+}
+window.renderFooterContentPanel = renderFooterContentPanel;
+
+async function admin_saveFooterContent(){
+  const content = await window.atdLoadFooterContent();
+  const copyrightVal = document.getElementById('admin_footer_copyright').value.trim();
+  content.copyrightNotice = copyrightVal || window.ATD_DEFAULT_FOOTER_CONTENT.copyrightNotice;
+  content.contactInfo = document.getElementById('admin_footer_contact').value.trim();
+  content.privacyPolicy = document.getElementById('admin_footer_privacy').value.trim() || window.ATD_DEFAULT_FOOTER_CONTENT.privacyPolicy;
+  content.termsOfUse = document.getElementById('admin_footer_terms').value.trim() || window.ATD_DEFAULT_FOOTER_CONTENT.termsOfUse;
+  await window.storage.set('platform:footerContent', JSON.stringify(content), true);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'footerContent.update', details: 'Updated public site footer content (copyright, contact, Privacy Policy, Terms of Use).' });
+  admin_showToast('Footer content saved. Visitors will see the new wording next time the page loads.');
+}
+window.admin_saveFooterContent = admin_saveFooterContent;
+
 // platform:formFieldConfig (the JCF half is read back unchanged and
 // rewritten as-is, so saving one tab never clobbers the other's settings).
 async function savePoaFormSettings(){
@@ -26930,7 +27091,8 @@ window.updateWordCount = updateWordCount;
     jcfd_watchlistAddModal: 'jcfd_closeWatchlistAddModal',
     jcfd_watchlistViewModal: 'jcfd_closeWatchlistViewModal',
     jcfd_approveModal: 'jcfd_closeApproveModal',
-    atdFilePreviewModal: 'atdCloseFilePreview'
+    atdFilePreviewModal: 'atdCloseFilePreview',
+    pl_legalModal: 'pl_closeLegalModal'
   };
 
   var atdFocusableSelector = 'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
