@@ -2177,6 +2177,13 @@
     display:flex; align-items:center; justify-content:center;
     z-index: 300; padding: 20px;
   }
+  /* #docModal can now also open as a file viewer launched from on top of
+     another already-open modal (the National Admin portal's Payment
+     Verification card opens it to show the Atendify application-fee
+     receipt while its own appModal is still open behind it). An ID
+     selector always outranks a class one, so this guarantees docModal
+     stays the visible, topmost modal regardless of source order. */
+  #docModal{ z-index: 310; }
   .modal-box{
     background: var(--bg);
     border-radius: 16px;
@@ -3400,14 +3407,68 @@
         // as the other prefixes here) keeps that update path on upsert.
         var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles|notification):/.test(key);
         var useInsertOnly = isAuditLog;
+        var useUpdateOnly = false;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
-          if (!sessionRes || !sessionRes.data || !sessionRes.data.session) useInsertOnly = true;
+          if (!sessionRes || !sessionRes.data || !sessionRes.data.session) {
+            // getSession() reads the locally-cached session and can come
+            // back empty for a real, still-logged-in Admin/Muni/JCFD user —
+            // e.g. another tab in the same browser signed out (Supabase
+            // persists its session under one shared localStorage key, so
+            // that clears every tab's copy), or the access token simply
+            // needs refreshing. Wrongly treating that as "nobody is signed
+            // in" forces this write down the anonymous-insert-only path,
+            // which then fails with a confusing RLS 42501 on a row that
+            // already exists (an authenticated admin/muni/jcfd update, not
+            // a fresh anonymous submission). Try one real refresh — which
+            // hits the network using the refresh token already in storage —
+            // before concluding this caller is genuinely anonymous; a
+            // truly-logged-out caller still safely falls through to
+            // useInsertOnly, same as before.
+            try {
+              var refreshRes = await client.auth.refreshSession();
+              if (!refreshRes || !refreshRes.data || !refreshRes.data.session) useInsertOnly = true;
+            } catch (refreshErr) {
+              useInsertOnly = true;
+            }
+          }
+          // A real session here means this is an authenticated muni/jcfd/
+          // admin write to a key that, by design, was already created
+          // earlier by an anonymous or poa caller (that's the whole point
+          // of isWriteOnceAnonPrefix, see above) — so this is always an
+          // update-in-place, never a fresh insert. Confirmed live, isolating
+          // each step with the Accountant demo account under a simulated
+          // session: a plain SELECT and a plain UPDATE against
+          // application:POA-072026-04 both succeeded under RLS, but the
+          // exact upsert() call below still failed with 42501. That matches
+          // a documented Postgres quirk — an INSERT ... ON CONFLICT DO
+          // UPDATE can still require the row to satisfy the INSERT policy's
+          // WITH CHECK, not just the UPDATE policy's, even when the
+          // ON CONFLICT branch is the one that actually runs. There is no
+          // INSERT policy at all for the 'muni' role on the 'application'
+          // prefix (only 'poa' may create one, since only an applicant is
+          // ever supposed to), so muni's otherwise-correctly-permissioned
+          // update was being rejected purely because of upsert's own
+          // insert-side check. Use a plain UPDATE instead whenever we
+          // already know the row must exist — it only needs the UPDATE
+          // policy, which this same account already passes.
+          if (!useInsertOnly) useUpdateOnly = true;
         }
-        var res = await atdWithClockSkewRetry(function () {
-          return useInsertOnly
-            ? client.from(TABLE).insert({ key: key, value: offloaded })
-            : client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+        var res = await atdWithClockSkewRetry(async function () {
+          if (useInsertOnly) return client.from(TABLE).insert({ key: key, value: offloaded });
+          if (useUpdateOnly) {
+            var updRes = await client.from(TABLE).update({ value: offloaded }).eq('key', key).select('key');
+            if (!updRes.error && (!updRes.data || updRes.data.length === 0)) {
+              // No existing row matched the key — this authenticated write
+              // is (unexpectedly, given isWriteOnceAnonPrefix's own design)
+              // the very first write to this key. Fail safe rather than
+              // silently doing nothing: fall back to the original upsert so
+              // a legitimate first authenticated write still goes through.
+              return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+            }
+            return updRes;
+          }
+          return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
         });
         if (res.error) {
           // systemError: is intentionally admin-only-writable (see
@@ -3696,6 +3757,23 @@
       if (res.error) { window.atdShowDebugError('trackApplication(' + appNumber + ')', res.error); return null; }
       return res.data || null;
     },
+    // The read-side counterpart, for the linked JCF Noise Abatement filing
+    // instead of the POA application itself (Fix #28). A genuinely
+    // anonymous "Track Application" guest has no RLS SELECT grant at all on
+    // jcfApplication rows — only a signed-in poa account (matched by
+    // ownerEmail) or JCF Division staff do — so a plain table read here
+    // always came back empty for a guest, even once their JCF filing had
+    // been submitted and stored successfully. Same pattern as
+    // atd_track_application: a SECURITY DEFINER RPC that only returns the
+    // row when the caller also supplies the matching tracking code.
+    trackLinkedJcfApplication: async function (poaAppNumber, trackingCode) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_track_linked_jcf_application', { p_poa_app_number: poaAppNumber, p_tracking_code: trackingCode });
+      });
+      if (res.error) { window.atdShowDebugError('trackLinkedJcfApplication(' + poaAppNumber + ')', res.error); return null; }
+      return res.data || null;
+    },
     // The write-side counterpart to trackApplication() above (Fix #26): a
     // guest applicant's very first save of their new application succeeds
     // (a plain INSERT, see isWriteOnceAnonPrefix in set() below), but every
@@ -3755,6 +3833,39 @@
       });
       if (res.error) { window.atdShowDebugError('nextAppSeq(' + counterKey + ')', res.error); throw res.error; }
       return typeof res.data === 'number' ? res.data : 1;
+    },
+
+    // Diagnostic only — not used anywhere in the app itself. Meant to be
+    // called by hand from the browser console (F12 → Console tab, paste
+    // `await window.ATDBackend.debugSessionInfo()`) while logged in as
+    // whichever staff member is hitting a confusing RLS 42501 on some
+    // write, right before/after reproducing it. Every RLS policy in this
+    // app keys off auth.uid() (see atd_role()/atd_agency_id() in
+    // supabase_schema.sql) — which is read from this browser tab's own
+    // current Supabase session, not from anything Supabase's SQL editor can
+    // see (SQL editor queries run with elevated privileges, as no
+    // particular user, so they can confirm a profiles row is *correct* but
+    // can never show what THIS tab's session actually resolves to at the
+    // moment of a real write). This surfaces exactly that: whether this tab
+    // currently has a session at all, who it's for, and what that session
+    // can actually read back from its own profiles row under real RLS.
+    debugSessionInfo: async function () {
+      if (!client) return { configured: false };
+      var sessionRes = await client.auth.getSession();
+      var hasSession = !!(sessionRes && sessionRes.data && sessionRes.data.session);
+      var out = { configured: true, hasSession: hasSession, sessionExpiresAt: null, userId: null, userEmail: null, profileRole: null, profileAgencyId: null, profileReadError: null };
+      if (!hasSession) return out;
+      out.sessionExpiresAt = sessionRes.data.session.expires_at ? new Date(sessionRes.data.session.expires_at * 1000).toISOString() : null;
+      var userRes = await client.auth.getUser();
+      var user = userRes && userRes.data && userRes.data.user;
+      out.userId = user ? user.id : null;
+      out.userEmail = user ? user.email : null;
+      if (!user) return out;
+      var profRes = await client.from('profiles').select('role, agency_id').eq('id', user.id).maybeSingle();
+      if (profRes.error) { out.profileReadError = profRes.error.message; return out; }
+      out.profileRole = profRes.data ? profRes.data.role : null;
+      out.profileAgencyId = profRes.data ? profRes.data.agency_id : null;
+      return out;
     }
   };
 
@@ -4338,7 +4449,7 @@
       promoterName: false, promoterPhone: false, promoterTrn: false, promoterAddr1: false, promoterAddr2: false,
       promoterDistrict: false, promoterParish: false, dateOfBirth: false, patronsExpected: false,
       ownerBreached: false, ownerBreachReason: true,
-      venueOwner: false, ownerContact: false, ownerAddr1: false, ownerAddr2: false, ownerDistrict: false, ownerParish: false,
+      venueOwner: false, ownerContact: false, ownerAddress: false,
       jcf_businessType: false, permissionLetterFile: false,
       spiritLicense: false, communityArrangements: false, parkingArrangements: false, securityArrangements: false
     }
@@ -4422,12 +4533,9 @@
       ownerBreachReason: {label:'Breach details (when answer is Yes)', step:'Step 2 — Venue Details'},
       venueOwner: {label:"Venue's owner name", step:'Step 2 — Venue Details'},
       ownerContact: {label:"Owner's contact number", step:'Step 2 — Venue Details'},
-      ownerAddr1: {label:"Owner's street number", step:'Step 2 — Venue Details'},
-      ownerAddr2: {label:"Owner's street name", step:'Step 2 — Venue Details'},
-      ownerDistrict: {label:"Owner's district", step:'Step 2 — Venue Details'},
-      ownerParish: {label:"Owner's parish", step:'Step 2 — Venue Details'},
+      ownerAddress: {label:"Owner's address", step:'Step 2 — Venue Details'},
       jcf_businessType: {label:'Type of business conducted at venue', step:'Step 2 — Venue Details'},
-      permissionLetterFile: {label:"Venue owner's letter of permission upload", step:'Step 2 — Venue Details'},
+      permissionLetterFile: {label:"Proof of Ownership/Authorization upload", step:'Step 2 — Venue Details'},
       spiritLicense: {label:'Valid spirit license in place? (Yes/No/N-A answer)', step:'Step 2 — Venue Details'},
       communityArrangements: {label:'Arrangements made with community members? (answer)', step:'Step 2 — Venue Details'},
       parkingArrangements: {label:'Arrangements made for parking? (answer)', step:'Step 2 — Venue Details'},
@@ -4946,7 +5054,7 @@
 
 <div id="publicLanding">
   <header class="pl-header">
-    <div class="logo">
+    <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
       <img class="app-logo-img-hub" alt="Atendify logo">
       <span>Atendify</span>
     </div>
@@ -4996,7 +5104,7 @@
       <div class="hub-card-title">Municipal Officer Portal</div>
       <div class="hub-card-desc">Review applications, manage venues, advertisements, permits, and staff for your municipality.</div>
     </div>
-    <div class="hub-card" onclick="showHub('jcfd'); if(window.jcfd_refreshLogin) jcfd_refreshLogin();">
+    <div class="hub-card" onclick="showHub('jcfd'); if(window.jcfd_refreshLoginWhenReady) jcfd_refreshLoginWhenReady(); else if(window.jcfd_refreshLogin) jcfd_refreshLogin();">
       <div class="hub-card-icon" style="background:#eef1ff;"><img src="data:image/png;base64,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" alt="Jamaica Constabulary Force logo" loading="lazy"></div>
       <div class="hub-card-title">JCF Officer Portal</div>
       <div class="hub-card-desc">Review Noise Abatement applications within your division's jurisdiction, assign officers, and issue permits.</div>
@@ -5018,12 +5126,12 @@
 
 
 <header>
-  <div class="logo">
+  <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
     <img class="app-logo-img" alt="Atendify logo">
     <span>Atendify</span>
   </div>
   <nav>
-    <span class="nav-link" onclick="goHome()">Home</span>
+    <span class="nav-link" onclick="showHub()">Home</span>
     <span class="nav-link" onclick="showTrackApplication()">Track Application</span>
     <span class="nav-link nav-login-btn" onclick="showHub('account')">Login</span>
     <button class="signup-btn nav-signup-btn" onclick="showHub('account'); if(window.acct_switchAuthTab) acct_switchAuthTab('signup');">Sign Up</button>
@@ -7305,6 +7413,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <div class="panel">
+        <div class="panel-head"><h2>Payment Verification Needed</h2></div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Applications where the applicant has submitted their Atendify application fee, but it hasn't been verified yet. Each stays flagged with a red marker everywhere it's listed until you verify or it's resolved — the Municipal officer can't approve the application or issue a permit until then.</p>
+        <div id="admin_ovwPaymentVerificationBanner"></div>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table>
+            <thead><tr><th>Application #</th><th>Applicant</th><th>Municipality</th><th>Amount</th><th>Submitted</th><th></th></tr></thead>
+            <tbody id="admin_ovwPaymentVerificationBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head"><h2>Applications</h2></div>
         <div class="stat-grid" id="admin_ovwApplicationsStats"></div>
       </div>
@@ -7787,14 +7907,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
 
           <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Briefing Videos</h3>
-          <div class="field-hint" style="margin:0 0 12px;">Links to the three eBriefing videos applicants must watch during the Noise Abatement wizard — hosted on YouTube, Vimeo, or any direct video URL rather than uploaded to this app, to keep hosting fast and inexpensive. Leave a field blank to show "no video configured yet" in its place; applicants still confirm they've watched it via the checkbox on that step either way.</div>
+          <div class="field-hint" style="margin:0 0 12px;">Links to the three eBriefing videos applicants must watch during the Noise Abatement wizard — hosted on YouTube, Vimeo, or any direct video URL rather than uploaded to this app, to keep hosting fast and inexpensive. Leave a field blank to show "no video configured yet" in its place; applicants still confirm they've watched it via the checkbox on that step either way. Each link saves itself as soon as you click or tab away — no separate save step needed.</div>
           <div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:20px;">
             <div class="field-hint" style="margin:0 0 4px;">Noise Abatement Act Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoNoise" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <input type="text" id="admin_formTpl_jcfVideoNoise" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;" onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoNoise', 'jcfBriefingVideoNoiseUrl')">
             <div class="field-hint" style="margin:0 0 4px;">Playing of Loud Speakers Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoLoudspeakers" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;">
+            <input type="text" id="admin_formTpl_jcfVideoLoudspeakers" placeholder="https://www.youtube.com/watch?v=..." style="margin-bottom:12px;" onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoLoudspeakers', 'jcfBriefingVideoLoudspeakersUrl')">
             <div class="field-hint" style="margin:0 0 4px;">Charges and Penalties Briefing</div>
-            <input type="text" id="admin_formTpl_jcfVideoCharges" placeholder="https://www.youtube.com/watch?v=...">
+            <input type="text" id="admin_formTpl_jcfVideoCharges" placeholder="https://www.youtube.com/watch?v=..." onchange="admin_saveJcfBriefingVideoField('admin_formTpl_jcfVideoCharges', 'jcfBriefingVideoChargesUrl')">
           </div>
 
           <h3 style="margin:32px 0 6px; border-top:1px solid var(--border); padding-top:20px;">Associated Documents</h3>
@@ -8050,6 +8170,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);">
 
+    <div class="field-group" id="appPaymentVerificationCard"></div>
+
+    <hr style="margin:20px 0; border:none; border-top:1px solid var(--border);">
+
     <div class="field-group">
       <label>Fee adjustments</label>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -8217,7 +8341,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
 
 <header>
-  <div class="logo">
+  <div class="logo" onclick="showHub()" style="cursor:pointer;" title="Back to Atendify home">
     <img class="app-logo-img" alt="Atendify logo">
     <span>Atendify</span>
   </div>
@@ -8443,32 +8567,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <label for="jcf_venueName">Venue Name</label>
           <input type="text" id="jcf_venueName" readonly>
         </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="venueAddr1">Street Number</label>
-            <input type="text" id="venueAddr1" readonly>
-          </div>
-          <div>
-            <label for="venueAddr2">Street Name</label>
-            <input type="text" id="venueAddr2" readonly>
-          </div>
-        </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="venueDistrict">District</label>
-            <input type="text" id="venueDistrict" readonly>
-          </div>
-          <div>
-            <label for="venueParish">Parish</label>
-            <select id="venueParish" disabled>
-              <option value="">Select an option</option>
-              <option>Kingston</option><option>St. Andrew</option><option>St. Thomas</option><option>Portland</option>
-              <option>St. Mary</option><option>St. Ann</option><option>Trelawny</option><option>St. James</option>
-              <option>Hanover</option><option>Westmoreland</option><option>St. Elizabeth</option><option>Manchester</option>
-              <option>Clarendon</option><option>St. Catherine</option>
-          <option>Portmore</option>
-            </select>
-          </div>
+        <div class="field-group">
+          <label for="venueAddress">Address</label>
+          <input type="text" id="venueAddress" readonly>
         </div>
 
         <div class="field-row">
@@ -8482,40 +8583,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
 
-        <div class="field-group field-row">
-          <div>
-            <label for="ownerAddr1">Street Number</label>
-            <input type="text" id="ownerAddr1">
-          </div>
-          <div>
-            <label for="ownerAddr2">Street Name</label>
-            <input type="text" id="ownerAddr2">
-          </div>
-        </div>
-        <div class="field-group field-row">
-          <div>
-            <label for="ownerDistrict">District</label>
-            <input type="text" id="ownerDistrict">
-          </div>
-          <div>
-            <label for="ownerParish">Parish</label>
-            <select id="ownerParish">
-              <option value="">Select an option</option>
-              <option>Kingston</option><option>St. Andrew</option><option>St. Thomas</option><option>Portland</option>
-              <option>St. Mary</option><option>St. Ann</option><option>Trelawny</option><option>St. James</option>
-              <option>Hanover</option><option>Westmoreland</option><option>St. Elizabeth</option><option>Manchester</option>
-              <option>Clarendon</option><option>St. Catherine</option>
-          <option>Portmore</option>
-            </select>
-          </div>
+        <div class="field-group">
+          <label for="ownerAddress">Address</label>
+          <input type="text" id="ownerAddress">
         </div>
 
         <div>
-          <div class="id-flyer-box-title">Venue owner's letter of permission</div>
+          <div class="id-flyer-box-title">Proof of Ownership/Authorization</div>
+          <div id="permissionLetterFromPoaTag" class="from-poa-tag hidden">✓ From your POA application</div>
           <div class="flyer-upload-box" id="permissionLetterBox" onclick="document.getElementById('permissionLetterFile').click()">
             <div id="permissionLetterPreviewWrap">
               <div class="fu-icon">⤒</div>
-              <div class="fu-label">Upload letter of permission</div>
+              <div class="fu-label">Upload proof of ownership/authorization</div>
             </div>
             <input type="file" id="permissionLetterFile" accept="image/*,.pdf" style="display:none;" onchange="permissionLetterFileChosen(this)">
           </div>
@@ -8869,7 +8948,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <p class="col-desc">The Jamaica Constabulary Force division serving your event's parish will review this application. You'll be notified through your Places of Amusement Application Main Menu once a decision is made.</p>
       <div class="btn-row" style="justify-content:center;">
         <button class="btn" onclick="window.print()">🖨 Print confirmation</button>
-        <button class="btn btn-primary hidden" id="confirmBackToPoaBtn" onclick="showHub('poa')">Return to my Places of Amusement Application</button>
+        <button class="btn btn-primary hidden" id="confirmBackToPoaBtn" onclick="jcf_returnToPoaMainMenu()">Return to my Places of Amusement Application</button>
       </div>
     </div>
   </section>
@@ -10060,7 +10139,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         '</div>';
       html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>' +
         acctDetailRow('Venue name', vi.venueName) +
-        acctDetailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict].filter(Boolean).join(', ')) +
+        acctDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', ')) +
         acctDetailRow("Venue's owner", vi.venueOwner) +
         acctDetailRow('Owner contact', vi.ownerContact) +
         '</div>';
@@ -10685,6 +10764,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_refreshLogin = jcfd_refreshLogin;
 
+  // jcfd_agencies() reads the Admin portal's shared `agencies` array via
+  // window.admin_getAgencies() — that array starts empty and is only filled
+  // in once admin_initRegistryData()'s long agencies→muniUsers→applications→
+  // venues→roles chain resolves (see admin_registryReady below). A visitor
+  // who clicks into the JCF Division hub card before that chain finishes
+  // gets an empty/stale Division dropdown that never re-populates on its
+  // own, since nothing else calls jcfd_refreshLogin() again afterward. Call
+  // this from the hub card instead of jcfd_refreshLogin() directly: it
+  // refreshes immediately (so a fast-loading visitor sees no change) and
+  // again once window.adminRegistryReady resolves, to backfill a visitor
+  // who clicked in early.
+  async function jcfd_refreshLoginWhenReady(){
+    jcfd_refreshLogin();
+    if(window.adminRegistryReady){
+      try{ await window.adminRegistryReady; }catch(e){}
+      jcfd_refreshLogin();
+    }
+  }
+  window.jcfd_refreshLoginWhenReady = jcfd_refreshLoginWhenReady;
+
   // Loads the real, shared officer roster (see atdLoadJcfdUsers) — mirrors
   // muni_initRegistryData(). The branch dropdown itself doesn't depend on
   // this (see jcfd_activeBranchIds() above), so refresh once immediately
@@ -10883,10 +10982,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
     jcfdCurrentUser = null;
     jcfdCurrentBranch = null;
+    // Reset this portal's own internal state (so the next visit here starts
+    // back at its login screen, not wherever the officer's dashboard was
+    // left) — but the actual navigation goes all the way back out to the
+    // shared staff hub (the page with both the Municipal and JCF Officer
+    // Portal cards), not just this one portal's own re-login screen, per
+    // the reported request: "Log out" should return you to the portal
+    // picker, not straight back into the same portal.
     document.getElementById('jcfd_appShell').classList.add('hidden');
     document.getElementById('jcfd_loginScreen').classList.remove('hidden');
     document.getElementById('jcfd_loginEmail').value = '';
     document.getElementById('jcfd_loginPassword').value = '';
+    if(window.showHub) window.showHub('staff');
   }
   window.jcfd_logout = jcfd_logout;
 
@@ -11341,6 +11448,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
 
+  // ---- 5-minute platform auto-refresh (JCF Division portal) ----
+  // Both of these already read live from storage on every call (no cached
+  // array to go stale), so a background refresh is just re-calling them
+  // periodically while someone is actually signed in and viewing this
+  // portal — the same "new applications show up without a manual reload"
+  // fix applied to the Municipal officer and National Admin portals.
+  setInterval(() => {
+    const shell = document.getElementById('shell-jcfd');
+    if(jcfdCurrentUser && shell && !shell.classList.contains('hidden')){
+      jcfd_renderDashboard();
+      jcfd_renderApplications();
+    }
+  }, 5 * 60 * 1000);
+
   async function jcfd_openApplication(key){
     jcfdActiveAppKey = key;
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -11445,10 +11566,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     html += `<div class="panel"><div class="detail-section-title">Venue Information</div>`;
     html += jcfd_detailRow('Venue name', vi.venueName);
-    html += jcfd_detailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
+    html += jcfd_detailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
     html += jcfd_detailRow("Venue's owner", vi.venueOwner);
     html += jcfd_detailRow('Owner contact', vi.ownerContact);
-    html += jcfd_detailRow("Owner's address", [vi.ownerAddr1, vi.ownerAddr2, vi.ownerDistrict, vi.ownerParish].filter(Boolean).join(', '));
+    html += jcfd_detailRow("Owner's address", vi.ownerAddress || [vi.ownerAddr1, vi.ownerAddr2, vi.ownerDistrict, vi.ownerParish].filter(Boolean).join(', '));
     html += jcfd_detailRow('Owner previously breached the Noise Abatement Act', vi.ownerBreachedNoiseAct);
     if(vi.ownerBreachedNoiseAct === 'Yes'){
       html += jcfd_detailRow('Breach details', vi.ownerBreachReason);
@@ -11484,7 +11605,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
     html += jcfd_detailRowAction('Photo ID', eo.photoIdFileName || 'Not uploaded', 'photoId', !!eo.photoIdFileName);
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName);
-    html += jcfd_detailRowAction("Venue owner's letter of permission", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
+    html += jcfd_detailRowAction("Proof of Ownership/Authorization", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -12532,10 +12653,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     list.forEach(r => { statusCounts[jcfd_statusBadgeLabel(r)] = (statusCounts[jcfd_statusBadgeLabel(r)] || 0) + 1; });
     document.getElementById('jcfd_reportStatusChart').innerHTML = jcfd_reportBarRows(statusCounts);
 
+    // The JCF form's venue-address fields used to include a dedicated Parish
+    // dropdown (vi.venueParish); that's now folded into the single
+    // free-text vi.venueAddress field (see prefillFromPoa()/submitJcfApp()),
+    // which is always built as "..., <district>, <parish>" when a parish is
+    // known — so the last comma-separated segment is the parish whenever it
+    // matches this list. Falls back to the old vi.venueParish field for
+    // applications submitted before that change.
+    const jcfd_parishNames = ['Kingston','St. Andrew','St. Thomas','Portland','St. Mary','St. Ann','Trelawny','St. James','Hanover','Westmoreland','St. Elizabeth','Manchester','Clarendon','St. Catherine','Portmore'];
     const parishCounts = {};
     list.forEach(r => {
       const vi = r.venueInfo || {};
-      if(vi.venueParish) parishCounts[vi.venueParish] = (parishCounts[vi.venueParish] || 0) + 1;
+      let parish = vi.venueParish || '';
+      if(!parish && vi.venueAddress){
+        const lastPart = vi.venueAddress.split(',').pop().trim();
+        if(jcfd_parishNames.includes(lastPart)) parish = lastPart;
+      }
+      if(parish) parishCounts[parish] = (parishCounts[parish] || 0) + 1;
     });
     document.getElementById('jcfd_reportParishChart').innerHTML = jcfd_reportBarRows(parishCounts);
 
@@ -12592,7 +12726,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // for. One call here covers every document kind this modal handles.
     if(window.atdLogAudit && jcfdCurrentUser){
       const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
-        : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission" : kind === 'signature' ? 'Signature on File' : kind;
+        : kind === 'permissionLetter' ? "Proof of Ownership/Authorization" : kind === 'signature' ? 'Signature on File' : kind;
       await window.atdLogAudit({
         portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
         action: 'document.viewed',
@@ -15064,6 +15198,16 @@ async function buildApplicationRecord(appNumber){
     paymentAmount: c.total,
     applicationFeePaid: false,
     applicationFeePayment: { method: '', referenceNumber: '', fileName: '', uploadedDate: '' },
+    // Distinct from paymentVerified below — that one is the LICENSE fee
+    // (payable to the municipality), verified by a Municipal officer. This
+    // is the ATENDIFY application fee, verified by the National Admin —
+    // see fix27_application_fee_verification.sql / admin_openAppModal's new
+    // Payment Verification card. Until this is true, setFinalStatus() won't
+    // let a Municipal officer approve the application or generate a permit,
+    // so the applicant can't download one either.
+    applicationFeeVerified: false,
+    applicationFeeVerifiedBy: '',
+    applicationFeeVerifiedDate: '',
     paymentVerified: false,
     paymentReceiptNumber: '',
     paymentNotes: '',
@@ -15474,7 +15618,7 @@ let currentLinkedJcfApp = null;
 let currentMuniSettings = null;
 
 async function poa_findLinkedJcfApplication(poaAppNumber){
-  if(!window.storage || !poaAppNumber) return null;
+  if(!poaAppNumber) return null;
   // A JCF application submitted via the POA-to-JCF handoff is always stored
   // under the exact same appNumber as its parent POA application (see
   // submitJcfApp(): `number = jcfAppNumber || ...`, and jcf_ingestPayload()
@@ -15484,6 +15628,26 @@ async function poa_findLinkedJcfApplication(poaAppNumber){
   // (That list+per-key-get scan used to fire a burst of storage calls that
   // grew with the total number of JCF applications ever submitted, which is
   // what triggered "Message rate limit exceeded" errors on POA submission.)
+  //
+  // A plain read of that key only works for a signed-in poa account or JCF
+  // Division staff — the RLS policies on jcfApplication rows have no grant
+  // at all for a genuinely anonymous "Track Application" guest (see
+  // supabase_schema.sql). That's exactly why a not-logged-in applicant's
+  // Main Menu never showed their Noise Abatement filing as submitted even
+  // though it had gone through fine and was already visible to JCF Division:
+  // this read was being silently denied by RLS on every attempt, not just
+  // returning stale data. atd_track_linked_jcf_application (Fix #28) is a
+  // SECURITY DEFINER RPC — same pattern as atd_track_application already
+  // used for the POA application itself — that bypasses RLS but only
+  // returns the row when the caller also supplies the matching tracking
+  // code, so try it first whenever we have one.
+  if(currentAppRecord && currentAppRecord.trackingCode && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.trackLinkedJcfApplication){
+    try{
+      const rpcRec = await window.ATDBackend.trackLinkedJcfApplication(poaAppNumber, currentAppRecord.trackingCode);
+      if(rpcRec && rpcRec.poaAppNumber === poaAppNumber) return rpcRec;
+    } catch(err){ /* fall through to the plain read below */ }
+  }
+  if(!window.storage) return null;
   try{
     const result = await window.storage.get(`jcfApplication:${poaAppNumber}`, true);
     if(result && result.value){
@@ -15657,17 +15821,24 @@ async function mmGoView(view){
   const targetView = document.getElementById('mmView-' + view);
   targetView.classList.remove('hidden');
 
+  if(view === 'summary' || view === 'documents' || view === 'payment' || view === 'noise' || view === 'permit'){
+    await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
+  }
+
   if(view === 'summary' || view === 'permit' || view === 'payment'){
     await mmRefreshRecord();
     const poa_statusBadge = document.getElementById('mmStatusBadge');
     poa_statusBadge.textContent = currentAppRecord.status || 'Submitted';
     poa_statusBadge.className = 'mm-status-badge' +
       (currentAppRecord.status === 'Approved' ? ' approved' : currentAppRecord.status === 'Rejected' ? ' rejected' : '');
-    document.getElementById('mmPermitNav').disabled = !currentAppRecord.permitGenerated;
-  }
-
-  if(view === 'summary' || view === 'documents' || view === 'payment' || view === 'noise'){
-    await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
+    // The Permit nav tab used to only unlock once the MUNICIPAL permit was
+    // generated — an applicant whose JCF Noise Abatement Permit was issued
+    // first (JCF approval often lands before the municipality's own
+    // decision) couldn't even open this tab to see it. Unlock it as soon as
+    // EITHER permit exists.
+    const hasEitherPermit = !!(currentAppRecord.permitGenerated) ||
+      !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
+    document.getElementById('mmPermitNav').disabled = !hasEitherPermit;
   }
 
   // Blur/lock every other section until the Application Fee has been paid
@@ -16180,6 +16351,23 @@ async function openJcfForm(){
       // no separately-stored flier available for this application
     }
   }
+  // Same handoff for the Proof of Ownership/Authorization document: stored
+  // under its own `applicationOwnership:<appNumber>` key (see
+  // buildApplicationRecord's _ownershipFileDataPending note), not embedded
+  // in currentAppRecord. The JCF form's own upload for this same document
+  // used to be titled "Venue owner's letter of permission" — a different
+  // name for what is really the same document the POA application already
+  // asked for — which is why it was never auto-carried over before; now
+  // both forms use the same title and this fetch links them.
+  let ownershipFileData = null;
+  if(window.storage && r.appNumber){
+    try{
+      const result = await window.storage.get(`applicationOwnership:${r.appNumber}`, true);
+      if(result && result.value) ownershipFileData = JSON.parse(result.value).fileData || null;
+    } catch(err){
+      // no separately-stored ownership document available for this application
+    }
+  }
   const payload = {
     appNumber: r.appNumber,
     trackingCode: r.trackingCode,
@@ -16210,7 +16398,9 @@ async function openJcfForm(){
     venueParish: r.applicant.parish || '',
     venueOwnerName: r.venue.ownerName || '',
     venueOwnerAddress: r.venue.ownerAddress || '',
-    venueOwnerPhone: r.venue.ownerPhone || ''
+    venueOwnerPhone: r.venue.ownerPhone || '',
+    ownershipFileName: r.venue.ownershipFileName || '',
+    ownershipFileData
   };
   // Everything lives in one document now, so hand the payload straight to
   // the JCF applicant shell in memory and switch hubs in the same window —
@@ -16294,7 +16484,7 @@ function renderMmSummary(){
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Payment</div>`;
-  html += mmDetailRow('Application Fee (to Atendify)', r.applicationFeePaid ? `${poa_formatCurrency(r.costs.applicationFee)} — Paid via ${r.applicationFeePayment?.method || 'N/A'}` : `${poa_formatCurrency(r.costs.applicationFee)} — Not yet paid`);
+  html += mmDetailRow('Application Fee (to Atendify)', r.applicationFeePaid ? `${poa_formatCurrency(r.costs.applicationFee)} — Paid via ${r.applicationFeePayment?.method || 'N/A'}, ${r.applicationFeeVerified ? 'verified' : 'awaiting verification'}` : `${poa_formatCurrency(r.costs.applicationFee)} — Not yet paid`);
   const licenseFeeAmount = r.costs.total - (r.costs.applicationFee || 0);
   html += mmDetailRow(`License Fee (to ${r.municipalityName})`, (r.paymentReceipt && r.paymentReceipt.fileName) ? `${poa_formatCurrency(licenseFeeAmount)} — Submitted, ${r.paymentVerified ? 'verified' : 'awaiting verification'}` : `${poa_formatCurrency(licenseFeeAmount)} — Not yet paid`);
   (r.additionalPaymentRequests || []).forEach(req=>{
@@ -16351,7 +16541,7 @@ function renderMmNoise(){
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>`;
   html += mmDetailRow('Venue name', vi.venueName);
-  html += mmDetailRow('Address', [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict].filter(Boolean).join(', '));
+  html += mmDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
   html += mmDetailRow("Venue's owner", vi.venueOwner);
   html += mmDetailRow('Owner contact', vi.ownerContact);
   html += `</div>`;
@@ -16709,15 +16899,15 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo">`
-          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px;">LOGO OF MC</div>`}
-        <div class="permit-doc-muniblock">
-          <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
-        </div>
+          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
         </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
       </div>
       <div class="permit-doc-reg">PLACES OF AMUSEMENT REGULATION 1999</div>
       <div class="permit-doc-title-box">AMUSEMENT LICENSE</div>
@@ -16750,6 +16940,46 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   `;
 }
 
+// The JCF Noise Abatement Permit is a completely separate document from
+// the Municipal Corporation's Places of Amusement permit above — issued by
+// the JCF Division (see jcfd_approve() in the JCF Officer Portal's own
+// script scope), not the municipality, and carrying a much smaller record
+// shape ({number, permitTypeLabel, issuedDate, expiresDate} — no venue,
+// applicant address, or signature data the way the municipal permit has).
+// Reuses the same .permit-doc/.permit-doc-top/.permit-doc-grid styling for
+// visual consistency rather than a second, divergent template.
+function poa_buildJcfPermitDocHtml(p, appNumber, qrTargetId){
+  qrTargetId = qrTargetId || 'jcfPermitQrTarget';
+  return `
+    <div class="permit-doc">
+      <div class="permit-doc-top">
+        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
+        <div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">JCF</div>
+        <div class="permit-doc-qr">
+          <div class="qr-box" id="${qrTargetId}"></div>
+          <div class="qr-scan-label">SCAN ME</div>
+        </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">JAMAICA CONSTABULARY FORCE</div>
+      </div>
+      <div class="permit-doc-reg">NOISE ABATEMENT ACT</div>
+      <div class="permit-doc-title-box">NOISE ABATEMENT PERMIT</div>
+
+      <div class="permit-doc-grid">
+        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</div><div class="pdg-label">DATE ISSUED</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(p.number || '')}</div><div class="pdg-label">PERMIT NO.</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.expiresDate))}</div><div class="pdg-label">EVENT DATE</div></div>
+        <div><div class="pdg-value">${poa_escapeHtml(p.permitTypeLabel || 'JCF Noise Abatement Permit')}</div><div class="pdg-label">PERMIT TYPE</div></div>
+      </div>
+
+      <p class="permit-doc-body">This Noise Abatement Permit is granted by the Jamaica Constabulary Force in respect of application <strong>${poa_escapeHtml(appNumber || '')}</strong>, authorizing the noise-generating activity described in that application on the date(s) noted above, subject to the conditions of the Noise Abatement Act.</p>
+
+      <div class="permit-doc-efile">e-File</div>
+    </div>
+  `;
+}
+
 function poa_renderPermitQr(targetId, data){
   const el = document.getElementById(targetId);
   if(!el || typeof QRCode === 'undefined') return;
@@ -16759,26 +16989,64 @@ function poa_renderPermitQr(targetId, data){
   } catch(err){ /* QR library unavailable — box stays empty */ }
 }
 
+// The Application Permit tab used to show only the Municipal Corporation's
+// own Places of Amusement permit — never the separate JCF Noise Abatement
+// Permit an applicant may also have been issued (via the linked JCF filing,
+// see poa_refreshLinkedJcfApp/currentLinkedJcfApp), even once the JCF
+// Division had approved it. Both are real, independently-issued documents
+// for the same event, so both belong here once each exists.
 async function renderMmPermit(){
   const r = currentAppRecord;
   const body = document.getElementById('mmPermitBody');
-  if(!r.permitGenerated || !r.permit){
-    body.innerHTML = `<p class="col-desc">Your permit will appear here once your application has been approved.</p>`;
+  const jcfApp = currentLinkedJcfApp;
+  const hasMuniPermit = !!(r.permitGenerated && r.permit);
+  const hasJcfPermit = !!(jcfApp && jcfApp.permitGenerated && jcfApp.permit);
+
+  if(!hasMuniPermit && !hasJcfPermit){
+    body.innerHTML = `<p class="col-desc">Your permit(s) will appear here once your application has been approved.</p>`;
     return;
   }
-  const p = r.permit;
-  const signature = await fetchMuniSignature(r.muniId);
-  const logo = await window.fetchMuniLogo(r.muniId);
-  body.innerHTML = poa_buildPermitDocHtml(p, signature, 'mmPermitQrTarget', logo) + `
-    <div class="btn-row" style="justify-content:flex-start; margin-top:20px;">
-      <button class="btn" onclick="printPermitFromMenu()">🖨 Print permit</button>
-    </div>
-  `;
-  poa_renderPermitQr('mmPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+
+  let html = '';
+  if(hasMuniPermit){
+    const signature = await fetchMuniSignature(r.muniId);
+    const logo = await window.fetchMuniLogo(r.muniId);
+    html += `
+      <h3 style="margin:0 0 10px;">Places of Amusement Permit</h3>
+      ${poa_buildPermitDocHtml(r.permit, signature, 'mmPermitQrTarget', logo)}
+      <div class="btn-row" style="justify-content:flex-start; margin:14px 0 28px;">
+        <button class="btn" onclick="printPermitFromMenu('muni')">🖨 Print permit</button>
+      </div>`;
+  }
+  if(hasJcfPermit){
+    html += `
+      <h3 style="margin:0 0 10px;">JCF Noise Abatement Permit</h3>
+      ${poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'mmJcfPermitQrTarget')}
+      <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+        <button class="btn" onclick="printPermitFromMenu('jcf')">🖨 Print permit</button>
+      </div>`;
+  }
+  body.innerHTML = html;
+
+  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', r.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
 }
 
-async function printPermitFromMenu(){
+async function printPermitFromMenu(kind){
+  kind = kind || 'muni';
   const r = currentAppRecord;
+  const jcfApp = currentLinkedJcfApp;
+
+  if(kind === 'jcf'){
+    if(!jcfApp || !jcfApp.permitGenerated || !jcfApp.permit) return;
+    document.getElementById('printArea').innerHTML = poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'printPermitQrTarget');
+    poa_renderPermitQr('printPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+    document.body.classList.add('printing-doc');
+    window.print();
+    setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
+    return;
+  }
+
   if(!r.permitGenerated || !r.permit) return;
   const p = r.permit;
   const signature = await fetchMuniSignature(r.muniId);
@@ -16819,6 +17087,7 @@ window.mmGoView = mmGoView;
 window.openMainMenu = openMainMenu;
 window.poa_getCurrentAppRecord = function(){ return currentAppRecord; };
 window.poa_buildPermitDocHtml = poa_buildPermitDocHtml;
+window.poa_buildJcfPermitDocHtml = poa_buildJcfPermitDocHtml;
 window.poa_renderPermitQr = poa_renderPermitQr;
 window.onApMethodChange = onApMethodChange;
 window.onApplyParishChange = onApplyParishChange;
@@ -16972,6 +17241,46 @@ const STATUS_FLOW = ["Submitted", "Payment Received", "Processing", "Pending App
 // status is driven by the linked jcfApplication record (see
 // muni_findLinkedJcfApplication / muni_loadLinkedJcfApp).
 const POLICE_APPROVAL_DOC_NAME = 'Police Approval (apply online)';
+
+// Single source of truth for which of an application's required documents
+// actually count as satisfied right now (uploaded-and-not-rejected, or
+// explicitly marked Not Applicable — Police Approval instead depends on the
+// linked JCF filing's permit being generated). This used to be computed
+// three different ways in three different places: the "Required docs: X ✓"
+// readback row only checked whether a document OBJECT existed at all (true
+// even for one an officer had since Rejected), while updateDocStatus()'s own
+// copy correctly checked .status but only ever ran as a side effect of an
+// officer reviewing one specific document. Between those two, the STORED
+// requiredDocumentsSubmitted field could go stale the moment anything
+// changed without an officer immediately opening the doc review modal —
+// e.g. the linked JCF permit finally being generated, or the applicant
+// uploading a previously-missing document — leaving the "Required documents
+// submitted" checkbox (and the Approve button it gates) stuck showing
+// unsatisfied even once every document genuinely was. Recomputing this live,
+// from the same one function, everywhere it's needed removes that gap
+// entirely instead of chasing each place it could reappear.
+function muni_computeDocBreakdown(a){
+  const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
+  const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
+  const breakdown = [];
+  if(regDocs && regDocList){
+    regDocList.forEach(name => {
+      if(name === POLICE_APPROVAL_DOC_NAME){
+        breakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
+      } else {
+        const d = regDocs[name];
+        breakdown.push([name, !!(d && (d.status === 'Submitted' || d.status === 'Approved' || d.status === 'Not Applicable'))]);
+      }
+    });
+  }
+  return breakdown;
+}
+function muni_computeRequiredDocumentsSubmitted(a){
+  const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
+  const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
+  if(!regDocs || !regDocList) return !!a.requiredDocumentsSubmitted;
+  return muni_computeDocBreakdown(a).every(([, ok]) => ok);
+}
 
 // Phase C of the hardening plan (backend/SETUP.md): used to be 1 hardcoded
 // fictional watchlist entry (Kerry-Ann Fisher, tied to the fictional St.
@@ -17305,10 +17614,15 @@ document.getElementById('muni_loginPassword').addEventListener('keydown', e=>{
 function muni_logout(){
   if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
   currentUser = null;
+  // Reset this portal's own internal state (so the next visit here starts
+  // back at its login screen) — but navigate all the way back out to the
+  // shared staff hub (both the Municipal and JCF Officer Portal cards),
+  // not just this one portal's own re-login screen.
   document.getElementById('muni_appShell').classList.add('hidden');
   document.getElementById('muni_loginScreen').classList.remove('hidden');
   document.getElementById('muni_loginEmail').value = '';
   document.getElementById('muni_loginPassword').value = '';
+  if(window.showHub) window.showHub('staff');
 }
 
 function hasPerm(key){
@@ -20335,18 +20649,15 @@ async function renderAppDetail(){
   cardsHtml += `</div>`;
 
   // ---- Document Check card ----
-  const docBreakdown = [];
+  // Computed live (see muni_computeDocBreakdown/muni_computeRequiredDocumentsSubmitted)
+  // rather than trusting the stored requiredDocumentsSubmitted field, which
+  // only gets refreshed as a side effect of an officer reviewing one
+  // specific document and can otherwise go stale — see that function's own
+  // comment for the full story.
+  const docBreakdown = muni_computeDocBreakdown(a);
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
   const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
-  if(regDocs && regDocList){
-    regDocList.forEach(name => {
-      if(name === POLICE_APPROVAL_DOC_NAME){
-        docBreakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
-      } else {
-        docBreakdown.push([name, !!regDocs[name]]);
-      }
-    });
-  }
+  const liveRequiredDocsSubmitted = muni_computeRequiredDocumentsSubmitted(a);
   const canEditDocCheck = hasPerm('review');
   cardsHtml += `<div class="official-card"><h4>Document Check</h4>`;
   cardsHtml += `
@@ -20355,7 +20666,7 @@ async function renderAppDetail(){
       <span>Payment received <span class="cell-sub" style="display:block;">Auto-checked when the Accountant verifies payment</span></span>
     </label>
     <label class="checkbox-row" style="cursor:default;">
-      <input type="checkbox" disabled ${a.requiredDocumentsSubmitted ? 'checked' : ''}>
+      <input type="checkbox" disabled ${liveRequiredDocsSubmitted ? 'checked' : ''}>
       <span>Required documents submitted <span class="cell-sub" style="display:block;">Auto-checked when the applicant uploads all documents required for their event/business type</span></span>
     </label>
     <label class="checkbox-row" style="${canEditDocCheck ? 'cursor:pointer;' : 'cursor:default;'}">
@@ -20568,7 +20879,12 @@ async function renderAppDetail(){
     if(a.status === 'Pending Approval'){
       const missingItems = [];
       if(!a.paymentVerified) missingItems.push('payment has not been verified');
-      if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
+      // Separate from the license-fee check above — this is the Atendify
+      // application fee, verified by the National Admin portal (see its
+      // Payment Verification card), not by this Municipal officer.
+      if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
+      else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
+      if(!liveRequiredDocsSubmitted) missingItems.push('required documents have not all been uploaded');
       if(!a.venueApproved) missingItems.push('the venue has not been approved');
       if(missingItems.length){
         cardsHtml += `<div class="status-banner warn">Cannot approve yet — ${muni_escapeHtml(missingItems.join('; '))}.</div>`;
@@ -20871,17 +21187,12 @@ async function updateDocStatus(newStatus, toastMessage){
   d.status = newStatus;
   d.officerNote = note;
 
-  const list = r.regulatoryDocList || [];
-  const computed = list.every(name => {
-    if(name === POLICE_APPROVAL_DOC_NAME){
-      return !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated);
-    }
-    const doc = r.regulatoryDocuments[name];
-    // A doc the applicant marked Not Applicable (see mmDocMarkNotApplicable
-    // in the public wizard) counts as satisfied too, same as an upload —
-    // both are still gated on officer review via Approve/Reject above.
-    return !!(doc && (doc.status === 'Submitted' || doc.status === 'Approved' || doc.status === 'Not Applicable'));
-  });
+  // Same live computation renderAppDetail()/setFinalStatus() use (see
+  // muni_computeRequiredDocumentsSubmitted) — kept here too so the
+  // persisted field stays in sync with what's actually being shown, for any
+  // other reader (e.g. the Admin dashboard or reports) that reads the
+  // stored field directly rather than recomputing it live.
+  const computed = muni_computeRequiredDocumentsSubmitted(a);
   r.requiredDocumentsSubmitted = computed;
   a.requiredDocumentsSubmitted = computed;
 
@@ -20909,8 +21220,15 @@ function saveDocNote(){
   updateDocStatus(d.status, 'Note saved.');
 }
 
+// Returns true only if the write to backend storage actually succeeded
+// (or there was nothing to persist). Most callers historically ignored the
+// return value — safe, since it used to be undefined either way — but
+// verifyPayment()/unverifyPayment() below now check it: on a failed save
+// (e.g. an RLS rejection) they roll their optimistic in-memory flags back
+// and say so, instead of showing "Payment verified" while nothing was
+// actually saved for anyone else to see.
 async function persistIfFromStorage(a){
-  if(!a._fromStorage || !a.raw || !window.storage) return;
+  if(!a._fromStorage || !a.raw || !window.storage) return true;
   try{
     a.raw.status = a.status;
     a.raw.paymentVerified = a.paymentVerified;
@@ -20933,12 +21251,17 @@ async function persistIfFromStorage(a){
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
+    return true;
   } catch(err){
-    muni_showToast('Change saved locally, but syncing back to the applicant record failed.');
+    const isSessionIssue = err && (err.code === '42501' || /row-level security/i.test(err.message || ''));
+    muni_showToast(isSessionIssue
+      ? 'Could not save — your account may not have permission for this, or your session may have expired. Please log out and back in, and contact an Administrator if it keeps happening.'
+      : 'Change saved locally, but syncing back to the applicant record failed.');
+    return false;
   }
 }
 
-function verifyPayment(){
+async function verifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   const receiptInput = document.getElementById('paymentReceiptInput');
   const notesInput = document.getElementById('paymentNotesInput');
@@ -20949,6 +21272,11 @@ function verifyPayment(){
     return;
   }
 
+  // Captured so a failed save (e.g. an RLS rejection) can be rolled back
+  // instead of leaving this screen showing "Payment verified" while nothing
+  // was actually saved for anyone else — Supervisor, CEO, the applicant — to
+  // see. See persistIfFromStorage()'s own note above.
+  const prev = { paymentVerified: a.paymentVerified, paymentReceiptNumber: a.paymentReceiptNumber, paymentNotes: a.paymentNotes, status: a.status, paymentVerifiedAt: a.paymentVerifiedAt };
   a.paymentVerified = true;
   a.paymentReceiptNumber = receiptNumber;
   a.paymentNotes = notesInput ? notesInput.value.trim() : '';
@@ -20957,8 +21285,13 @@ function verifyPayment(){
   // clocks (see computeSlaBreaches) — only stamped the first time payment is
   // verified, so a later unverify-then-reverify doesn't reset it.
   if(!a.paymentVerifiedAt) a.paymentVerifiedAt = new Date().toISOString();
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    a.paymentVerified = prev.paymentVerified; a.paymentReceiptNumber = prev.paymentReceiptNumber; a.paymentNotes = prev.paymentNotes; a.status = prev.status; a.paymentVerifiedAt = prev.paymentVerifiedAt;
+    renderAppDetail();
+    return;
+  }
   muni_showToast(`Payment verified for ${a.appNumber}.`);
-  persistIfFromStorage(a);
   window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.paymentVerified', details: `${a.appNumber}: receipt ${receiptNumber}.`, muniId: currentUser.muniId });
   // Notify Supervisor + CEO (via the shared 'review' permission) that this
   // application is ready for the next step — the message adapts depending
@@ -20971,7 +21304,7 @@ function verifyPayment(){
   renderAppDetail();
   muni_renderAll();
 }
-function unverifyPayment(){
+async function unverifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   if(a.permitGenerated){
     // Defensive re-check: the button is hidden once a permit has been issued,
@@ -20980,11 +21313,17 @@ function unverifyPayment(){
     renderAppDetail();
     return;
   }
+  const prevU = { paymentVerified: a.paymentVerified, paymentVerifiedAt: a.paymentVerifiedAt, status: a.status };
   a.paymentVerified = false;
   a.paymentVerifiedAt = '';
   if(a.status === 'Payment Received') a.status = 'Submitted';
+  const okU = await persistIfFromStorage(a);
+  if(!okU){
+    a.paymentVerified = prevU.paymentVerified; a.paymentVerifiedAt = prevU.paymentVerifiedAt; a.status = prevU.status;
+    renderAppDetail();
+    return;
+  }
   muni_showToast(`Payment unverified for ${a.appNumber}.`);
-  persistIfFromStorage(a);
   renderAppDetail();
   muni_renderAll();
 }
@@ -21260,7 +21599,14 @@ function setFinalStatus(status){
   if(status === 'Approved'){
     const missingItems = [];
     if(!a.paymentVerified) missingItems.push('payment has not been verified');
-    if(!a.requiredDocumentsSubmitted) missingItems.push('required documents have not all been uploaded');
+    // Real enforcement (not just the UI hint in renderAppDetail above) — a
+    // signed applicant's Permits tab only ever shows a permit once
+    // permitGenerated is true, and that only happens right below via
+    // generatePermit(a), so blocking it here is what actually prevents
+    // downloading a permit while the Atendify application fee is unverified.
+    if(a.applicationFeePaid && !a.applicationFeeVerified) missingItems.push('the Atendify application fee has not been verified by Admin');
+    else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
+    if(!muni_computeRequiredDocumentsSubmitted(a)) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
     if(missingItems.length){
       muni_showToast(`Cannot approve — ${missingItems.join('; ')}.`);
@@ -21311,11 +21657,15 @@ function printPermit(){
 }
 
 // ==================== Load submitted applications from shared storage ====================
-async function loadSubmittedApplications(){
+async function loadSubmittedApplications(silent){
   if(!window.storage){
     return;
   }
-  const btn = document.getElementById('refreshAppsBtn');
+  // silent=true is used by the 5-minute background auto-refresh below — it
+  // should quietly pick up new/changed applications without flickering the
+  // manual "↻ Refresh" button's label or popping a toast every 5 minutes
+  // regardless of whether anything actually changed.
+  const btn = silent ? null : document.getElementById('refreshAppsBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Refreshing…'; }
 
   try{
@@ -21355,6 +21705,12 @@ async function loadSubmittedApplications(){
         paymentVerified: !!rec.paymentVerified,
         paymentReceiptNumber: rec.paymentReceiptNumber || '',
         paymentNotes: rec.paymentNotes || '',
+        // The Atendify application fee's OWN verification, set by the
+        // National Admin portal (separate from paymentVerified above, which
+        // is the license fee this Municipal officer verifies) — read here so
+        // setFinalStatus()'s approval gate can block on it too.
+        applicationFeePaid: !!rec.applicationFeePaid,
+        applicationFeeVerified: !!rec.applicationFeeVerified,
         recommendation: rec.recommendation || '',
         recommendedBy: rec.recommendedBy || '',
         recommendationWithdrawalRequested: !!rec.recommendationWithdrawalRequested,
@@ -21381,15 +21737,30 @@ async function loadSubmittedApplications(){
     });
 
     muni_renderAll();
-    if(fetched.length){
+    if(fetched.length && !silent){
       muni_showToast(`Loaded ${fetched.length} submitted application(s) from the applicant form.`);
     }
   } catch(err){
-    muni_showToast('Could not load submitted applications right now.');
+    if(!silent) muni_showToast('Could not load submitted applications right now.');
   } finally{
     if(btn){ btn.disabled = false; btn.textContent = '↻ Refresh'; }
   }
 }
+
+// ---- 5-minute platform auto-refresh (Municipal officer portal) ----
+// New applications submitted by an applicant, or changes made by a
+// colleague, previously only showed up here after a manual "↻ Refresh"
+// click or a full page reload — an officer who leaves this dashboard open
+// could sit for hours without seeing a new submission. Silently re-pulls
+// the real records every 5 minutes while someone is actually signed in and
+// looking at this portal (checked fresh on every tick, not just once), so
+// the dashboard/application lists stay current on their own.
+setInterval(() => {
+  const shell = document.getElementById('shell-muni');
+  if(currentUser && shell && !shell.classList.contains('hidden')){
+    loadSubmittedApplications(true);
+  }
+}, 5 * 60 * 1000);
 
 // ==================== Notification bell ====================
 // Combines two kinds of alert into one feed behind the topbar bell:
@@ -21625,6 +21996,8 @@ window.loadSubmittedApplications = loadSubmittedApplications;
 window.muni_attemptLogin = muni_attemptLogin;
 window.muni_goPage = muni_goPage;
 window.muni_logout = muni_logout;
+window.muni_computeDocBreakdown = muni_computeDocBreakdown;
+window.muni_computeRequiredDocumentsSubmitted = muni_computeRequiredDocumentsSubmitted;
 // Re-fetches MUNICIPALITIES/municipalUsers from the shared registry right
 // before someone reaches the login form, so an agency Admin just
 // created/suspended/reactivated in this same browser session shows up
@@ -21792,6 +22165,16 @@ async function admin_loadApplications(){
           // buildApplicationRecord().
           municipalityRevenue: (rec.costs ? ((rec.costs.venueCost || 0) + (rec.costs.adTotal || 0)) : 0),
           paymentVerified: !!rec.paymentVerified,
+          // Atendify's own application-fee verification, distinct from
+          // paymentVerified above (the municipality's license fee, verified
+          // by a Municipal officer) — this one is verified from right here,
+          // by the National Admin, via the Payment Verification card in
+          // admin_openAppModal.
+          applicationFeePaid: !!rec.applicationFeePaid,
+          applicationFeeVerified: !!rec.applicationFeeVerified,
+          applicationFeeVerifiedBy: rec.applicationFeeVerifiedBy || '',
+          applicationFeeVerifiedDate: rec.applicationFeeVerifiedDate || '',
+          permitGenerated: !!rec.permitGenerated,
           waiverAmount: rec.waiverAmount || 0,
           discountAmount: rec.discountAmount || 0,
           refundAmount: rec.refundAmount || 0,
@@ -21860,7 +22243,23 @@ async function admin_persistApplicationStatus(a){
 }
 
 // ---------------- Registry bootstrap (agencies/roles/users/applications) ----------------
-let adminRegistryReady = (async function admin_initRegistryData(){
+// Extracted into a real, re-callable function rather than a one-shot
+// anonymous IIFE. The original version only ever ran once, at page load —
+// before an admin has actually signed in — which was fine for `agencies`
+// (the 'agency' prefix is publicly readable, and the JCF portal's division
+// dropdown genuinely needs it available pre-login). But muniUsers,
+// applications, and venues are NOT publicly readable — they only come back
+// non-empty for a real 'admin'-role session (see the "kv_store: admin full
+// access" policy in supabase_schema.sql) — so that same initial, pre-login
+// run always loaded them as empty arrays and nothing ever loaded them
+// again. admin_tryRestoreSession() and admin_attemptLogin() both used to
+// just `await adminRegistryReady` once login succeeded, which only awaits
+// the ALREADY-SETTLED first (empty) result rather than re-running anything
+// — leaving Admin's Applications, Venues, and Users pages permanently
+// empty even after a real, correctly-permissioned admin signed in. Now
+// both of those call this function again once a real session exists, so
+// the second run actually has the RLS access to see real data.
+async function admin_refreshRegistryData(){
   try{
     agencies = await window.atdLoadAgencies();
   }catch(e){ agencies = []; }
@@ -21886,15 +22285,13 @@ let adminRegistryReady = (async function admin_initRegistryData(){
     loaded.sort((a,b) => a.id - b.id);
     roles = loaded.length ? loaded : ADMIN_ROLE_SEED.slice();
   }catch(e){ roles = ADMIN_ROLE_SEED.slice(); }
-  // Login normally hasn't happened yet by the time this resolves (this is
-  // all near-instant localStorage under the hood), but if it somehow has,
-  // refresh the on-screen tables/stats with the real data instead of the
-  // empty arrays they were rendered with.
   admin_renderNationalOverview();
   if(!document.getElementById('admin_appShell').classList.contains('hidden')){
     admin_renderAll();
   }
-})();
+}
+window.admin_refreshRegistryData = admin_refreshRegistryData;
+let adminRegistryReady = admin_refreshRegistryData();
 // Exposed so jcfd_tryRestoreSession (a different script scope) can await
 // this same registry load — jcfd_agencies() reads the `agencies` array
 // this populates, needed to resolve a restored session's division name.
@@ -22064,6 +22461,13 @@ async function admin_attemptLogin(){
       await window.atdRecordLoginAttempt('admin', email, true);
       if(window.ATDBackend.logSession) await window.ATDBackend.logSession('admin');
       await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
+      // Re-run the registry load now that a real admin session exists —
+      // the very first load (triggered at page load, before this login)
+      // always came back with empty applications/venues/muniUsers, since
+      // those prefixes are only readable under a real admin session, and
+      // nothing previously re-fetched them after signing in (see
+      // admin_refreshRegistryData's own comment).
+      await admin_refreshRegistryData();
       admin_showAppShell();
       return;
     }catch(e){
@@ -22100,11 +22504,14 @@ async function admin_tryRestoreSession(profile){
   try{
     if(profile.role !== 'admin') return false;
     adminActorEmail = profile.email || adminActorEmail;
-    // Same reasoning as muni/jcfd's restore functions: wait for the
-    // fire-and-forget registry bootstrap so admin_renderAll() (called by
-    // admin_showAppShell()) has real agencies/users/applications data to
-    // render instead of running against empty arrays.
-    await adminRegistryReady;
+    // Same reasoning as muni/jcfd's restore functions: re-run the registry
+    // load now that a real admin session actually exists, so
+    // admin_renderAll() (called by admin_showAppShell()) has real
+    // agencies/users/applications/venues data to render instead of the
+    // empty arrays the original pre-login load came back with (see
+    // admin_refreshRegistryData's own comment — awaiting the already-
+    // settled adminRegistryReady here would not re-fetch anything).
+    await admin_refreshRegistryData();
     showHub('admin');
     admin_showAppShell();
     return true;
@@ -22193,6 +22600,27 @@ function admin_renderAll(){
   renderRequiredFieldsPanel();
 }
 
+// ---- 5-minute platform auto-refresh (National Admin portal) ----
+// Applications submitted or changed elsewhere (by an applicant, a
+// Municipal officer, JCF, etc.) previously only reached this dashboard on
+// login or a manual page reload. This re-pulls the real application
+// records every 5 minutes and refreshes just the application-facing views
+// (National overview, Payment Verification panel, Applications table,
+// Recent applications) — deliberately NOT the full admin_renderAll(),
+// which also re-renders every settings/editor form on the other pages
+// (agency edits, fee adjustments, form template text, etc.) and would
+// silently overwrite anything an admin has mid-typed but not yet saved.
+async function admin_autoRefreshApplications(){
+  const shell = document.getElementById('admin_appShell');
+  if(!shell || shell.classList.contains('hidden')) return; // not logged in yet
+  await admin_loadApplications();
+  admin_renderNationalOverview();
+  admin_renderApplications();
+  admin_renderRecentApps();
+}
+setInterval(admin_autoRefreshApplications, 5 * 60 * 1000);
+window.admin_autoRefreshApplications = admin_autoRefreshApplications;
+
 function admin_todayIso(){ return new Date().toISOString().slice(0, 10); }
 
 // An application counts as "effectively expired" for dashboard purposes if
@@ -22219,8 +22647,17 @@ function admin_isExpired(a){
 // A waiver reduces what the municipality is owed (the party actually able
 // to grant one on its own fee); Atendify's flat application fee is
 // unaffected by a municipality-granted waiver.
-function admin_amountOwed(a, amount, applyWaiver){
-  if(a.paymentVerified) return 0;
+//
+// verifiedField picks which of the two independent verification flags
+// counts as "paid": the municipality's own paymentVerified (default — set
+// by a Municipal officer verifying the license fee) or
+// applicationFeeVerified (set by this National Admin portal's own Payment
+// Verification card, verifying the separate Atendify application fee) —
+// pass the latter when computing what's still owed to Atendify itself, so
+// the license fee's verification state never accidentally marks Atendify's
+// own fee as collected, or vice versa.
+function admin_amountOwed(a, amount, applyWaiver, verifiedField){
+  if(a[verifiedField || 'paymentVerified']) return 0;
   if(a.status === 'Rejected' || a.status === 'Withdrawn' || admin_isExpired(a)) return 0;
   const base = amount == null ? (a.paymentAmount || 0) : amount;
   const waiver = applyWaiver === false ? 0 : (a.waiverAmount || 0);
@@ -22265,6 +22702,34 @@ function admin_ovwStatCard(label, value){
 async function admin_renderNationalOverview(){
   const appStatsEl = document.getElementById('admin_ovwApplicationsStats');
   if(!appStatsEl) return;
+
+  // ---- Payment Verification Needed ----
+  // Computed live off the real applications, same as every other panel on
+  // this dashboard — not a stored notification record, so it can never
+  // drift out of sync with what verifyPayment/unverifyPayment actually did.
+  const awaitingFeeVerification = applications.filter(a => a.applicationFeePaid && !a.applicationFeeVerified);
+  const pvBannerEl = document.getElementById('admin_ovwPaymentVerificationBanner');
+  if(pvBannerEl){
+    pvBannerEl.innerHTML = awaitingFeeVerification.length
+      ? `<div class="status-banner bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${awaitingFeeVerification.length} application${awaitingFeeVerification.length === 1 ? '' : 's'} awaiting Atendify application fee verification.</div>`
+      : `<div class="status-banner good"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> No applications are awaiting payment verification.</div>`;
+  }
+  const pvBody = document.getElementById('admin_ovwPaymentVerificationBody');
+  if(pvBody){
+    const sortedAwaiting = [...awaitingFeeVerification].sort((a,b) => (a.submitted || '').localeCompare(b.submitted || ''));
+    pvBody.innerHTML = sortedAwaiting.length
+      ? sortedAwaiting.map(a => `
+          <tr>
+            <td class="cell-primary">${admin_paymentAlertBadge(a)}${admin_escapeHtml(a.appNumber)}</td>
+            <td>${admin_escapeHtml(a.applicant)}</td>
+            <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
+            <td>${admin_formatCurrency(a.applicationFee || 0)}</td>
+            <td>${admin_escapeHtml(a.submitted)}</td>
+            <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">Review</button></td>
+          </tr>
+        `).join('')
+      : `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`;
+  }
 
   // ---- Applications ----
   const today = admin_todayIso();
@@ -22400,8 +22865,12 @@ async function admin_renderNationalOverview(){
   const atendifyStatsEl = document.getElementById('admin_ovwAtendifyRevenueStats');
   if(atendifyStatsEl){
     const atdBilled = applications.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
-    const atdCollected = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.applicationFee || 0) : 0), 0);
-    const atdOutstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.applicationFee, false), 0);
+    // Gated on applicationFeeVerified (this Admin portal's own Payment
+    // Verification card), not paymentVerified (the municipality's license
+    // fee, verified by a Municipal officer instead) — these two fees are
+    // collected by different parties and verified independently.
+    const atdCollected = applications.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
+    const atdOutstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.applicationFee, false, 'applicationFeeVerified'), 0);
     atendifyStatsEl.innerHTML = [
       ['Application fees billed', admin_formatCurrency(atdBilled)],
       ['Application fees collected', admin_formatCurrency(atdCollected)],
@@ -22413,7 +22882,7 @@ async function admin_renderNationalOverview(){
     atendifyByMuniBody.innerHTML = corporations.map(m => {
       const apps = applications.filter(a => a.muniId === m.muniNumber);
       const billed = apps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
-      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.applicationFee || 0) : 0), 0);
+      const collected = apps.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
       return `<tr>
         <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
         <td>${apps.length}</td>
@@ -22508,7 +22977,7 @@ function admin_renderRecentApps(){
   }
   body.innerHTML = recent.map(a => `
     <tr>
-      <td class="cell-primary">${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
       <td>${a.licenseType}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
@@ -22569,7 +23038,7 @@ function admin_renderApplications(){
 
   body.innerHTML = list.map(a => `
     <tr>
-      <td class="cell-primary">${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
       <td>${a.licenseType}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
@@ -23043,8 +23512,231 @@ function admin_openAppModal(id){
   document.getElementById('appWaiverAmount').value = a.waiverAmount || 0;
   document.getElementById('appDiscountAmount').value = a.discountAmount || 0;
   document.getElementById('appRefundAmount').value = a.refundAmount || 0;
+  admin_renderPaymentVerificationCard(a);
   document.getElementById('appModal').classList.remove('hidden');
 }
+
+// ---- Payment Verification card (Atendify application fee) ----
+// Shown above Fee adjustments in the application modal — lets the National
+// Admin see exactly what the applicant submitted for the Atendify
+// application fee (method, amount, date, and the receipt file if one was
+// attached) and confirm it actually arrived before the Municipal officer is
+// allowed to approve the application and issue a permit (see the
+// applicationFeeVerified checks added to renderAppDetail's Final Decision
+// card and setFinalStatus() in the Municipal officer portal's own script).
+function admin_renderPaymentVerificationCard(a){
+  const container = document.getElementById('appPaymentVerificationCard');
+  if(!container) return;
+  const payment = (a.raw && a.raw.applicationFeePayment) || {};
+  const amount = admin_formatCurrency(a.applicationFee || 0);
+
+  let html = `<label>Payment Verification</label>`;
+
+  if(!a.applicationFeePaid){
+    html += `<div class="status-banner warn">The applicant has not yet submitted the Atendify application fee payment — nothing to verify yet.</div>`;
+    container.innerHTML = html;
+    return;
+  }
+
+  html += `<div class="readback-row">Payment method: <strong>${admin_escapeHtml(payment.method || 'N/A')}</strong></div>`;
+  html += `<div class="readback-row">Amount: <strong>${amount}</strong></div>`;
+  html += `<div class="readback-row">Date of payment: <strong>${admin_escapeHtml(payment.uploadedDate || 'N/A')}</strong></div>`;
+  if(payment.fileName){
+    html += `<div class="readback-row">Receipt file: ${admin_escapeHtml(payment.fileName)}
+      <button class="btn btn-sm" style="margin-left:8px;" onclick="admin_openApplicationFeeReceiptModal()">View</button></div>`;
+  } else {
+    html += `<div class="readback-row">No receipt file was attached to this payment.</div>`;
+  }
+
+  if(a.applicationFeeVerified){
+    html += `<div class="status-banner good" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Payment verified${a.applicationFeeVerifiedBy ? ' by ' + admin_escapeHtml(a.applicationFeeVerifiedBy) : ''}${a.applicationFeeVerifiedDate ? ' on ' + admin_escapeHtml(a.applicationFeeVerifiedDate) : ''}</div>`;
+    if(a.permitGenerated){
+      html += `<div class="field-hint">Payment can no longer be unverified — this application has already been approved and its permit generated.</div>`;
+    } else {
+      html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="admin_unverifyApplicationFeePayment()">Unverify payment</button></div>`;
+    }
+  } else {
+    html += `<div class="status-banner bad" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Payment not verified</div>`;
+    html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-success btn-sm" onclick="admin_verifyApplicationFeePayment()">✔ Verify Payment</button></div>`;
+    html += `<div class="field-hint" style="margin-top:8px;">The Municipal officer cannot approve this application or issue a permit until this payment is verified.</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+// Own, admin-scoped file viewer for the Atendify application-fee receipt —
+// deliberately NOT reusing the Municipal officer portal's own
+// openApplicantFileModal/renderApplicantFilePreview. Those live in a
+// separate script scope with their own private `applications`/`activeAppId`
+// (the same "closure variables aren't reachable from outside" trap this
+// file has hit before) — calling them from here would look up the wrong
+// application entirely. This reuses only the shared #docModal DOM element
+// (plain markup, not scoped to any script) and reimplements the small
+// preview-by-mime-type logic locally.
+function admin_guessMimeFromDataUrl(dataUrl){
+  const match = /^data:([^;]+);/.exec(dataUrl || '');
+  return match ? match[1] : '';
+}
+
+async function admin_openApplicationFeeReceiptModal(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a || !a.raw) return;
+  const payment = a.raw.applicationFeePayment || {};
+  const fileName = payment.fileName || '';
+  const title = 'Application Fee Payment Receipt';
+
+  // #docModal's markup lives nested inside the Municipal officer portal's
+  // own shell (#shell-muni) in the HTML — harmless for Muni's own use of
+  // it, since #shell-muni is visible whenever a Muni officer is using it,
+  // but fatal for Admin: #shell-muni stays hidden (display:none) for the
+  // entire time an Admin is signed in, and a `display:none` ancestor hides
+  // every descendant no matter what "hidden" classes are toggled on
+  // #docModal itself. That silently swallowed this modal's own
+  // classList.remove('hidden') below — the click did open it, the preview
+  // did render, none of it was ever visible. Re-parenting the (same, not
+  // cloned) node to <body> first escapes that hidden ancestor for good;
+  // this is idempotent, so calling it again on a later open is harmless.
+  const docModalEl = document.getElementById('docModal');
+  if(docModalEl && docModalEl.parentElement !== document.body){
+    document.body.appendChild(docModalEl);
+  }
+
+  if(window.atdLogAudit){
+    await window.atdLogAudit({
+      portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator',
+      action: 'document.viewed',
+      details: `Viewed ${title} for application ${a.appNumber}.`,
+      muniId: a.muniId != null ? a.muniId : null
+    });
+  }
+
+  document.getElementById('docModalTitle').textContent = title;
+  document.getElementById('docModalSub').textContent = fileName || 'Uploaded file';
+  document.getElementById('docStatusRow').innerHTML = '';
+  document.getElementById('docNoteGroup').classList.add('hidden');
+  document.getElementById('docModalActions').innerHTML = '';
+  document.getElementById('docPreviewBox').innerHTML = `<div class="doc-preview-placeholder">${window.atdLoadingHtml ? window.atdLoadingHtml('Loading preview…') : 'Loading preview…'}</div>`;
+  document.getElementById('docModal').classList.remove('hidden');
+
+  let fileData = null;
+  if(window.storage){
+    try{
+      const result = await window.storage.get(`applicationFeeReceipt:${a.appNumber}`, true);
+      if(result && result.value){
+        fileData = JSON.parse(result.value).fileData || null;
+      }
+    }catch(err){
+      // no separately-stored file data available for this application
+    }
+  }
+  // Bail out if the modal was closed while the fetch was in flight.
+  if(document.getElementById('docModal').classList.contains('hidden')) return;
+
+  const previewBox = document.getElementById('docPreviewBox');
+  if(fileData){
+    const mime = admin_guessMimeFromDataUrl(fileData);
+    if(mime.startsWith('image/')){
+      previewBox.innerHTML = `<img src="${fileData}" alt="${admin_escapeHtml(title)}">`;
+    } else if(mime === 'application/pdf'){
+      previewBox.innerHTML = `<iframe src="${fileData}"></iframe>`;
+    } else {
+      previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${admin_escapeHtml(fileName)}</div>`;
+    }
+  } else {
+    previewBox.innerHTML = `<div class="doc-preview-placeholder">No inline preview available for this file (demo data or file too large to preview). Filename: ${admin_escapeHtml(fileName || 'N/A')}</div>`;
+  }
+}
+window.admin_openApplicationFeeReceiptModal = admin_openApplicationFeeReceiptModal;
+
+// Returns true only if the write to backend storage actually succeeded.
+// Callers must not report success, log an audit entry, or leave the
+// optimistic in-memory flag set unless this returns true — otherwise a
+// failed save (e.g. an RLS rejection) silently shows "Payment verified" in
+// the UI while nothing was actually persisted for the applicant/Muni side
+// to see.
+async function admin_persistPaymentVerification(a){
+  if(!a.raw || !a._storageKey || !window.storage) return false;
+  const prevRaw = { verified: a.raw.applicationFeeVerified, by: a.raw.applicationFeeVerifiedBy, date: a.raw.applicationFeeVerifiedDate };
+  a.raw.applicationFeeVerified = a.applicationFeeVerified;
+  a.raw.applicationFeeVerifiedBy = a.applicationFeeVerifiedBy || '';
+  a.raw.applicationFeeVerifiedDate = a.applicationFeeVerifiedDate || '';
+  try{
+    await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
+    return true;
+  }catch(e){
+    a.raw.applicationFeeVerified = prevRaw.verified;
+    a.raw.applicationFeeVerifiedBy = prevRaw.by;
+    a.raw.applicationFeeVerifiedDate = prevRaw.date;
+    const isSessionIssue = e && (e.code === '42501' || /row-level security/i.test(e.message || ''));
+    admin_showToast(isSessionIssue
+      ? 'Could not save — your session may have expired. Please log out and back in, then try again.'
+      : 'Could not save this change — please try again.');
+    return false;
+  }
+}
+
+async function admin_verifyApplicationFeePayment(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a) return;
+  if(!a.applicationFeePaid){
+    admin_showToast('The applicant has not submitted a payment yet — there is nothing to verify.');
+    return;
+  }
+  const prevVerified = a.applicationFeeVerified, prevBy = a.applicationFeeVerifiedBy, prevDate = a.applicationFeeVerifiedDate;
+  a.applicationFeeVerified = true;
+  a.applicationFeeVerifiedBy = adminActorEmail;
+  a.applicationFeeVerifiedDate = admin_todayIso();
+  const ok = await admin_persistPaymentVerification(a);
+  if(!ok){
+    a.applicationFeeVerified = prevVerified; a.applicationFeeVerifiedBy = prevBy; a.applicationFeeVerifiedDate = prevDate;
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
+  admin_showToast(`Application fee payment verified for ${a.appNumber}.`);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeVerified', details: `${a.appNumber}: Atendify application fee verified.`, muniId: a.muniId });
+  admin_renderPaymentVerificationCard(a);
+  admin_renderAll();
+}
+window.admin_verifyApplicationFeePayment = admin_verifyApplicationFeePayment;
+
+async function admin_unverifyApplicationFeePayment(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a) return;
+  if(a.permitGenerated){
+    // Defensive re-check: the button is hidden once a permit has been
+    // issued, but guard the action itself too in case this is ever invoked
+    // directly.
+    admin_showToast('Payment can no longer be unverified — this application has already been approved and its permit generated.');
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
+  const prevVerified = a.applicationFeeVerified, prevBy = a.applicationFeeVerifiedBy, prevDate = a.applicationFeeVerifiedDate;
+  a.applicationFeeVerified = false;
+  a.applicationFeeVerifiedBy = '';
+  a.applicationFeeVerifiedDate = '';
+  const ok = await admin_persistPaymentVerification(a);
+  if(!ok){
+    a.applicationFeeVerified = prevVerified; a.applicationFeeVerifiedBy = prevBy; a.applicationFeeVerifiedDate = prevDate;
+    admin_renderPaymentVerificationCard(a);
+    return;
+  }
+  admin_showToast(`Application fee payment unverified for ${a.appNumber}.`);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeUnverified', details: `${a.appNumber}: Atendify application fee unverified.`, muniId: a.muniId });
+  admin_renderPaymentVerificationCard(a);
+  admin_renderAll();
+}
+window.admin_unverifyApplicationFeePayment = admin_unverifyApplicationFeePayment;
+
+// A small red indicator next to an application's number anywhere it's
+// listed in the National Admin portal (Applications table, Recent
+// applications, Payment Verification Needed panel) — stays lit until the
+// Atendify application fee is verified, so a flagged application is never
+// silently lost in a long list.
+function admin_paymentAlertBadge(a){
+  if(!(a.applicationFeePaid && !a.applicationFeeVerified)) return '';
+  return `<span title="Awaiting Atendify application fee verification" style="display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--red); box-shadow:0 0 0 2px var(--red-tint); margin-right:6px; vertical-align:middle;"></span>`;
+}
+
 function closeAppModal(){
   document.getElementById('appModal').classList.add('hidden');
   activeAppId = null;
@@ -23097,7 +23789,13 @@ async function admin_saveFeeAdjustments(){
       }
     }
   }
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(refund)}.`, muniId: a.muniId });
+  // Pre-existing bug fixed in passing: this referenced an undefined
+  // `refund` variable (this function's own credit-note input is
+  // creditNoteTotal), which threw a ReferenceError on every single save —
+  // silently skipping the "Fee adjustments saved." toast and the dashboard
+  // refresh below even though the adjustment itself had already persisted
+  // fine at the storage.set() call above.
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(creditNoteTotal)}.`, muniId: a.muniId });
   admin_showToast('Fee adjustments saved.');
   admin_renderNationalOverview();
   admin_renderReports();
@@ -23864,6 +24562,30 @@ async function renderFormTemplatesPage(){
   });
 }
 
+// The three Briefing Video link fields save themselves the moment you tab
+// or click away (onchange), instead of only being picked up by the "Save
+// Noise Abatement form settings" button several sections above them —
+// pasting a link there and refreshing the page used to lose it, because
+// that distant button was the only thing that ever wrote it to storage,
+// and it's easy to never notice it applies down here too. Mirrors the
+// JCF Coat of Arms upload right above it, which already saves itself the
+// same way on its own onchange.
+async function admin_saveJcfBriefingVideoField(fieldId, templateKey){
+  const el = document.getElementById(fieldId);
+  if(!el || !window.storage) return;
+  const value = el.value.trim();
+  try{
+    const templates = await window.atdLoadFormTemplates();
+    templates[templateKey] = value;
+    await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'formTemplates.update', details: `Updated JCF briefing video link (${templateKey}).` });
+    admin_showToast(value ? 'Briefing video link saved.' : 'Briefing video link cleared.');
+  }catch(e){
+    admin_showToast('Could not save the video link — please try again.');
+  }
+}
+window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
+
 // Saves everything in the POA tab in one shot: its declaration + the two
 // documents nested under it (Payment Advice notice, Notice of Application
 // intro/closing) from platform:formTemplates, plus the POA half of
@@ -24406,7 +25128,7 @@ function prefillFromPoa(){
   const lockedIds = [
     'dateOfApplication','dateOfEvent','jcfEventName','promoterName','promoterPhone','promoterTrn',
     'promoterAddr1','promoterAddr2','promoterDistrict','patronsExpected',
-    'jcf_venueName','venueAddr1','venueAddr2','venueDistrict','dateOfBirth'
+    'jcf_venueName','venueAddress','dateOfBirth'
   ];
 
   document.getElementById('dateOfApplication').value = new Date().toISOString().slice(0,10);
@@ -24415,7 +25137,6 @@ function prefillFromPoa(){
     unlinkedBanner.classList.remove('hidden');
     lockedIds.forEach(id => document.getElementById(id).removeAttribute('readonly'));
     document.getElementById('promoterParish').removeAttribute('disabled');
-    document.getElementById('venueParish').removeAttribute('disabled');
     jcf_applyProfileAutofill();
     return;
   }
@@ -24434,10 +25155,12 @@ function prefillFromPoa(){
   document.getElementById('promoterParish').value = poaData.applicantParish || '';
   document.getElementById('patronsExpected').value = poaData.patrons || '';
   document.getElementById('jcf_venueName').value = poaData.venueName || '';
-  document.getElementById('venueAddr1').value = poaData.venueAddr1 || '';
-  document.getElementById('venueAddr2').value = poaData.venueAddr2 || '';
-  document.getElementById('venueDistrict').value = poaData.venueDistrict || '';
-  document.getElementById('venueParish').value = poaData.venueParish || '';
+  // The venue's address arrives from the POA side as separate
+  // street/district/parish parts (that's still how the Municipal officer's
+  // venue database itself stores it — unchanged by this), but the JCF form
+  // only ever displayed this read-only, so it's combined into the one
+  // "Address" field the applicant actually sees here.
+  document.getElementById('venueAddress').value = [poaData.venueAddr1, poaData.venueAddr2, poaData.venueDistrict, poaData.venueParish].filter(Boolean).join(', ');
 
   // Venue owner details: only known when the applicant picked a venue from
   // the municipality's registered venues database on the POA side (see
@@ -24453,7 +25176,7 @@ function prefillFromPoa(){
     document.getElementById('ownerContact').value = jcf_formatPhoneValue((poaData.venueOwnerPhone || '').replace(/\D/g,''));
   }
   if(poaData.venueOwnerAddress){
-    document.getElementById('ownerAddr1').value = poaData.venueOwnerAddress;
+    document.getElementById('ownerAddress').value = poaData.venueOwnerAddress;
   }
 
   // Date of Birth: carried over from the POA application when the applicant
@@ -24491,6 +25214,22 @@ function prefillFromPoa(){
     const flyerBoxEl = document.getElementById('flyerBox');
     flyerBoxEl.onclick = null;
     flyerBoxEl.style.cursor = 'default';
+  }
+
+  // Proof of Ownership/Authorization: same handoff as Photo ID/Event flyer
+  // above. This form's own upload for the same document used to be titled
+  // "Venue owner's letter of permission" — a different name for what the
+  // POA application already asked for under this title — so it was never
+  // linked before; matching the title on both forms and carrying the file
+  // over here means the applicant isn't asked to find and upload it twice.
+  if(poaData.ownershipFileData){
+    permissionLetterFileData = poaData.ownershipFileData;
+    permissionLetterFileName = poaData.ownershipFileName || 'Proof of Ownership/Authorization';
+    renderPermissionLetterPreview();
+    document.getElementById('permissionLetterFromPoaTag').classList.remove('hidden');
+    const permissionLetterBoxEl = document.getElementById('permissionLetterBox');
+    permissionLetterBoxEl.onclick = null;
+    permissionLetterBoxEl.style.cursor = 'default';
   }
 
   if(poaData.securityRecords && poaData.securityRecords.length){
@@ -24690,12 +25429,9 @@ const JCF_FIELD_CHECKS = {
     { key:'ownerBreachReason', kind:'text', id:'ownerBreachReason', label:'Breach details' },
     { key:'venueOwner', kind:'text', id:'venueOwner', label:"Venue's owner name" },
     { key:'ownerContact', kind:'text', id:'ownerContact', label:"Owner's contact number" },
-    { key:'ownerAddr1', kind:'text', id:'ownerAddr1', label:"Owner's street number" },
-    { key:'ownerAddr2', kind:'text', id:'ownerAddr2', label:"Owner's street name" },
-    { key:'ownerDistrict', kind:'text', id:'ownerDistrict', label:"Owner's district" },
-    { key:'ownerParish', kind:'text', id:'ownerParish', label:"Owner's parish" },
+    { key:'ownerAddress', kind:'text', id:'ownerAddress', label:"Owner's address" },
     { key:'jcf_businessType', kind:'text', id:'jcf_businessType', label:'Type of business conducted at venue' },
-    { key:'permissionLetterFile', kind:'file', label:"Venue owner's letter of permission" },
+    { key:'permissionLetterFile', kind:'file', label:"Proof of Ownership/Authorization" },
     { key:'spiritLicense', kind:'radio', name:'spiritLicense', label:'Valid spirit license in place?' },
     { key:'communityArrangements', kind:'radio', name:'communityArrangements', label:'Arrangements made with community members?' },
     { key:'parkingArrangements', kind:'radio', name:'parkingArrangements', label:'Arrangements made for parking?' },
@@ -25057,7 +25793,7 @@ function renderPermissionLetterPreview(){
   if(permissionLetterFileData){
     wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(permissionLetterFileName)}</div>`;
   } else {
-    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload letter of permission</div>`;
+    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload proof of ownership/authorization</div>`;
   }
 }
 window.permissionLetterFileChosen = permissionLetterFileChosen;
@@ -25164,7 +25900,7 @@ function jcf_previewUpload(kind){
   const CONFIG = {
     photoId: { title: 'Photo ID', data: photoIdFileData, name: photoIdFileName },
     flyer: { title: 'Event Flyer', data: flyerFileData, name: flyerFileName },
-    permissionLetter: { title: 'Venue Permission Letter', data: permissionLetterFileData, name: permissionLetterFileName }
+    permissionLetter: { title: 'Proof of Ownership/Authorization', data: permissionLetterFileData, name: permissionLetterFileName }
   };
   const cfg = CONFIG[kind];
   if(!cfg || !window.atdOpenFilePreview) return;
@@ -25204,10 +25940,10 @@ function jcf_goReview(){
 
   const venue = [
     ['Venue Name', jcf_val('jcf_venueName')],
-    ['Venue Address', [jcf_val('venueAddr1'), jcf_val('venueAddr2'), jcf_val('venueDistrict'), jcf_val('venueParish')].filter(Boolean).join(', ')],
+    ['Venue Address', jcf_val('venueAddress')],
     ["Venue's Owner", jcf_val('venueOwner')],
     ['Owner Contact', jcf_val('ownerContact')],
-    ["Owner's Address", [jcf_val('ownerAddr1'), jcf_val('ownerAddr2'), jcf_val('ownerDistrict'), jcf_val('ownerParish')].filter(Boolean).join(', ')],
+    ["Owner's Address", jcf_val('ownerAddress')],
     ['Has owner ever breached Noise Abatement Act?', radioVal('ownerBreached')]
   ];
   if(radioVal('ownerBreached') === 'Yes'){
@@ -25247,7 +25983,7 @@ function jcf_goReview(){
   document.getElementById('jcf_revUploads').innerHTML =
     jcf_uploadRowHtml('Photo ID', 'photoId', !!photoIdFileData) +
     jcf_uploadRowHtml('Event Flyer', 'flyer', !!flyerFileData) +
-    jcf_uploadRowHtml('Venue Permission Letter', 'permissionLetter', !!permissionLetterFileData);
+    jcf_uploadRowHtml('Proof of Ownership/Authorization', 'permissionLetter', !!permissionLetterFileData);
 
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -25380,10 +26116,10 @@ async function submitJcfApp(){
     },
     venueInfo: {
       venueName: jcf_val('jcf_venueName'),
-      venueAddr1: jcf_val('venueAddr1'), venueAddr2: jcf_val('venueAddr2'), venueDistrict: jcf_val('venueDistrict'), venueParish: jcf_val('venueParish'),
+      venueAddress: jcf_val('venueAddress'),
       venueOwner: jcf_val('venueOwner'),
       ownerContact: jcf_val('ownerContact'),
-      ownerAddr1: jcf_val('ownerAddr1'), ownerAddr2: jcf_val('ownerAddr2'), ownerDistrict: jcf_val('ownerDistrict'), ownerParish: jcf_val('ownerParish'),
+      ownerAddress: jcf_val('ownerAddress'),
       ownerBreachedNoiseAct: radioVal('ownerBreached'),
       ownerBreachReason: radioVal('ownerBreached') === 'Yes' ? jcf_val('ownerBreachReason') : '',
       businessType: jcf_val('jcf_businessType'),
@@ -25451,6 +26187,23 @@ async function submitJcfApp(){
     submitBtn.textContent = 'Submit application';
   }
 }
+
+// Called by the confirmation page's "Return to my Places of Amusement
+// Application" button. A bare showHub('poa') alone would leave the Main
+// Menu showing whatever tab/data it had cached from BEFORE this JCF
+// application existed — the Main Menu only re-fetches the linked JCF
+// application's status (currentLinkedJcfApp) when its Noise Abatement tab
+// is opened (see poa_refreshLinkedJcfApp/mmGoView in the POA script), not
+// on every hub switch. That's exactly what made the Main Menu look like it
+// never registered a JCF submission that had, in fact, already gone
+// through (and was visible on the JCF Division dashboard the whole time).
+// Jumping straight to that tab forces mmGoView('noise') to refresh against
+// storage, so the applicant sees their submission immediately.
+function jcf_returnToPoaMainMenu(){
+  showHub('poa');
+  setTimeout(function(){ if(window.mmGoView) window.mmGoView('noise'); }, 50);
+}
+window.jcf_returnToPoaMainMenu = jcf_returnToPoaMainMenu;
 
 // Theme toggle
 const themeToggle = document.getElementById('jcf_themeToggle');
