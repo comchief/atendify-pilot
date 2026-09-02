@@ -11352,6 +11352,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_applyNavPermissions();
     jcfd_goPage('dashboard');
   }
+  window.jcfd_enterShellAsUser = jcfd_enterShellAsUser;
 
   async function jcfd_attemptLogin(){
     const branchId = parseInt(document.getElementById('jcfd_loginBranch').value, 10);
@@ -12116,7 +12117,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Parking arrangements made', vi.parkingArrangements);
     html += jcfd_detailRow('Security arrangements made', vi.securityArrangements);
     if(vi.securityCompaniesFromPoa && vi.securityCompaniesFromPoa.length){
-      html += jcfd_detailRow('Security company on file', vi.securityCompaniesFromPoa.map(s => s.company).join(', '));
+      // Previously only the company name made it into this row — the guard
+      // count and company phone number (both carried over from the linked
+      // Places of Amusement application, see securityCompaniesFromPoa in
+      // submitJcfApp()) were dropped even though they were already there in
+      // the stored record, same "· "-joined-detail style as the DJ/Sound
+      // System rows just below.
+      vi.securityCompaniesFromPoa.forEach(s => {
+        html += jcfd_detailRow(`Security company — ${s.company}`, [s.guards ? s.guards + ' guard(s)' : '', s.phone].filter(Boolean).join(' · '));
+      });
     }
     html += `</div>`;
 
@@ -13384,6 +13393,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     } catch(e){ return null; }
   }
 
+  // Mirrors the Municipal officer's own listActiveJcfFlags() in the other
+  // direction — every ACTIVE entry off the shared Municipal Corporation
+  // watchlist (the same `watchlist:<trn>` keys the Municipal officer portal
+  // writes to), regardless of which municipality flagged them. Used below to
+  // surface a promoter the Municipality has flagged even when JCF has never
+  // independently flagged that same person — previously such a promoter
+  // never showed up on this page at all, so a JCF officer had no way to
+  // know they'd been flagged, or why, unless that person also happened to
+  // be independently on JCF's own Watch List.
+  async function jcfd_listActiveMuniFlags(){
+    if(!window.storage) return [];
+    try{
+      const listResult = await window.storage.list('watchlist:', true);
+      const keys = (listResult && listResult.keys) || [];
+      const fetched = await Promise.all(keys.map(async key => {
+        try{
+          const r = await window.storage.get(key, true);
+          return r && r.value ? JSON.parse(r.value) : null;
+        } catch(e){ return null; }
+      }));
+      return fetched.filter(w => w && w.status === 'Active');
+    } catch(e){ return []; }
+  }
+
   async function jcfd_renderWatchlist(){
     const body = document.getElementById('jcfd_watchlistBody');
     if(!body) return;
@@ -13391,12 +13424,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const search = (document.getElementById('jcfd_watchlistSearch').value || '').trim().toLowerCase();
     const typeFilter = document.getElementById('jcfd_watchlistTypeFilter').value;
     const statusFilter = document.getElementById('jcfd_watchlistStatusFilter').value;
-    let list = jcfd_myWatchlist().filter(w => {
+    const matchesFilters = w => {
       const matchesSearch = !search || (w.fullName||'').toLowerCase().includes(search) || (w.trn||'').includes(search.replace(/\D/g,''));
       const matchesType = !typeFilter || w.type === typeFilter;
       const matchesStatus = !statusFilter || w.status === statusFilter;
       return matchesSearch && matchesType && matchesStatus;
-    });
+    };
+    let list = jcfd_myWatchlist().filter(matchesFilters);
+
+    // Municipality-only flags: a promoter the Municipal Corporation has
+    // flagged but JCF never has, on its own, for the same TRN. Shown as
+    // their own read-only rows here (type defaults to 'Promoter' since
+    // that's the only kind the Municipal watchlist ever flags), same
+    // pattern as the Municipal officer's own jcfOnlyEntries.
+    const jcfTrns = new Set(jcfWatchlist.map(w => w.trn));
+    const muniFlagsActive = await jcfd_listActiveMuniFlags();
+    const muniOnlyEntries = muniFlagsActive
+      .filter(f => !jcfTrns.has(f.trn))
+      .map(f => ({
+        fullName: f.fullName, type: 'Promoter', trn: f.trn, status: 'Active',
+        flaggedBy: f.flaggedBy, flaggedDate: f.flaggedDate, reason: f.reason,
+        _muniOnly: true
+      }))
+      .filter(matchesFilters);
+
+    list = list.concat(muniOnlyEntries);
     list.sort((a,b) => (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
     if(!list.length){
@@ -13405,23 +13457,64 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
 
     const rows = await Promise.all(list.map(async w => {
-      const muniFlag = await jcfd_muniFlagForTrn(w.trn);
+      const muniFlag = w._muniOnly ? { status: 'Active', reason: w.reason } : await jcfd_muniFlagForTrn(w.trn);
       const muniCell = muniFlag && muniFlag.status === 'Active'
-        ? '<span class="badge badge-red">Flagged by Municipal Corporation</span>'
+        ? `<span class="badge badge-red">Flagged by Municipal Corporation${muniFlag.reason ? ' — ' + acctEscapeHtml(muniFlag.reason) : ''}</span>`
         : (muniFlag ? '<span class="badge badge-gray">Cleared (Municipal)</span>' : '<span class="badge badge-gray">Not flagged</span>');
+      const viewOnclick = w._muniOnly
+        ? `jcfd_openMuniOnlyWatchlistViewModal(${JSON.stringify(w.trn)})`
+        : `jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})`;
       return `<tr>
         <td>${acctEscapeHtml(w.fullName)}</td>
         <td>${acctEscapeHtml(w.type)}</td>
         <td>${acctEscapeHtml(formatTrnDisplayJcfd(w.trn))}</td>
         <td>${acctEscapeHtml(w.flaggedDate || '')}<div class="record-sub">by ${acctEscapeHtml(w.flaggedBy || '')}</div></td>
-        <td>${w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>'}</td>
+        <td>${w._muniOnly ? '<span class="badge badge-gray">Not on JCF list</span>' : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>')}</td>
         <td>${muniCell}</td>
-        <td><button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})'>View file</button></td>
+        <td><button class="btn btn-sm" onclick='${viewOnclick}'>View file</button></td>
       </tr>`;
     }));
     body.innerHTML = rows.join('');
   }
   window.jcfd_renderWatchlist = jcfd_renderWatchlist;
+
+  // Read-only view for a TRN that only appears on the Municipal
+  // Corporation's watchlist (no JCF Watch List record exists for it yet) —
+  // mirrors the Municipal officer's own openJcfOnlyWatchlistViewModal() in
+  // the other direction. Nothing for a JCF officer to clear/reactivate here
+  // since it isn't their flag — same reasoning as that mirror function.
+  async function jcfd_openMuniOnlyWatchlistViewModal(trn){
+    document.getElementById('jcfd_watchlistViewModal').classList.remove('hidden');
+    document.getElementById('jcfd_watchlistViewTitle').innerHTML = window.atdLoadingHtml('Loading…', 16);
+    document.getElementById('jcfd_watchlistViewSub').textContent = '';
+    document.getElementById('jcfd_watchlistViewBody').innerHTML = '';
+    document.getElementById('jcfd_watchlistViewActions').innerHTML = '';
+    const w = await jcfd_muniFlagForTrn(trn);
+    if(!w){
+      document.getElementById('jcfd_watchlistViewTitle').textContent = 'Not found';
+      document.getElementById('jcfd_watchlistViewBody').innerHTML = '<div class="readback-row">This entry could not be loaded.</div>';
+      return;
+    }
+    if(window.atdLogAudit && jcfdCurrentUser){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'watchlist.viewed',
+        details: `Viewed Municipal Corporation watchlist entry for ${w.fullName} (${formatTrnDisplayJcfd(w.trn)}).`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
+    document.getElementById('jcfd_watchlistViewTitle').textContent = w.fullName;
+    document.getElementById('jcfd_watchlistViewSub').textContent = 'Active flag — Municipal Corporation Watch List';
+    const rows = [
+      ['Full name', w.fullName],
+      ['TRN', formatTrnDisplayJcfd(w.trn)],
+      ['Reason', w.reason],
+      ['Flagged by', w.flaggedBy],
+      ['Flagged date', w.flaggedDate]
+    ];
+    document.getElementById('jcfd_watchlistViewBody').innerHTML = rows.map(([label,value]) => `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(String(value||''))}</div></div>`).join('');
+  }
+  window.jcfd_openMuniOnlyWatchlistViewModal = jcfd_openMuniOnlyWatchlistViewModal;
 
   function jcfd_openWatchlistAddModal(prefill){
     if(!jcfd_hasPerm('watchlist')){
