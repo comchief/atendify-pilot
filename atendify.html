@@ -12277,10 +12277,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // systems on this application against both the JCF Watch List and the
     // Municipal Corporation's own watchlist (shared `watchlist:<trn>` key).
     {
+      // Every TRN read off the application form (eo.trn / DJ / sound system)
+      // comes through with dashes (e.g. "123-456-789") because those input
+      // fields keep their live dash formatting — but the JCF and Municipal
+      // watchlists both key and store TRNs as normalized digits-only. Without
+      // normalizing here, this card's lookups against jcfWatchlist/muniFlag
+      // silently never matched, so a freshly-flagged promoter kept showing
+      // "Not flagged" forever. Normalize once, at the source, so every
+      // downstream lookup and action button below uses the same format the
+      // watchlists themselves use.
       const wlSubjects = [];
-      if(eo.trn) wlSubjects.push({ type: 'Promoter', name: eo.promoterName, trn: eo.trn });
-      (rec.djs || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'DJ', name: d.name, trn: d.trn }); });
-      (rec.soundSystems || []).forEach(s => { if(s.trn) wlSubjects.push({ type: 'Sound System', name: s.name, trn: s.trn }); });
+      if(eo.trn) wlSubjects.push({ type: 'Promoter', name: eo.promoterName, trn: jcfd_normalizeTrn(eo.trn) });
+      (rec.djs || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'DJ', name: d.name, trn: jcfd_normalizeTrn(d.trn) }); });
+      (rec.soundSystems || []).forEach(s => { if(s.trn) wlSubjects.push({ type: 'Sound System', name: s.name, trn: jcfd_normalizeTrn(s.trn) }); });
 
       html += `<div class="official-card"><h4>Watch List</h4>`;
       if(!wlSubjects.length){
@@ -12303,6 +12312,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             ${flagNotes.join('')}</div>
             <div class="action-btn-row">
               ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(subj.trn)})'>View JCF file</button>` : ''}
+              ${jcfd_hasPerm('watchlist') && jcfEntry && jcfEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jcfd_unflagFromCard(${JSON.stringify(subj.trn)})'>Unflag</button>` : ''}
               ${jcfd_hasPerm('watchlist') && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${JSON.stringify({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
             </div></div>`;
         }
@@ -13630,20 +13640,35 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_closeWatchlistViewModal = jcfd_closeWatchlistViewModal;
 
-  async function jcfd_clearWatchlistFlag(){
-    const w = jcfWatchlist.find(w => w.trn === jcfdViewingWatchlistTrn);
-    if(!w) return;
-    if(!(await window.atdConfirm(`Clear the JCF flag on ${w.fullName}?`))) return;
+  // Shared by the Watch List view modal's "Clear flag" button and the
+  // one-click "Unflag" button on an application's Official Use Watch List
+  // card, so both go through the exact same confirm/persist/refresh steps.
+  async function jcfd_clearWatchlistFlagForEntry(w){
+    if(!w) return false;
+    if(!(await window.atdConfirm(`Clear the JCF flag on ${w.fullName}?`))) return false;
     w.status = 'Cleared';
     w.clearedBy = jcfdCurrentUser.name;
     w.clearedDate = new Date().toISOString().slice(0,10);
     await jcfd_persistWatchlistEntry(w);
     jcfd_showToast(`Flag cleared for ${w.fullName}.`);
-    jcfd_closeWatchlistViewModal();
     jcfd_renderWatchlist();
     if(jcfdActiveAppKey) jcfd_renderApplicationDetail();
+    return true;
+  }
+
+  async function jcfd_clearWatchlistFlag(){
+    const w = jcfWatchlist.find(w => w.trn === jcfdViewingWatchlistTrn);
+    if(!w) return;
+    if(await jcfd_clearWatchlistFlagForEntry(w)) jcfd_closeWatchlistViewModal();
   }
   window.jcfd_clearWatchlistFlag = jcfd_clearWatchlistFlag;
+
+  async function jcfd_unflagFromCard(trn){
+    const w = jcfWatchlist.find(w => w.trn === trn);
+    if(!w) return;
+    await jcfd_clearWatchlistFlagForEntry(w);
+  }
+  window.jcfd_unflagFromCard = jcfd_unflagFromCard;
 
   async function jcfd_reactivateWatchlistFlag(){
     const w = jcfWatchlist.find(w => w.trn === jcfdViewingWatchlistTrn);
