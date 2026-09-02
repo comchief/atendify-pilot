@@ -557,6 +557,7 @@
   .mm-nav-item.active{ background: var(--green); border-color: var(--green); color: #fff; }
   .mm-nav-item:disabled{ color: var(--text-muted); cursor:not-allowed; opacity:0.6; }
   .mm-nav-item:disabled:hover{ background: var(--bg); }
+  .mm-nav-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background: var(--red); margin-left:7px; vertical-align:middle; }
 
   .mm-content{
     background: var(--bg);
@@ -780,11 +781,17 @@
     grid-template-columns: 70px 1fr 100px;
     align-items:center;
     gap: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
+  /* Agency (Municipal Corporation / JCF) logo -- sized separately from the
+     Atendify logo above (1.5-2x it, per request) and pinned to the bottom
+     of the row with align-self so it sits right against the muniname/reg
+     text that follows, instead of being centered against the taller QR
+     column and leaving visible empty space below it. */
+  .permit-doc-top img.pd-logo-agency{ height: 100px; width:auto; object-fit:contain; align-self:end; }
   .permit-doc-muniblock{ text-align:center; }
-  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; }
+  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
   .permit-doc-qr{ text-align:center; }
   .permit-doc-qr .qr-box{ display:inline-block; padding:4px; border:1px solid #ccc; }
@@ -1735,11 +1742,17 @@
     grid-template-columns: 70px 1fr 100px;
     align-items:center;
     gap: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
   }
   .permit-doc-top img.pd-logo{ height: 56px; width:auto; object-fit:contain; }
+  /* Agency (Municipal Corporation / JCF) logo -- sized separately from the
+     Atendify logo above (1.5-2x it, per request) and pinned to the bottom
+     of the row with align-self so it sits right against the muniname/reg
+     text that follows, instead of being centered against the taller QR
+     column and leaving visible empty space below it. */
+  .permit-doc-top img.pd-logo-agency{ height: 100px; width:auto; object-fit:contain; align-self:end; }
   .permit-doc-muniblock{ text-align:center; }
-  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; }
+  .permit-doc-muniname{ font-size: 13px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
   .permit-doc-reg{ font-size: 11.5px; font-weight:700; text-align:center; margin: 2px 0 14px; }
   .permit-doc-qr{ text-align:center; }
   .permit-doc-qr .qr-box{ display:inline-block; padding:4px; border:1px solid #ccc; }
@@ -2655,7 +2668,7 @@
   }
 
   .pl-hero{ max-width:900px; margin:0 auto; padding:60px 24px 90px; text-align:center; }
-  .pl-hero-logo{ width:130px; height:auto; margin:0 auto 40px; display:block; object-fit:contain; }
+  .pl-hero-logo{ width:100px; height:auto; margin:0 auto 32px; display:block; object-fit:contain; }
   .pl-title{ font-size:52px; font-weight:800; color:#1a1d24; margin:0 0 18px; letter-spacing:-0.01em; line-height:1.1; }
   .pl-subtitle{ font-size:28px; font-weight:600; color:#1a1d24; margin:0 0 20px; }
   .pl-tagline{ font-size:17px; color:#4b5563; margin:0 0 56px; }
@@ -2769,18 +2782,62 @@
     .pl-subtitle{ font-size:20px; }
   }
 
+  .pl-footer{
+    border-top:1px solid #e2e5ea; margin-top:20px; padding:26px 24px 32px;
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px 28px;
+    max-width:900px; margin-left:auto; margin-right:auto;
+    font-size:13.5px; color:#6b7280;
+  }
+  .pl-footer-links{ display:flex; gap:22px; flex-wrap:wrap; justify-content:center; }
+  .pl-footer-links span{ cursor:pointer; color:#6b7280; }
+  .pl-footer-links span:hover{ color:#1a1d24; text-decoration:underline; }
+  [data-theme="dark"] .pl-footer{ border-color:#2a2d36; color:#9ca3af; }
+  [data-theme="dark"] .pl-footer-links span{ color:#9ca3af; }
+  [data-theme="dark"] .pl-footer-links span:hover{ color:#f0f1f4; }
+  @media (max-width:520px){
+    .pl-footer{ flex-direction:column; gap:14px; text-align:center; }
+  }
+
 </style>
 </head>
 <body>
 <script>
   // ---- Public QR verify route (Fix: public QR permit-verification page) ----
-  // A permit's QR code encodes https://atendifyapp.com/verify/{appNumber}.
-  // This has to be decided before anything else on the page runs: a scanned
+  // A permit's QR code encodes {origin}/verify/{appNumber} (see
+  // window.atdVerifyUrl below). This has to be decided before anything else
+  // on the page runs: a scanned
   // visitor should see ONLY the verification result, never the normal
   // landing page, a login form, or the (slow, admin-only) session-restore
   // flow below. window.ATD_IS_VERIFY_ROUTE gates both of those.
   window.ATD_VERIFY_MATCH = /^\/verify\/([^\/?#]+)/.exec(location.pathname);
   window.ATD_IS_VERIFY_ROUTE = !!window.ATD_VERIFY_MATCH;
+
+  // Fix: QR codes were hardcoded to `https://atendifyapp.com/verify/...`
+  // (no `www.`) while the only domain actually registered/verified on
+  // Railway is `www.atendifyapp.com` — every scanned QR was landing on a
+  // domain that either doesn't resolve or drops the /verify/{appNumber}
+  // path on the way to www, so every scan showed "not found" regardless of
+  // whether the permit existed. Build the verify URL from location.origin
+  // instead of a hardcoded string, so it always matches whatever domain the
+  // app is actually being served from (this one call site feeds every QR
+  // generated anywhere in the app, old permits included, since it's called
+  // fresh at render/print time rather than trusting a stored value).
+  window.atdVerifyUrl = function(appNumber){
+    return location.origin + '/verify/' + encodeURIComponent(appNumber || '');
+  };
+
+  // Fix: the on-screen error/debug panel (see atdShowDebugError further
+  // down) used to pop up for EVERY visitor — applicant, officer, anyone —
+  // any time an uncaught error or unhandled promise rejection happened
+  // anywhere in the app, showing raw technical detail (stack traces, RLS
+  // error codes) with no explanation. That's exactly the "bubble" an
+  // officer would see mid-task with no idea what it means. It's genuinely
+  // useful for tracking down a bug (that's why it exists), so it isn't
+  // removed — it just no longer shows itself uninvited. Add ?debug=1 to the
+  // URL to see it live; without that, errors are still recorded (the count
+  // in atdDebugErrors) so asking someone to add ?debug=1 and reproduce
+  // still works for remote troubleshooting.
+  window.ATD_DEBUG_MODE = /(?:^|[?&])debug=1(?:&|$)/.test(location.search);
 
   // ---- Staff/Admin direct-URL routes (domain separation) ----
   // www.atendifyapp.com/portal is the only door to the Agency (Municipal +
@@ -3208,7 +3265,11 @@
   window.atdShowDebugError = function(context, err){
     try{
       var panel = atdEnsureDebugPanel();
-      panel.style.display = 'flex';
+      // See window.ATD_DEBUG_MODE (top of <body>) — errors are always
+      // recorded below, but the panel only auto-shows itself when that flag
+      // is on, instead of surprising every ordinary visitor with a raw
+      // technical bubble.
+      if(window.ATD_DEBUG_MODE) panel.style.display = 'flex';
       var entry = { time: new Date().toLocaleTimeString(), context: context, detail: atdFormatErr(err) };
       atdDebugErrors.push(entry);
       panel.querySelector('#atd-debug-title').textContent = 'Errors (' + atdDebugErrors.length + ')';
@@ -3406,7 +3467,28 @@
         // signed-in staff session — so gating on "no active session" (same
         // as the other prefixes here) keeps that update path on upsert.
         var isWriteOnceAnonPrefix = /^(application|applicationPhotoId|applicationFlier|applicationLogo|applicationOwnership|applicationFeeReceipt|applicationPaymentReceipt|applicationAdditionalPaymentReceipt|jcfApplication|jcfApplicationFiles|notification):/.test(key);
-        var useInsertOnly = isAuditLog;
+        // Same class of bug again, found live when a CEO approved/rejected a
+        // permit or requested an additional payment: setFinalStatus() and
+        // requestAdditionalPayment() write a fresh 'applicantNotification:'
+        // key (always a brand-new anotif-${Date.now()}-${random} id, never
+        // re-saved) from an authenticated 'muni' session. That prefix is
+        // NOT one of the literal alternatives in isWriteOnceAnonPrefix above
+        // (it starts with "applicantNotification:", not "notification:", so
+        // the regex never matches it), so every write to it always fell
+        // through to the plain upsert() path below. 'muni' has a correctly
+        // scoped INSERT policy for this prefix (covering exactly the
+        // application_approved / application_rejected /
+        // additional_payment_requested types these call sites ever send),
+        // but no SELECT policy at all on it — so upsert()'s implicit "does
+        // this key already exist?" conflict probe failed RLS with 42501 on
+        // a row that didn't even exist yet, before ever reaching the INSERT
+        // policy that would have allowed it. There is no case where a
+        // 'muni' session re-saves an existing applicantNotification key, so
+        // (like auditLog) this is always safe to force to a plain insert,
+        // which only needs the INSERT policy and never touches the
+        // conflict probe.
+        var isApplicantNotification = key.indexOf('applicantNotification:') === 0;
+        var useInsertOnly = isAuditLog || isApplicantNotification;
         var useUpdateOnly = false;
         if (!useInsertOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
@@ -3461,10 +3543,26 @@
             if (!updRes.error && (!updRes.data || updRes.data.length === 0)) {
               // No existing row matched the key — this authenticated write
               // is (unexpectedly, given isWriteOnceAnonPrefix's own design)
-              // the very first write to this key. Fail safe rather than
-              // silently doing nothing: fall back to the original upsert so
-              // a legitimate first authenticated write still goes through.
-              return client.from(TABLE).upsert({ key: key, value: offloaded }, { onConflict: 'key' });
+              // the very first write to this key. This used to fall back to
+              // the original upsert() here, on the theory that a legitimate
+              // first authenticated write should still go through — but that
+              // repeated the exact same conflict-probe bug documented above
+              // (auditLog / anon-first-submission / applicantNotification):
+              // confirmed live for a signed-in applicant's first upload of
+              // their Application Fee / License Fee payment receipt
+              // (applicationFeeReceipt:/applicationPaymentReceipt:), which
+              // reliably 42501'd here even though 'poa' has correctly-scoped
+              // INSERT/SELECT/UPDATE policies on that prefix — upsert()'s
+              // internal "does this conflict?" probe is evidently unreliable
+              // under this schema regardless of which policies exist. Since
+              // we already know from the UPDATE above that no row exists for
+              // this key yet, a plain INSERT is the correct — and correctly
+              // provable — next step: it only needs the INSERT policy's
+              // WITH CHECK, never touches the conflict probe, and in the
+              // vanishingly rare case a row was created by a genuine race
+              // between the UPDATE and this INSERT, it fails with a real
+              // unique-violation (23505) rather than a misleading 42501.
+              return client.from(TABLE).insert({ key: key, value: offloaded });
             }
             return updRes;
           }
@@ -3532,6 +3630,12 @@
     signUp: function (email, password) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.signUp({ email: email, password: password });
+    },
+    // Re-sends the signup confirmation email (Confirm email account
+    // creation) for an account that hasn't clicked the link yet.
+    resendConfirmation: function (email) {
+      if (!client) return Promise.reject(new Error('Backend not configured'));
+      return client.auth.resend({ type: 'signup', email: email });
     },
     // scope:'local' is deliberate, not the default: Supabase's own default
     // scope is 'global', meaning every ordinary "Log out" click in every
@@ -3625,6 +3729,68 @@
       });
       if (res.error) { window.atdShowDebugError('publicVenues(' + muniNumber + ')', res.error); return []; }
       return res.data || [];
+    },
+
+    // Public read of the one municipality-settings field an applicant's Main
+    // Menu actually needs before the License Fee is paid — whether this
+    // municipality allows deferring it until after JCF approval (the CEO's
+    // Settings > "Municipal Fee Payment Timing" toggle, saveMuniSettings()).
+    // The 'municipality:{muniId}:settings' row's own RLS ("kv_store: muni
+    // staff read own agency records (key muniId)") only grants SELECT to
+    // authenticated muni staff — there's no policy letting a genuinely
+    // anonymous or signed-in poa applicant read that row at all, so
+    // poa_refreshMuniSettings()'s old plain window.storage.get() was always
+    // silently denied for every applicant, leaving currentMuniSettings null
+    // and the Main Menu falling back to "requires the License Fee to be paid
+    // immediately" regardless of what the CEO actually configured (Fix #40,
+    // backend/fix40_public_muni_payment_timing.sql). Same narrow
+    // SECURITY DEFINER pattern as verifyPermit/publicVenues above — returns
+    // only this one boolean, never the full settings row.
+    publicMuniPaymentTiming: async function (muniNumber) {
+      if (!client) return false;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_public_muni_payment_timing', { p_muni_number: muniNumber });
+      });
+      if (res.error) { window.atdShowDebugError('publicMuniPaymentTiming(' + muniNumber + ')', res.error); return false; }
+      return !!res.data;
+    },
+
+    // Pre-loads a manually-entered venue into the venue database as a
+    // pending entry the moment an applicant submits it on a POA application
+    // (Fix #35, backend/fix35_submit_pending_venue.sql) — see submitApp()'s
+    // best-effort block, right after the application record itself saves.
+    // Family 2's own RLS ("kv_store: muni staff write own agency records")
+    // only lets an authenticated 'muni' staff member INSERT a 'venue:' row,
+    // which a genuinely anonymous applicant never is — so, same pattern as
+    // trackApplication/saveTrackedApplication above, this goes through a
+    // narrow SECURITY DEFINER function instead of a raw insert. It forces
+    // every safety-relevant field itself (pendingApproval true, active
+    // false, cost 0) regardless of what's passed in, so there's no way for
+    // this call to create anything OTHER than an unreviewed, zero-cost,
+    // inactive pending entry — a reviewing officer's Accept/Reject action
+    // (submitAcceptPendingVenue()/submitRejectPendingVenue() in the
+    // Municipal officer portal) is the only path that can ever turn it into
+    // a real, priced, selectable venue.
+    submitPendingVenue: async function (opts) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_submit_pending_venue', {
+          p_id: opts.id,
+          p_muni_number: opts.muniNumber,
+          p_source_app_number: opts.sourceAppNumber,
+          p_name: opts.name,
+          p_addr1: opts.addr1 || '',
+          p_addr2: opts.addr2 || '',
+          p_district: opts.district || '',
+          p_max_cap: opts.maxCap ? parseInt(opts.maxCap, 10) : null,
+          p_max_parking: opts.maxParking ? parseInt(opts.maxParking, 10) : null,
+          p_owner_name: opts.ownerName || '',
+          p_owner_address: opts.ownerAddress || '',
+          p_owner_phone: opts.ownerPhone || ''
+        });
+      });
+      if (res.error) { window.atdShowDebugError('submitPendingVenue(' + opts.id + ')', res.error); return { ok: false, error: res.error.message }; }
+      return res.data || { ok: false };
     },
 
     // Applicant wallet (Credit Notes) — RLS already scopes this to the
@@ -3922,6 +4088,31 @@
         </div>`;
       return;
     }
+    // A standalone JCF Noise Abatement Permit (filed directly with a
+    // Division, no linked Municipal Corporation application at all — or one
+    // where the JCF Division approved ahead of the Municipal Corporation) —
+    // see Fix #31 (backend/fix31_verify_standalone_jcf_permits.sql), which
+    // added this shape to atd_verify_permit() specifically because the old
+    // version always required a Municipal Corporation permit to exist first,
+    // so scanning a genuine, already-issued JCF-only permit's own QR code
+    // showed "Not a valid permit" every time.
+    if(result.isJcfOnly){
+      const expiry = [result.expiresDate, result.expiresTime12].filter(Boolean).join(' ');
+      let jcfHtml = `<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;">
+          <div style="font-weight:700; font-size:17px;">${esc(result.divisionName || 'Jamaica Constabulary Force')}</div>
+          ${statusBadge(result.status)}
+        </div>`;
+      jcfHtml += row('Permit No.', result.appNumber);
+      jcfHtml += row('Permit Type', result.permitTypeLabel);
+      jcfHtml += row('Event', result.eventName);
+      jcfHtml += row('Event Date', result.eventDate);
+      jcfHtml += row('Expires', expiry);
+      jcfHtml += row('Venue', result.venueName);
+      jcfHtml += row('Venue Address', result.venueAddress);
+      bodyEl.innerHTML = jcfHtml;
+      return;
+    }
+
     const eventOrBusiness = result.businessOrEventName || 'N/A';
     let html = `<div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px;">
         <div style="font-weight:700; font-size:17px;">${esc(result.municipalityName || 'Municipal Corporation')}</div>
@@ -4252,6 +4443,51 @@
     }
   };
 
+  // ---- Shared watch list check (Applicant/DJ/Sound System auto-reject) ----
+  // Checks a single TRN against BOTH the Municipal Corporation watch list
+  // (`watchlist:<trn>`) and the JCF Noise Abatement watch list
+  // (`jcfWatchlist:<trn>`) — the same two keys poa_'s own pre-submission
+  // check and jcfd_muniFlagForTrn/jcfFlagForTrn already read elsewhere.
+  // Returns { fullName, agencyName } for the first Active match found, or
+  // null. Used at submission time for both wizards so a flagged applicant,
+  // DJ, or Sound System auto-rejects the application, per the mandatory
+  // (non-toggleable) watch list policy — see submitApp()/submitJcfApp().
+  window.atdCheckWatchlistFlag = async function(trn){
+    const norm = String(trn || '').replace(/\D/g, '');
+    if(!norm || !window.storage) return null;
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    try{
+      const muniRes = await window.storage.get(`watchlist:${norm}`, true);
+      if(muniRes && muniRes.value){
+        const w = JSON.parse(muniRes.value);
+        if(w.status === 'Active'){
+          const agency = agencies.find(x => x.type === 'Municipal Corporation' && x.id === w.muniId);
+          return { fullName: w.fullName, agencyName: (agency && agency.name) || 'the Municipal Corporation' };
+        }
+      }
+    } catch(e){ /* no Municipal watch list record for this TRN */ }
+    try{
+      const jcfRes = await window.storage.get(`jcfWatchlist:${norm}`, true);
+      if(jcfRes && jcfRes.value){
+        const w = JSON.parse(jcfRes.value);
+        if(w.status === 'Active'){
+          const agency = agencies.find(x => x.type === 'JCF' && x.id === w.agencyId);
+          return { fullName: w.fullName, agencyName: (agency && agency.name) || 'the Jamaica Constabulary Force' };
+        }
+      }
+    } catch(e){ /* no JCF watch list record for this TRN */ }
+    return null;
+  };
+
+  // Builds the required wording for a watch-list-triggered auto-rejection —
+  // role is one of 'Applicant' / 'DJ' / 'Sound System'.
+  window.atdWatchlistRejectionMessage = function(role, flag){
+    const agency = (flag && flag.agencyName) || 'the flagging agency';
+    const name = (flag && flag.fullName) || role;
+    return `${role} ${name} has been flagged by ${agency} and cannot be part of this application. `
+      + `Please remove and resubmit your application. If you believe this was done in error, you may contact ${agency}.`;
+  };
+
   // ---- Shared phone/TRN input formatting ----
   // The POA and JCF wizards each already had their own byte-identical
   // poa_/jcf_ formatPhoneValue/attachPhoneFormatter/formatTrnValue/
@@ -4468,6 +4704,34 @@
       }
     } catch(e){ /* fall back to defaults */ }
     return cfg;
+  };
+
+  // ---- Public landing page footer: Privacy Policy / Terms of Use /
+  // Contact / Copyright notice (Admin > Settings > Footer & Legal Content).
+  // Same convention as platform:formTemplates just above: one JSON blob,
+  // merged over these defaults so a field an admin has never touched still
+  // shows sane placeholder wording instead of a blank modal. copyrightNotice
+  // may contain the literal placeholder "{year}", replaced with the current
+  // year wherever this is rendered (see pl_initFooterContent) rather than
+  // baked in here, so the footer never goes stale just because nobody
+  // revisits this settings page every January.
+  window.ATD_DEFAULT_FOOTER_CONTENT = {
+    copyrightNotice: '© {year} Atendify — Places of Amusement Licensing Suite. All rights reserved.',
+    contactInfo: '',
+    privacyPolicy: 'This Privacy Policy has not been configured yet. An administrator can add it under Settings > Footer & Legal Content.',
+    termsOfUse: 'These Terms of Use have not been configured yet. An administrator can add them under Settings > Footer & Legal Content.'
+  };
+  window.atdLoadFooterContent = async function(){
+    const content = Object.assign({}, window.ATD_DEFAULT_FOOTER_CONTENT);
+    if(!window.storage) return content;
+    try{
+      const r = await window.storage.get('platform:footerContent');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        Object.keys(content).forEach(k => { if(saved[k]) content[k] = saved[k]; });
+      }
+    } catch(e){ /* fall back to defaults */ }
+    return content;
   };
 
   // Human labels + step grouping for the same field keys, used only to
@@ -5075,7 +5339,7 @@
 
   <div class="pl-hero">
     <img class="app-logo-img-hub pl-hero-logo" alt="Atendify logo">
-    <h1 class="pl-title">Atendify Entertainment Permit Portal</h1>
+    <h1 class="pl-title">Atendify Entertainment<br>Permit Portal</h1>
     <h2 class="pl-subtitle">Online Applications for Permits and Licenses</h2>
     <p class="pl-tagline">Applying for your permits and licenses has never been this easy.</p>
 
@@ -5090,6 +5354,32 @@
       </div>
     </div>
 
+  </div>
+
+  <footer class="pl-footer">
+    <div id="pl_footerCopyright">© 2026 Atendify. All rights reserved.</div>
+    <nav class="pl-footer-links">
+      <span onclick="pl_openLegalModal('privacy')">Privacy Policy</span>
+      <span onclick="pl_openLegalModal('terms')">Terms of Use</span>
+      <span onclick="pl_openLegalModal('contact')">Contact</span>
+    </nav>
+  </footer>
+</div>
+
+<!-- ===== Public footer legal content modal (Privacy Policy / Terms of Use /
+     Contact) — one shared modal, its title and body swapped by
+     pl_openLegalModal() depending on which footer link was clicked. Content
+     itself is authored by Admin under Settings > Footer & Legal Content (see
+     window.atdLoadFooterContent) rather than hardcoded here, so a
+     municipality/agency running its own Atendify deployment can supply its
+     own wording without a code change. ===== -->
+<div class="modal-overlay hidden" id="pl_legalModal">
+  <div class="modal-box">
+    <h3 id="pl_legalModalTitle">Privacy Policy</h3>
+    <div id="pl_legalModalBody" style="white-space:pre-wrap; max-height:60vh; overflow-y:auto; font-size:14px; line-height:1.6; color:var(--text-muted);"></div>
+    <div class="btn-row" style="justify-content:flex-end; margin-top:20px;">
+      <button class="btn btn-primary" onclick="pl_closeLegalModal()">Close</button>
+    </div>
   </div>
 </div>
 
@@ -5789,7 +6079,7 @@
         <button class="mm-nav-item active" data-view="payment" onclick="mmGoView('payment')">Application Payment</button>
         <button class="mm-nav-item" data-view="summary" onclick="mmGoView('summary')">Places Of Amusement License</button>
         <button class="mm-nav-item" data-view="noise" onclick="mmGoView('noise')">Noise Abatement (JCF) Permit</button>
-        <button class="mm-nav-item" data-view="documents" onclick="mmGoView('documents')">Upload Documents</button>
+        <button class="mm-nav-item" data-view="documents" onclick="mmGoView('documents')">Upload Documents<span class="mm-nav-dot hidden" id="mmDocsNavDot" title="A document was rejected — needs re-upload"></span></button>
         <button class="mm-nav-item" data-view="permit" id="mmPermitNav" onclick="mmGoView('permit')" disabled>Application Permit</button>
       </aside>
 
@@ -6253,6 +6543,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <!-- ===== VENUES PAGE ===== -->
     <div class="page hidden" id="page-venues">
+      <div class="panel hidden" id="pendingVenuesPanel">
+        <div class="panel-head">
+          <h2>Venues Pending Review</h2>
+        </div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Manually typed in by an applicant on a Places of Amusement application rather than picked from your registered venues — not a real venue in your database until you accept it. Accepting requires a cost (billed to the applicant as an additional payment, on top of the Venue Inspection Fee they already paid); rejecting requires a reason.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Venue</th><th>Location</th><th>Max Capacity</th><th>From Application</th><th></th></tr></thead>
+            <tbody id="pendingVenuesBody"></tbody>
+          </table>
+        </div>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h2>Registered venues</h2>
@@ -7141,6 +7443,39 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== Accept Pending Venue Modal ===== -->
+<div class="modal-overlay hidden" id="venueAcceptModal">
+  <div class="modal-box">
+    <h3>Accept venue</h3>
+    <p class="modal-sub" id="venueAcceptModalSub"></p>
+    <div class="field-group">
+      <label for="venueAcceptCostInput">Venue Cost (JMD)</label>
+      <input type="number" id="venueAcceptCostInput" min="0" placeholder="e.g. 15000">
+      <div class="field-hint">Required. Billed to the applicant as an additional payment, on top of the flat Venue Inspection Fee they already paid.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeVenueAcceptModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAcceptPendingVenue()">Accept &amp; add to database</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Reject Pending Venue Modal ===== -->
+<div class="modal-overlay hidden" id="venueRejectModal">
+  <div class="modal-box">
+    <h3>Reject venue</h3>
+    <p class="modal-sub">The applicant will be notified. This venue will not be added to your database.</p>
+    <div class="field-group">
+      <label for="venueRejectReasonInput">Reason for rejecting</label>
+      <textarea id="venueRejectReasonInput" placeholder="e.g. Duplicate of an already-registered venue"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeVenueRejectModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="submitRejectPendingVenue()">Reject venue</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== Document Preview Modal ===== -->
 <div class="modal-overlay hidden" id="docModal">
   <div class="modal-box modal-wide">
@@ -7214,6 +7549,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permApprove"> Approve or reject applications</label>
       <label class="checkbox-row"><input type="checkbox" id="permApproveCapped"> Approve or reject applications with 500 or fewer expected patrons</label>
       <label class="checkbox-row"><input type="checkbox" id="permManageUsers"> Create users & assign roles</label>
+      <label class="checkbox-row"><input type="checkbox" id="permManageVenues"> Manage venue database (accept/reject applicant-suggested venues)</label>
     </div>
 
     <div class="field-group">
@@ -7981,6 +8317,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             </thead>
             <tbody id="rolesBody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Footer &amp; Legal Content</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Shown to every visitor in the footer of the public landing page, before anyone logs in. Leave a field blank to show its placeholder wording until you've written your own.</p>
+
+        <div class="field-group">
+          <label for="admin_footer_copyright">Copyright notice</label>
+          <input type="text" id="admin_footer_copyright">
+          <div class="field-hint">Include the literal text <code>{year}</code> anywhere you want the current year inserted automatically — it updates on its own every January, so this never needs revisiting.</div>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_contact">Contact information</label>
+          <textarea id="admin_footer_contact" rows="4" placeholder="e.g. Atendify Support&#10;support@atendifyapp.com&#10;(876) 555-0100"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_privacy">Privacy Policy</label>
+          <textarea id="admin_footer_privacy" rows="8"></textarea>
+        </div>
+
+        <div class="field-group">
+          <label for="admin_footer_terms">Terms of Use</label>
+          <textarea id="admin_footer_terms" rows="8"></textarea>
+        </div>
+
+        <div class="btn-row" style="justify-content:flex-start; margin-top:8px;">
+          <button class="btn btn-primary" onclick="admin_saveFooterContent()">Save footer content</button>
         </div>
       </div>
 
@@ -8984,7 +9350,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   <div id="acct_authView" class="acct-auth-wrap">
     <img class="app-logo-img-hub" alt="Atendify logo" style="width:48px; height:48px; display:block; margin:0 auto 20px;">
-    <div class="acct-auth-tabs">
+    <div class="acct-auth-tabs" id="acct_authTabs">
       <button class="acct-auth-tab active" id="acct_tabLogin" onclick="acct_switchAuthTab('login')">Log In</button>
       <button class="acct-auth-tab" id="acct_tabSignup" onclick="acct_switchAuthTab('signup')">Sign Up</button>
     </div>
@@ -9006,6 +9372,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </label>
       <div id="acct_signupError" class="info-banner warn hidden"></div>
       <button class="btn btn-primary" style="width:100%;" onclick="acct_signup()">Create account</button>
+    </div>
+
+    <!-- Shown instead of the tabs/login/signup panes once signUp() succeeds
+         but Supabase returns no session -- i.e. the project's "Confirm
+         email" setting is on and this account can't sign in until the link
+         in that email is clicked. Also shown if an existing unconfirmed
+         account tries to log in (see acct_login()'s email_not_confirmed
+         handling). -->
+    <div id="acct_paneConfirmPending" class="acct-auth-pane">
+      <div class="info-banner good" id="acct_confirmPendingMsg" style="margin-bottom:16px;"></div>
+      <p style="font-size:13px; color:#666; margin:0 0 16px;">Didn't get it? Check your spam folder, or we can send it again.</p>
+      <button class="btn" style="width:100%; margin-bottom:10px;" id="acctResendBtn" onclick="acct_resendConfirmation()">Resend confirmation email</button>
+      <button class="btn btn-primary" style="width:100%;" onclick="acct_switchAuthTab('login')">Back to Log In</button>
     </div>
   </div>
 
@@ -9071,6 +9450,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </main>
     </div>
   </div>
+  <div class="toast" id="acct_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
 <div id="shell-jcfd" class="app-shell hidden">
@@ -9527,6 +9907,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             </div>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2 style="font-size:18px;">Municipal Integration</h2></div>
+          <div class="toggle-row" style="margin-bottom:14px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="jcfd_settingsAutoRejectToggle" onchange="jcfd_saveSettings()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:14px; font-weight:600;">Auto-reject application if the Municipal Corporation rejects the linked Places of Amusement application</span>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin:0;">When on, if the Municipal Corporation rejects the linked Places of Amusement application, this JCF Noise Abatement Permit application is automatically marked Rejected as well.</p>
+        </div>
       </div>
 
       <!-- ===== SLA BREACHES PAGE (JCF) ===== -->
@@ -9714,6 +10105,37 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.publicTrackApplication = publicTrackApplication;
 
+  // ---- Public footer: Privacy Policy / Terms of Use / Contact / Copyright
+  // (content authored by Admin under Settings > Footer & Legal Content — see
+  // window.atdLoadFooterContent in the shared shim near the top of <body>).
+  var PL_LEGAL_MODAL_TITLES = { privacy: 'Privacy Policy', terms: 'Terms of Use', contact: 'Contact' };
+  var PL_LEGAL_MODAL_KEYS = { privacy: 'privacyPolicy', terms: 'termsOfUse', contact: 'contactInfo' };
+  async function pl_openLegalModal(kind){
+    var content = window.atdLoadFooterContent ? await window.atdLoadFooterContent() : window.ATD_DEFAULT_FOOTER_CONTENT;
+    document.getElementById('pl_legalModalTitle').textContent = PL_LEGAL_MODAL_TITLES[kind] || 'Notice';
+    document.getElementById('pl_legalModalBody').textContent = content[PL_LEGAL_MODAL_KEYS[kind]] || '';
+    document.getElementById('pl_legalModal').classList.remove('hidden');
+  }
+  window.pl_openLegalModal = pl_openLegalModal;
+
+  function pl_closeLegalModal(){
+    document.getElementById('pl_legalModal').classList.add('hidden');
+  }
+  window.pl_closeLegalModal = pl_closeLegalModal;
+
+  // Populates the footer's copyright line on every page load — not just
+  // whenever the Privacy/Terms/Contact modal happens to open — and swaps in
+  // the current year wherever the stored text contains the literal
+  // placeholder "{year}" (the default wording uses it; an admin who
+  // overwrites the field can keep or drop the placeholder as they choose).
+  async function pl_initFooterContent(){
+    var el = document.getElementById('pl_footerCopyright');
+    if(!el) return;
+    var content = window.atdLoadFooterContent ? await window.atdLoadFooterContent() : window.ATD_DEFAULT_FOOTER_CONTENT;
+    el.textContent = (content.copyrightNotice || '').replace(/\{year\}/g, String(new Date().getFullYear()));
+  }
+  pl_initFooterContent();
+
   var publicThemeToggle = document.getElementById('publicThemeToggle');
   if(publicThemeToggle){
     publicThemeToggle.addEventListener('click', function(){
@@ -9773,12 +10195,52 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   };
 
   function acct_switchAuthTab(tab){
+    document.getElementById('acct_authTabs').classList.remove('hidden');
+    document.getElementById('acct_paneConfirmPending').classList.remove('active');
     document.getElementById('acct_tabLogin').classList.toggle('active', tab === 'login');
     document.getElementById('acct_tabSignup').classList.toggle('active', tab === 'signup');
     document.getElementById('acct_paneLogin').classList.toggle('active', tab === 'login');
     document.getElementById('acct_paneSignup').classList.toggle('active', tab === 'signup');
   }
   window.acct_switchAuthTab = acct_switchAuthTab;
+
+  // Hides the Log In/Sign Up tabs and shows a single "check your email"
+  // pane instead -- used both right after a signup that Supabase left
+  // unconfirmed, and when an existing unconfirmed account tries to log in.
+  let acct_pendingConfirmEmail = null;
+  function acct_showConfirmPendingPane(email){
+    acct_pendingConfirmEmail = email;
+    document.getElementById('acct_authTabs').classList.add('hidden');
+    document.getElementById('acct_paneLogin').classList.remove('active');
+    document.getElementById('acct_paneSignup').classList.remove('active');
+    document.getElementById('acct_paneConfirmPending').classList.add('active');
+    document.getElementById('acct_confirmPendingMsg').textContent =
+      `We've sent a confirmation link to ${email}. Please check your inbox (and spam folder) and click the link before logging in.`;
+  }
+  window.acct_showConfirmPendingPane = acct_showConfirmPendingPane;
+
+  async function acct_resendConfirmation(){
+    const email = acct_pendingConfirmEmail;
+    const msgEl = document.getElementById('acct_confirmPendingMsg');
+    if(!email || !window.ATDBackend || !window.ATDBackend.resendConfirmation){
+      if(msgEl) msgEl.textContent = 'Could not resend right now -- please try logging in again in a moment.';
+      return;
+    }
+    const btn = document.getElementById('acctResendBtn');
+    const original = btn ? btn.innerHTML : '';
+    if(btn){ btn.disabled = true; btn.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Sending…', 16) : 'Sending…'; }
+    try{
+      const { error } = await window.ATDBackend.resendConfirmation(email);
+      if(msgEl){
+        msgEl.textContent = error
+          ? (error.message || 'Could not resend the confirmation email. Please try again shortly.')
+          : `We've sent another confirmation link to ${email}. Please check your inbox (and spam folder).`;
+      }
+    } finally {
+      if(btn){ btn.disabled = false; btn.innerHTML = original; }
+    }
+  }
+  window.acct_resendConfirmation = acct_resendConfirmation;
 
   async function acct_signup(){
     const name = document.getElementById('acct_signupName').value.trim();
@@ -9818,13 +10280,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // as before — Auth only proves who's signing in, not where their
     // application profile data lives.
     const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+    let signUpData = null;
     if(usingRealAuth){
-      const { error } = await window.ATDBackend.signUp(email, password);
+      const { data, error } = await window.ATDBackend.signUp(email, password);
       if(error){
         errorBox.textContent = error.message || 'Could not create that account.';
         errorBox.classList.remove('hidden');
         return;
       }
+      signUpData = data;
     }
 
     const profile = {
@@ -9838,6 +10302,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       createdDate: new Date().toISOString().slice(0,10)
     };
     await window.storage.set('accountUser:' + email, JSON.stringify(profile), true);
+
+    // With Supabase's "Confirm email" setting on, signUp() succeeds (no
+    // error) but returns no session until the person clicks the link in
+    // that email -- data.user exists, data.session doesn't. Treating that
+    // as "logged in" here would be its own version of this project's
+    // recurring RLS-mismatch bug: the UI would show the app shell while
+    // every read/write silently fails 401/RLS because there's really no
+    // authenticated session yet. Send them to the "check your email" pane
+    // instead. When Confirm email is off (or there's no real Auth backend
+    // configured at all), signUp() returns a session immediately and this
+    // falls through to the normal instant-login path unchanged.
+    if(usingRealAuth && signUpData && !signUpData.session){
+      acct_showConfirmPendingPane(email);
+      return;
+    }
+
     acct_currentUser = profile;
     acct_showLoggedInUI();
     showToastFallback(`Welcome, ${name}! Your account has been created.`);
@@ -9885,8 +10365,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         if(window.ATDBackend.logSession) await window.ATDBackend.logSession('poa');
         acct_showLoggedInUI();
       }catch(e){
-        errorBox.textContent = 'Incorrect email or password.';
-        errorBox.classList.remove('hidden');
+        // Supabase's error for this is code 'email_not_confirmed' on newer
+        // supabase-js, or just the message "Email not confirmed" on older
+        // versions -- check both rather than assume one.
+        const msg = (e && e.message) || '';
+        const isUnconfirmed = (e && e.code === 'email_not_confirmed') || /email.*not.*confirm/i.test(msg);
+        if(isUnconfirmed){
+          acct_showConfirmPendingPane(email);
+        } else {
+          errorBox.textContent = 'Incorrect email or password.';
+          errorBox.classList.remove('hidden');
+        }
       }
       return;
     }
@@ -9920,9 +10409,44 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('acct_appView').classList.add('hidden');
     document.getElementById('acct_loginEmail').value = '';
     document.getElementById('acct_loginPassword').value = '';
+    // A signed-in applicant who opened an application (acct_viewApplication
+    // -> openMainMenu) leaves behind the same refresh-restore marker a guest
+    // tracking flow does (see poa_rememberMainMenuForRefresh) — clear it on
+    // an explicit logout, so a shared/public computer doesn't silently drop
+    // the NEXT person who refreshes straight into this account's
+    // application after they've logged out.
+    try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e){}
     if(window.atdUpdateAuthNav) window.atdUpdateAuthNav();
   }
   window.acct_logout = acct_logout;
+
+  // Companion to muni_tryRestoreSession/jcfd_tryRestoreSession/
+  // admin_tryRestoreSession (see atdBootstrapSessionRestore) — same idea,
+  // for the applicant's own self-service Account portal. Supabase Auth's
+  // session already survives a page refresh on its own (supabase-js
+  // persists it in localStorage by default); what was missing was anything
+  // that noticed that persisted session on load and re-populated
+  // acct_currentUser / showed the logged-in dashboard instead of the public
+  // landing page. Returns true only once the matching accountUser profile
+  // record is actually found and shown, so a stale/deleted account still
+  // falls through to the normal logged-out landing page exactly as before
+  // this existed.
+  async function acct_tryRestoreSession(profile){
+    try{
+      if(!window.storage) return false;
+      const email = String((profile && profile.email) || '').toLowerCase();
+      if(!email) return false;
+      const result = await window.storage.get('accountUser:' + email, true);
+      if(!result || !result.value) return false;
+      acct_currentUser = JSON.parse(result.value);
+      showHub('account');
+      acct_showLoggedInUI();
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+  window.acct_tryRestoreSession = acct_tryRestoreSession;
 
   // Sets the sidebar avatar circle (#acct_avatarInitial) to the applicant's
   // uploaded photo if they have one, otherwise falls back to their name's
@@ -10084,7 +10608,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.acct_viewApplication = acct_viewApplication;
 
   function showToastFallback(msg){
-    const el = document.getElementById('poa_toast') || document.getElementById('jcf_toast');
+    // Every call site here runs inside the Account dashboard (shell-account)
+    // — "Profile saved.", "Password updated.", "Profile photo updated.",
+    // etc. This used to look for 'poa_toast' or 'jcf_toast' only, but both
+    // of those toast elements live inside DIFFERENT top-level shells
+    // (shell-poa and shell-jcf), which always carry class="hidden"
+    // (display:none) while shell-account is the one showing. A hidden
+    // ancestor keeps its descendants from rendering at all, `.show` class
+    // or not — so every one of these confirmations was silently never
+    // visible to the user. acct_toast (added below shell-account's own
+    // markup) is the one actually visible in this context; poa_toast/
+    // jcf_toast are kept only as a last-resort fallback in case this is
+    // ever called before acct_toast exists in the DOM.
+    const el = document.getElementById('acct_toast') || document.getElementById('poa_toast') || document.getElementById('jcf_toast');
     if(el){ el.textContent = msg; el.classList.add('show'); setTimeout(function(){ el.classList.remove('show'); }, 3000); }
   }
 
@@ -10816,6 +11352,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_applyNavPermissions();
     jcfd_goPage('dashboard');
   }
+  window.jcfd_enterShellAsUser = jcfd_enterShellAsUser;
 
   async function jcfd_attemptLogin(){
     const branchId = parseInt(document.getElementById('jcfd_loginBranch').value, 10);
@@ -11580,7 +12117,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Parking arrangements made', vi.parkingArrangements);
     html += jcfd_detailRow('Security arrangements made', vi.securityArrangements);
     if(vi.securityCompaniesFromPoa && vi.securityCompaniesFromPoa.length){
-      html += jcfd_detailRow('Security company on file', vi.securityCompaniesFromPoa.map(s => s.company).join(', '));
+      // Previously only the company name made it into this row — the guard
+      // count and company phone number (both carried over from the linked
+      // Places of Amusement application, see securityCompaniesFromPoa in
+      // submitJcfApp()) were dropped even though they were already there in
+      // the stored record, same "· "-joined-detail style as the DJ/Sound
+      // System rows just below.
+      vi.securityCompaniesFromPoa.forEach(s => {
+        html += jcfd_detailRow(`Security company — ${s.company}`, [s.guards ? s.guards + ' guard(s)' : '', s.phone].filter(Boolean).join(' · '));
+      });
     }
     html += `</div>`;
 
@@ -11750,8 +12295,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           if(muniFlag && muniFlag.status === 'Active') badges.push('<span class="badge badge-amber">Flagged by Municipal Corporation</span>');
           else if(muniFlag) badges.push('<span class="badge badge-gray">Municipal Cleared</span>');
           if(!badges.length) badges.push('<span class="badge badge-gray">Not flagged</span>');
+          const flagNotes = [];
+          if(jcfEntry && jcfEntry.status === 'Active' && jcfEntry.reason) flagNotes.push(`<div class="record-sub">JCF: ${acctEscapeHtml(jcfEntry.reason)}</div>`);
+          if(muniFlag && muniFlag.status === 'Active' && muniFlag.reason) flagNotes.push(`<div class="record-sub">Municipal Corporation: ${acctEscapeHtml(muniFlag.reason)}</div>`);
           html += `<div class="record-row"><div><div class="record-main">${acctEscapeHtml(subj.type)} — ${acctEscapeHtml(subj.name || 'N/A')}</div>
-            <div class="record-sub">TRN: ${acctEscapeHtml(formatTrnDisplayJcfd(subj.trn))} ${badges.join(' ')}</div></div>
+            <div class="record-sub">TRN: ${acctEscapeHtml(formatTrnDisplayJcfd(subj.trn))} ${badges.join(' ')}</div>
+            ${flagNotes.join('')}</div>
             <div class="action-btn-row">
               ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(subj.trn)})'>View JCF file</button>` : ''}
               ${jcfd_hasPerm('watchlist') && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${JSON.stringify({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
@@ -11886,7 +12435,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(jcfdPrintArea){
       if(rec.permitGenerated && rec.permit){
         jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, undefined, jcfdCachedCrest);
-        jcfd_renderPermitQr('jcfdPermitQrTarget', rec.permit.qrData);
+        // Always rebuild from the app number rather than trusting the
+        // stored qrData — permits issued before the www-domain fix have a
+        // stale/wrong domain baked into that stored value, and this way
+        // already-issued permits render a correct QR too, not just new ones.
+        jcfd_renderPermitQr('jcfdPermitQrTarget', window.atdVerifyUrl(rec.jcfAppNumber));
       } else {
         jcfdPrintArea.innerHTML = '';
       }
@@ -12391,6 +12944,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaReviewDays').value = rules.review.targetDays;
     document.getElementById('jcfd_slaDecisionToggle').checked = rules.decision.enabled;
     document.getElementById('jcfd_slaDecisionDays').value = rules.decision.targetDays;
+    document.getElementById('jcfd_settingsAutoRejectToggle').checked = !!settings.autoRejectOnMuniReject;
   }
   window.jcfd_loadSettings = jcfd_loadSettings;
 
@@ -12413,8 +12967,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaAssignmentHours').value = slaRules.assignment.targetHours;
     document.getElementById('jcfd_slaReviewDays').value = slaRules.review.targetDays;
     document.getElementById('jcfd_slaDecisionDays').value = slaRules.decision.targetDays;
+    const autoRejectOnMuniReject = document.getElementById('jcfd_settingsAutoRejectToggle').checked;
     try{
-      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules }), true);
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject }), true);
       jcfd_showToast('Settings saved.');
     } catch(err){
       jcfd_showToast('Could not save settings right now.');
@@ -12842,6 +13397,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     } catch(e){ return null; }
   }
 
+  // Mirrors the Municipal officer's own listActiveJcfFlags() in the other
+  // direction — every ACTIVE entry off the shared Municipal Corporation
+  // watchlist (the same `watchlist:<trn>` keys the Municipal officer portal
+  // writes to), regardless of which municipality flagged them. Used below to
+  // surface a promoter the Municipality has flagged even when JCF has never
+  // independently flagged that same person — previously such a promoter
+  // never showed up on this page at all, so a JCF officer had no way to
+  // know they'd been flagged, or why, unless that person also happened to
+  // be independently on JCF's own Watch List.
+  async function jcfd_listActiveMuniFlags(){
+    if(!window.storage) return [];
+    try{
+      const listResult = await window.storage.list('watchlist:', true);
+      const keys = (listResult && listResult.keys) || [];
+      const fetched = await Promise.all(keys.map(async key => {
+        try{
+          const r = await window.storage.get(key, true);
+          return r && r.value ? JSON.parse(r.value) : null;
+        } catch(e){ return null; }
+      }));
+      return fetched.filter(w => w && w.status === 'Active');
+    } catch(e){ return []; }
+  }
+
   async function jcfd_renderWatchlist(){
     const body = document.getElementById('jcfd_watchlistBody');
     if(!body) return;
@@ -12849,12 +13428,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const search = (document.getElementById('jcfd_watchlistSearch').value || '').trim().toLowerCase();
     const typeFilter = document.getElementById('jcfd_watchlistTypeFilter').value;
     const statusFilter = document.getElementById('jcfd_watchlistStatusFilter').value;
-    let list = jcfd_myWatchlist().filter(w => {
+    const matchesFilters = w => {
       const matchesSearch = !search || (w.fullName||'').toLowerCase().includes(search) || (w.trn||'').includes(search.replace(/\D/g,''));
       const matchesType = !typeFilter || w.type === typeFilter;
       const matchesStatus = !statusFilter || w.status === statusFilter;
       return matchesSearch && matchesType && matchesStatus;
-    });
+    };
+    let list = jcfd_myWatchlist().filter(matchesFilters);
+
+    // Municipality-only flags: a promoter the Municipal Corporation has
+    // flagged but JCF never has, on its own, for the same TRN. Shown as
+    // their own read-only rows here (type defaults to 'Promoter' since
+    // that's the only kind the Municipal watchlist ever flags), same
+    // pattern as the Municipal officer's own jcfOnlyEntries.
+    const jcfTrns = new Set(jcfWatchlist.map(w => w.trn));
+    const muniFlagsActive = await jcfd_listActiveMuniFlags();
+    const muniOnlyEntries = muniFlagsActive
+      .filter(f => !jcfTrns.has(f.trn))
+      .map(f => ({
+        fullName: f.fullName, type: 'Promoter', trn: f.trn, status: 'Active',
+        flaggedBy: f.flaggedBy, flaggedDate: f.flaggedDate, reason: f.reason,
+        _muniOnly: true
+      }))
+      .filter(matchesFilters);
+
+    list = list.concat(muniOnlyEntries);
     list.sort((a,b) => (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
     if(!list.length){
@@ -12863,23 +13461,64 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
 
     const rows = await Promise.all(list.map(async w => {
-      const muniFlag = await jcfd_muniFlagForTrn(w.trn);
+      const muniFlag = w._muniOnly ? { status: 'Active', reason: w.reason } : await jcfd_muniFlagForTrn(w.trn);
       const muniCell = muniFlag && muniFlag.status === 'Active'
-        ? '<span class="badge badge-red">Flagged by Municipal Corporation</span>'
+        ? `<span class="badge badge-red">Flagged by Municipal Corporation${muniFlag.reason ? ' — ' + acctEscapeHtml(muniFlag.reason) : ''}</span>`
         : (muniFlag ? '<span class="badge badge-gray">Cleared (Municipal)</span>' : '<span class="badge badge-gray">Not flagged</span>');
+      const viewOnclick = w._muniOnly
+        ? `jcfd_openMuniOnlyWatchlistViewModal(${JSON.stringify(w.trn)})`
+        : `jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})`;
       return `<tr>
         <td>${acctEscapeHtml(w.fullName)}</td>
         <td>${acctEscapeHtml(w.type)}</td>
         <td>${acctEscapeHtml(formatTrnDisplayJcfd(w.trn))}</td>
         <td>${acctEscapeHtml(w.flaggedDate || '')}<div class="record-sub">by ${acctEscapeHtml(w.flaggedBy || '')}</div></td>
-        <td>${w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>'}</td>
+        <td>${w._muniOnly ? '<span class="badge badge-gray">Not on JCF list</span>' : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>')}</td>
         <td>${muniCell}</td>
-        <td><button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})'>View file</button></td>
+        <td><button class="btn btn-sm" onclick='${viewOnclick}'>View file</button></td>
       </tr>`;
     }));
     body.innerHTML = rows.join('');
   }
   window.jcfd_renderWatchlist = jcfd_renderWatchlist;
+
+  // Read-only view for a TRN that only appears on the Municipal
+  // Corporation's watchlist (no JCF Watch List record exists for it yet) —
+  // mirrors the Municipal officer's own openJcfOnlyWatchlistViewModal() in
+  // the other direction. Nothing for a JCF officer to clear/reactivate here
+  // since it isn't their flag — same reasoning as that mirror function.
+  async function jcfd_openMuniOnlyWatchlistViewModal(trn){
+    document.getElementById('jcfd_watchlistViewModal').classList.remove('hidden');
+    document.getElementById('jcfd_watchlistViewTitle').innerHTML = window.atdLoadingHtml('Loading…', 16);
+    document.getElementById('jcfd_watchlistViewSub').textContent = '';
+    document.getElementById('jcfd_watchlistViewBody').innerHTML = '';
+    document.getElementById('jcfd_watchlistViewActions').innerHTML = '';
+    const w = await jcfd_muniFlagForTrn(trn);
+    if(!w){
+      document.getElementById('jcfd_watchlistViewTitle').textContent = 'Not found';
+      document.getElementById('jcfd_watchlistViewBody').innerHTML = '<div class="readback-row">This entry could not be loaded.</div>';
+      return;
+    }
+    if(window.atdLogAudit && jcfdCurrentUser){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'watchlist.viewed',
+        details: `Viewed Municipal Corporation watchlist entry for ${w.fullName} (${formatTrnDisplayJcfd(w.trn)}).`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
+    document.getElementById('jcfd_watchlistViewTitle').textContent = w.fullName;
+    document.getElementById('jcfd_watchlistViewSub').textContent = 'Active flag — Municipal Corporation Watch List';
+    const rows = [
+      ['Full name', w.fullName],
+      ['TRN', formatTrnDisplayJcfd(w.trn)],
+      ['Reason', w.reason],
+      ['Flagged by', w.flaggedBy],
+      ['Flagged date', w.flaggedDate]
+    ];
+    document.getElementById('jcfd_watchlistViewBody').innerHTML = rows.map(([label,value]) => `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(String(value||''))}</div></div>`).join('');
+  }
+  window.jcfd_openMuniOnlyWatchlistViewModal = jcfd_openMuniOnlyWatchlistViewModal;
 
   function jcfd_openWatchlistAddModal(prefill){
     if(!jcfd_hasPerm('watchlist')){
@@ -13209,7 +13848,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // page the Municipal side uses, keyed off jcfdActiveAppKey (the exact
       // storage key this record lives under — right regardless of whether
       // that's the linked poaAppNumber or this filing's own jcfAppNumber).
-      qrData: `https://atendifyapp.com/verify/${(jcfdActiveAppKey || '').replace('jcfApplication:', '')}`
+      qrData: window.atdVerifyUrl((jcfdActiveAppKey || '').replace('jcfApplication:', ''))
     };
 
     await jcfd_saveActiveApp(rec);
@@ -13228,7 +13867,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // NOTE: this is a generic, neutral shield/badge icon — not a reproduction
   // of the actual Jamaica Constabulary Force coat of arms. Real government
   // insignia is intentionally not replicated here.
-  const JCFD_CREST_SVG = '<svg width="40" height="40" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block; margin:0 auto 3px;"><path d="M22 2 L40 8 V20 C40 30 33 38 22 42 C11 38 4 30 4 20 V8 Z" fill="#0a2f5c" stroke="#c9a227" stroke-width="1.5"/><path d="M22 6 L36 11 V20 C36 28 30 34.5 22 38 C14 34.5 8 28 8 20 V11 Z" fill="none" stroke="#c9a227" stroke-width="1"/><path d="M22 14 L25.5 21 H18.5 Z" fill="#c9a227"/><circle cx="22" cy="26" r="3.5" fill="none" stroke="#c9a227" stroke-width="1.2"/></svg>';
+  const JCFD_CREST_SVG = '<svg width="72" height="72" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block; margin:0 auto 2px;"><path d="M22 2 L40 8 V20 C40 30 33 38 22 42 C11 38 4 30 4 20 V8 Z" fill="#0a2f5c" stroke="#c9a227" stroke-width="1.5"/><path d="M22 6 L36 11 V20 C36 28 30 34.5 22 38 C14 34.5 8 28 8 20 V11 Z" fill="none" stroke="#c9a227" stroke-width="1"/><path d="M22 14 L25.5 21 H18.5 Z" fill="#c9a227"/><circle cx="22" cy="26" r="3.5" fill="none" stroke="#c9a227" stroke-width="1.2"/></svg>';
 
   function jcfd_formatLongDate(isoDate){
     if(!isoDate) return 'N/A';
@@ -13254,7 +13893,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
-            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:40px; width:auto; object-fit:contain; display:block; margin:0 auto 3px;">` : JCFD_CREST_SVG}
+            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
             <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
@@ -13643,6 +14282,15 @@ window.poa_applyPromoCode = poa_applyPromoCode;
 
 function showMuniSelect(){
   document.getElementById('poa_infoPage').classList.add('hidden');
+  // Same reasoning as startApplication()'s own fix just below: this tab
+  // could be showing the Main Menu (opened moments earlier, or silently
+  // restored by poa_tryRestoreMainMenu()) or the wizard itself (an
+  // applicant backing out of an in-progress application to start a
+  // different one) when this is reached — hide both explicitly rather than
+  // trusting whatever this tab happened to be showing before.
+  document.getElementById('trackPage').classList.add('hidden');
+  document.getElementById('mainMenuPage').classList.add('hidden');
+  document.getElementById('poa_applicationFlow').classList.add('hidden');
   document.getElementById('muniSelectPage').classList.remove('hidden');
   window.scrollTo({top:0, behavior:'smooth'});
   // Refresh from the shared registry every time an applicant reaches this
@@ -13690,6 +14338,25 @@ async function confirmMuniSelect(){
 async function startApplication(){
   document.getElementById('muniSelectPage').classList.add('hidden');
   document.getElementById('poa_infoPage').classList.add('hidden');
+  // Fix: this used to leave trackPage/mainMenuPage exactly as they were,
+  // which was fine for the ONLY caller this originally had (confirmMuniSelect(),
+  // reached from poa_infoPage/muniSelectPage, where neither could possibly
+  // be showing yet). poa_resumeDraft() later started calling this too —
+  // and a logged-in applicant reaches "Resume application" from their
+  // Dashboard regardless of what this same tab was last showing, which can
+  // easily be another application's Main Menu (opened moments earlier, or
+  // silently restored on this exact page load by poa_tryRestoreMainMenu()'s
+  // own refresh-survival marker in sessionStorage). Without this, the two
+  // views stacked on the same page at once — the wizard's current step
+  // showing right above a stale Main Menu (tracking-code banner, payment
+  // stepper and all) for a completely different application — confirmed
+  // live from a user report showing exactly that. openMainMenu() already
+  // hides poa_applicationFlow when it takes over; this is the missing other
+  // half, so starting or resuming an application always fully replaces
+  // whatever this tab was showing before, the same way every other
+  // view-switch in this wizard already does.
+  document.getElementById('trackPage').classList.add('hidden');
+  document.getElementById('mainMenuPage').classList.add('hidden');
   document.getElementById('poa_applicationFlow').classList.remove('hidden');
   document.getElementById('stepHeaderMuni').textContent = selectedMunicipality ? selectedMunicipality.name : '—';
   // Step 3's advertisement-approval disclaimer used to hardcode "the St.
@@ -13862,7 +14529,20 @@ function poa_fieldIsVisible(el){
 }
 
 function poa_fieldHasValue(f){
-  if(f.kind === 'file') return fileHasValue(f.id);
+  if(f.kind === 'file'){
+    // Photo ID is the one file field a logged-in applicant can satisfy
+    // without a fresh upload — an ID already on file in their profile is
+    // auto-carried over (see poa_applyProfileAutofill/
+    // poa_profileAutofillPhotoData) rather than re-put into the actual
+    // <input type="file"> element. fileHasValue() alone only checks that
+    // raw input, so whenever a municipality marks "Photo ID upload" as
+    // required (platform:formFieldConfig), this gate used to block "Save
+    // and Continue" for exactly the applicants this handoff was meant to
+    // help — the same gap already fixed in buildApplicationRecord()'s own
+    // `documents.photoId` and the Review page's own idHasFile check.
+    if(f.id === 'filePhotoId') return fileHasValue(f.id) || !!poa_profileAutofillPhotoData;
+    return fileHasValue(f.id);
+  }
   if(f.kind === 'radio') return !!document.querySelector(`input[name="${f.name}"]:checked`);
   const el = document.getElementById(f.id);
   return !!(el && el.value && el.value.trim());
@@ -13875,7 +14555,24 @@ function poa_findMissingRequiredField(stepNum, cfg){
   const checks = POA_FIELD_CHECKS[stepNum] || [];
   for(const f of checks){
     if(!cfg.poa[f.key]) continue; // not marked required by the admin
-    const visEl = document.getElementById(f.kind === 'radio' ? f.visId : f.id);
+    // Every file upload (Photo ID, Company Logo, Event Flier, Proof of
+    // Ownership) is a real <input type="file"> that is ALWAYS display:none
+    // by design — the visible control is the styled ".upload-row" div
+    // around it (see the dropzone markup: the row's own onclick proxies to
+    // the hidden input's .click()). Checking the input's own offsetParent
+    // for visibility therefore always came back null, whether or not its
+    // surrounding step/section was actually shown to the applicant — so
+    // marking any of these four uploads "required" in Admin > Application
+    // Forms silently did nothing: this check always treated the field as
+    // "not currently visible" and skipped it, letting every applicant
+    // continue with no upload at all. The row's own offsetParent correctly
+    // reflects the real, conditionally-toggled visibility (e.g.
+    // photoIdUploadGroup/companyLogoGroup for Individual vs Company) since
+    // only the input itself carries the permanent display:none, never its
+    // wrapping row.
+    const visEl = f.kind === 'radio' ? document.getElementById(f.visId)
+      : f.kind === 'file' ? document.getElementById(f.id)?.parentElement
+      : document.getElementById(f.id);
     if(!poa_fieldIsVisible(visEl)) continue; // hidden/disabled right now — not applicable
     if(!poa_fieldHasValue(f)) return f.label;
   }
@@ -14005,6 +14702,42 @@ function poa_formatTrnValue(digits){
   if(digits.length <= 6) return digits.slice(0,3) + '-' + digits.slice(3);
   return digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6);
 }
+
+// Reported as "typing lag" / "the words are lagging behind how it is being
+// typed" — what was actually happening: every formatter below rewrote the
+// input's ENTIRE value on every keystroke (el.value = ...), and assigning
+// .value always snaps the caret to the very end of the new string. So on
+// every single character typed into the TRN/phone fields, the cursor got
+// silently kicked to the end regardless of where the applicant was actually
+// typing — backspacing or correcting a digit in the middle felt exactly
+// like the display falling behind their keystrokes, especially typing at
+// normal speed. This helper reformats the same way but recomputes and
+// restores the caret position afterward, by counting how many digits sat
+// before the caret pre-format and walking the newly-formatted string to the
+// same digit count — so the caret stays put relative to the digits around
+// it instead of jumping to the end every time.
+function poa_reformatPreservingCaret(el, formatFn){
+  const caretWasAtEnd = el.selectionStart === el.value.length;
+  const digitsBeforeCaret = el.value.slice(0, el.selectionStart == null ? el.value.length : el.selectionStart).replace(/\D/g, '').length;
+  const digits = el.value.replace(/\D/g, '');
+  el.value = formatFn(digits);
+  if(caretWasAtEnd){
+    // Typing at the end (the overwhelmingly common case) — leave the
+    // browser's own end-of-value caret placement alone, no extra work.
+    return;
+  }
+  let seen = 0, pos = el.value.length;
+  if(digitsBeforeCaret === 0){
+    pos = 0;
+  } else {
+    for(let i = 0; i < el.value.length; i++){
+      if(/\d/.test(el.value[i])) seen++;
+      if(seen === digitsBeforeCaret){ pos = i + 1; break; }
+    }
+  }
+  el.setSelectionRange(pos, pos);
+}
+
 function poa_attachTrnFormatter(id){
   const el = document.getElementById(id);
   if(!el) return;
@@ -14012,8 +14745,7 @@ function poa_attachTrnFormatter(id){
   el.setAttribute('maxlength', '11');
   el.setAttribute('inputmode', 'numeric');
   el.addEventListener('input', ()=>{
-    const digits = el.value.replace(/\D/g, '');
-    el.value = poa_formatTrnValue(digits);
+    poa_reformatPreservingCaret(el, poa_formatTrnValue);
   });
 }
 
@@ -14031,8 +14763,7 @@ function poa_attachPhoneFormatter(id){
   el.setAttribute('maxlength', '14');
   el.setAttribute('inputmode', 'tel');
   el.addEventListener('input', ()=>{
-    const digits = el.value.replace(/\D/g, '');
-    el.value = poa_formatPhoneValue(digits);
+    poa_reformatPreservingCaret(el, poa_formatPhoneValue);
   });
 }
 
@@ -14426,6 +15157,18 @@ async function loadMunicipalityVenues(){
       fetched.forEach(v => { if(v && v.muniId === selectedMunicipality.id) dbVenues.push(v); });
     }
   } catch(err){ return; }
+
+  // A venue an applicant manually entered on some earlier application is
+  // pre-loaded here as a pending entry (see submitApp()'s best-effort block)
+  // so the municipality can review it, but it isn't a real, vetted venue
+  // yet — nobody else should be able to pick it off this list until a
+  // reviewing officer accepts it (see the Venues page's "Venues Pending
+  // Review" panel). The real backend's atd_public_venues (Fix #36,
+  // backend/fix36_public_venues_exclude_pending.sql) already excludes these
+  // server-side; this client-side filter is the same rule applied to the
+  // local-storage-shim fallback path above, which has no such filter of its
+  // own to rely on.
+  dbVenues = dbVenues.filter(v => !v.pendingApproval && !v.rejected);
 
   dbVenues.forEach(v=>{
     const option = document.createElement('option');
@@ -15066,8 +15809,19 @@ async function buildApplicationRecord(appNumber){
     });
   }
 
+  // photoId: a logged-in applicant's ID already on file in their profile is
+  // auto-carried over (see poa_applyProfileAutofill/poa_profileAutofillPhotoData)
+  // rather than re-put into the actual <input type="file"> element, so
+  // fileHasValue('filePhotoId') alone missed it — this `documents` object is
+  // what the Municipal officer's own "Uploaded Documents" card reads
+  // (r.documents.photoId, see muni_ renderApplicantDocuments/openApplicantFileModal)
+  // to decide "Submitted" vs "Not Uploaded", so an autofilled ID was actually
+  // saved (see photoIdFileData below and applicationPhotoId:<appNumber>) but
+  // still showed as never uploaded on the officer's side. The Review page's
+  // own idHasFile check a few lines up already accounted for this same case;
+  // this is the one spot that hadn't.
   const documents = {
-    photoId: isCompany ? null : fileHasValue('filePhotoId'),
+    photoId: isCompany ? null : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData),
     logo: isCompany ? fileHasValue('fileLogo') : null,
     flier: fileHasValue('fileFlier'),
     ownership: fileHasValue('fileOwnership')
@@ -15294,6 +16048,20 @@ async function buildApplicationRecord(appNumber){
       promoDiscount: c.promoDiscountAmount,
       promotionId: c.promotionId
     },
+    // A manually-entered venue (c.venueIsNew) isn't a real registered venue
+    // yet — it gets pre-loaded into the municipality's venue database as a
+    // pending entry right after this record is saved (see submitApp()'s
+    // best-effort block below), and a reviewing officer accepts or rejects
+    // it from the Venues page's "Venues Pending Review" panel. The id is
+    // generated here (not after that write) so it can be embedded in THIS
+    // same record up front — the submitted application and its pending
+    // venue entry stay linked from the moment either one exists, with no
+    // second write back to this record needed just to attach the link
+    // afterward. Left '' for a database-picked venue, which never goes
+    // through this review at all.
+    venueRegistryStatus: c.venueIsNew ? 'pending' : '',
+    venueRegistryVenueId: c.venueIsNew ? `venue-${Date.now()}-${Math.floor(Math.random()*100000)}` : '',
+    venueRegistryRejectReason: '',
     // SLA-pipeline timestamps (see the "Review Turnaround (SLA)" settings and
     // the notification bell): each is set the moment its triggering action
     // happens (payment submission, payment verification, venue-inspection
@@ -15438,39 +16206,23 @@ async function submitApp(){
   try{
     const trn = poa_normalizeTrn(poa_val('trn'));
     if(trn){
-      try{
-        const watchResult = await window.storage.get(`watchlist:${trn}`, true);
-        if(watchResult && watchResult.value){
-          const watchRecord = JSON.parse(watchResult.value);
-          if(watchRecord.status === 'Active'){
-            errorBox.textContent = 'This Taxpayer Registration Number is currently flagged and cannot be used to submit a new application. Please contact the municipality for more information.';
-            errorBox.classList.remove('hidden');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit application';
-            return;
-          }
+      // Checks BOTH the Municipal and JCF watch lists (window.atdCheckWatchlistFlag,
+      // shared shim) — a JCF flag blocks submission the same way even when the
+      // Municipal Corporation itself has never separately flagged this TRN.
+      const flag = await window.atdCheckWatchlistFlag(trn);
+      if(flag){
+        errorBox.textContent = window.atdWatchlistRejectionMessage('Applicant', flag);
+        errorBox.classList.remove('hidden');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit application';
+        const applicantEmail = poa_val('email');
+        if(applicantEmail){
+          window.atdSendEmail('application_watchlist_rejected', applicantEmail, {
+            appNumber: '', applicantName: poa_val('fullName'), role: 'Applicant',
+            flaggedName: flag.fullName, agencyName: flag.agencyName
+          });
         }
-      } catch(watchErr){
-        // no watchlist record found for this TRN — safe to continue
-      }
-      // A JCF flag overrides a non-flagged Municipal Corporation status —
-      // block submission the same way even when the Municipal Corporation
-      // itself has never separately flagged this TRN (shared `jcfWatchlist:`
-      // key — same convention the JCF officer dashboard writes to).
-      try{
-        const jcfWatchResult = await window.storage.get(`jcfWatchlist:${trn}`, true);
-        if(jcfWatchResult && jcfWatchResult.value){
-          const jcfWatchRecord = JSON.parse(jcfWatchResult.value);
-          if(jcfWatchRecord.status === 'Active'){
-            errorBox.textContent = 'This Taxpayer Registration Number is currently flagged by the JCF Noise Abatement Division and cannot be used to submit a new application. Please contact the municipality for more information.';
-            errorBox.classList.remove('hidden');
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Submit application';
-            return;
-          }
-        }
-      } catch(jcfWatchErr){
-        // no JCF watchlist record found for this TRN — safe to continue
+        return;
       }
     }
 
@@ -15572,6 +16324,65 @@ async function submitApp(){
         appNumber);
     }
 
+    // Best-effort: pre-load a manually-entered venue into the municipality's
+    // venue database as a pending entry (see buildApplicationRecord's
+    // venueRegistryVenueId note above). If this fails, the application is
+    // still submitted successfully — the venue just won't show up on the
+    // Venues page's "Venues Pending Review" panel until someone notices and
+    // adds it by hand, same fallback the photo ID/flier/logo/ownership
+    // uploads below already accept.
+    if(record.costs && record.costs.venueIsNew && record.venue && record.venue.name && record.venueRegistryVenueId){
+      try{
+        const pendingVenueDetail = {
+          id: record.venueRegistryVenueId,
+          muniNumber: record.muniId,
+          sourceAppNumber: appNumber,
+          name: record.venue.name,
+          addr1: record.venue.addr1,
+          addr2: record.venue.addr2,
+          district: record.venue.district,
+          maxCap: record.venue.maxCap,
+          maxParking: record.venue.maxParking,
+          ownerName: record.venue.ownerName,
+          ownerAddress: record.venue.ownerAddress,
+          ownerPhone: record.venue.ownerPhone
+        };
+        if(window.ATDBackend && window.ATDBackend.isConfigured()){
+          await window.ATDBackend.submitPendingVenue(pendingVenueDetail);
+        } else if(window.storage){
+          await window.storage.set(`venue:${record.venueRegistryVenueId}`, JSON.stringify({
+            id: record.venueRegistryVenueId,
+            muniId: record.muniId,
+            name: record.venue.name,
+            streetNumber: '',
+            streetName: [record.venue.addr1, record.venue.addr2].filter(Boolean).join(', '),
+            district: record.venue.district || '',
+            cost: 0,
+            maxCap: parseInt(record.venue.maxCap, 10) || 0,
+            maxParking: parseInt(record.venue.maxParking, 10) || 0,
+            ownerName: record.venue.ownerName || '',
+            ownerAddress: record.venue.ownerAddress || '',
+            ownerPhone: record.venue.ownerPhone || '',
+            active: false,
+            flagged: false,
+            flagReason: '',
+            pendingApproval: true,
+            rejected: false,
+            sourceAppNumber: appNumber,
+            createdBy: `Applicant (via ${appNumber})`,
+            created: new Date().toISOString().slice(0, 10)
+          }), true);
+        }
+        if(record.muniId != null){
+          window.atdNotify(record.muniId, 'manageVenues', 'venue_pending_review',
+            `New venue "${record.venue.name}" submitted on ${appNumber} needs review before it can be added to the venue database.`,
+            appNumber);
+        }
+      } catch(venueErr){
+        // non-critical — ignore, see comment above
+      }
+    }
+
     if(record.applicant && record.applicant.email){
       window.atdSendEmail('application_submitted', record.applicant.email, {
         appNumber,
@@ -15664,7 +16475,22 @@ async function poa_refreshLinkedJcfApp(){
 
 async function poa_refreshMuniSettings(){
   currentMuniSettings = null;
-  if(!window.storage || !currentAppRecord || !currentAppRecord.muniId) return;
+  if(!currentAppRecord || !currentAppRecord.muniId) return;
+  // An applicant (anonymous guest or signed-in poa account) has no RLS grant
+  // to read the 'municipality:{muniId}:settings' row directly — see Fix #40
+  // — so go through the public RPC first, which is the only way this ever
+  // resolves to anything but null on the deployed backend. The plain
+  // window.storage.get() below stays only as a fallback for the local-
+  // storage-shim test/demo harness (no real backend configured, no RLS to
+  // work around), and as a last resort if the RPC call itself throws.
+  if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.publicMuniPaymentTiming){
+    try{
+      const allowDeferred = await window.ATDBackend.publicMuniPaymentTiming(currentAppRecord.muniId);
+      currentMuniSettings = { allowDeferredMunicipalPayment: !!allowDeferred };
+      return;
+    } catch(err){ /* fall through to the plain read below */ }
+  }
+  if(!window.storage) return;
   try{
     const result = await window.storage.get(`municipality:${currentAppRecord.muniId}:settings`, true);
     if(result && result.value) currentMuniSettings = JSON.parse(result.value);
@@ -15690,6 +16516,37 @@ function showTrackApplication(){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
+// Shared by submitTrackApplication() (a person typing in their app number +
+// tracking code) and poa_tryRestoreMainMenu() (silently re-doing the exact
+// same lookup after a page refresh — see that function below) — pulled out
+// so the RLS-safe lookup path only has to be gotten right in one place.
+// Throws on "not found" / tracking code mismatch; returns the record on
+// success. See the original inline comment (kept below) for why this can't
+// just be a plain window.storage.get() once a real backend is configured.
+async function poa_lookupTrackedApplication(appNumber, code){
+  if(!window.storage) throw new Error('storage unavailable');
+  // A plain window.storage.get() here would hit the exact same RLS wall
+  // guest submission did (see phase1b_migration.sql Fix #18): there is no
+  // SELECT policy letting an anonymous caller read an 'application' row it
+  // doesn't own, and RLS has no way to check "did they also supply the
+  // right tracking code" on its own. Where a real backend is configured,
+  // go through the matching SECURITY DEFINER function instead, which
+  // checks both values together server-side. The plain get() is kept as
+  // the fallback for the local-only preview environment, which has no RLS
+  // (and no rpc()) to begin with.
+  const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
+  if(usingRealAuth){
+    const record = await window.ATDBackend.trackApplication(appNumber, code);
+    if(!record) throw new Error('not found');
+    return record;
+  }
+  const result = await window.storage.get(`application:${appNumber}`, true);
+  if(!result || !result.value) throw new Error('not found');
+  const record = JSON.parse(result.value);
+  if(record.trackingCode !== code) throw new Error('tracking code mismatch');
+  return record;
+}
+
 async function submitTrackApplication(){
   const appNumber = document.getElementById('trackAppNumber').value.trim();
   const code = document.getElementById('trackCode').value.trim();
@@ -15711,37 +16568,12 @@ async function submitTrackApplication(){
   btn.disabled = true;
   btn.textContent = 'Looking up…';
   try{
-    // A plain window.storage.get() here would hit the exact same RLS wall
-    // guest submission did (see phase1b_migration.sql Fix #18): there is no
-    // SELECT policy letting an anonymous caller read an 'application' row it
-    // doesn't own, and RLS has no way to check "did they also supply the
-    // right tracking code" on its own. Where a real backend is configured,
-    // go through the matching SECURITY DEFINER function instead, which
-    // checks both values together server-side. The plain get() is kept as
-    // the fallback for the local-only preview environment, which has no RLS
-    // (and no rpc()) to begin with.
-    const usingRealAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured());
-    let record = null;
-    if(usingRealAuth){
-      record = await window.ATDBackend.trackApplication(appNumber, code);
-      if(!record){
-        throw new Error('not found');
-      }
-    } else {
-      const result = await window.storage.get(`application:${appNumber}`, true);
-      if(!result || !result.value){
-        throw new Error('not found');
-      }
-      record = JSON.parse(result.value);
-      if(record.trackingCode !== code){
-        errorBox.textContent = 'That tracking code does not match this application number.';
-        errorBox.classList.remove('hidden');
-        return;
-      }
-    }
+    const record = await poa_lookupTrackedApplication(appNumber, code);
     openMainMenu(record, `application:${appNumber}`);
   } catch(err){
-    errorBox.textContent = 'We could not find an application with that number and tracking code.';
+    errorBox.textContent = err && err.message === 'tracking code mismatch'
+      ? 'That tracking code does not match this application number.'
+      : 'We could not find an application with that number and tracking code.';
     errorBox.classList.remove('hidden');
   } finally{
     btn.disabled = false;
@@ -15749,9 +16581,53 @@ async function submitTrackApplication(){
   }
 }
 
+// Called on every fresh page load (see poa_tryRestoreMainMenu below) as well
+// as whenever a real lookup succeeds — a plain refresh used to always lose
+// this in-memory record and drop the visitor straight back to the public
+// landing page, even mid-application, because nothing persisted which
+// application they were looking at. Re-saving the same {appNumber,
+// trackingCode} pair here on every call is what makes that restore possible
+// without a separate "remember this" call at every entry point (guest
+// tracking, and a signed-in applicant's "View" from their account
+// dashboard — see acct_viewApplication — both funnel through here).
+function poa_rememberMainMenuForRefresh(record){
+  try{
+    sessionStorage.setItem('atdMainMenuRestore', JSON.stringify({
+      appNumber: record.appNumber, trackingCode: record.trackingCode
+    }));
+  }catch(e){
+    // Private-browsing mode, storage disabled, quota — refresh just won't
+    // restore. Never let this block opening the Main Menu itself.
+  }
+}
+
+// Companion to the staff-portal session restore below (see
+// atdBootstrapSessionRestore) — same idea, applied to a visitor sitting on
+// the Main Menu (guest tracking-code flow, or a signed-in applicant's own
+// application) instead of a logged-in officer. Returns true if it
+// successfully re-opened the Main Menu, false if there was nothing to
+// restore (or the lookup no longer succeeds — e.g. the tracking code was
+// somehow invalidated), in which case the normal public landing page falls
+// through exactly as before this existed.
+async function poa_tryRestoreMainMenu(){
+  let saved = null;
+  try{ saved = JSON.parse(sessionStorage.getItem('atdMainMenuRestore') || 'null'); }catch(e){}
+  if(!saved || !saved.appNumber || !saved.trackingCode) return false;
+  try{
+    const record = await poa_lookupTrackedApplication(saved.appNumber, saved.trackingCode);
+    openMainMenu(record, `application:${saved.appNumber}`);
+    return true;
+  }catch(e){
+    try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e2){}
+    return false;
+  }
+}
+window.poa_tryRestoreMainMenu = poa_tryRestoreMainMenu;
+
 function openMainMenu(record, storageKey){
   currentAppRecord = record;
   currentAppKey = storageKey || `application:${record.appNumber}`;
+  poa_rememberMainMenuForRefresh(record);
 
   ['poa_infoPage','muniSelectPage','trackPage'].forEach(id=>{
     document.getElementById(id).classList.add('hidden');
@@ -15773,6 +16649,17 @@ function openMainMenu(record, storageKey){
 
   mmGoView('payment');
   window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// Lights the small red dot on the "Upload Documents" nav item whenever any
+// regulatory document currently sits Rejected — the applicant otherwise has
+// no way to notice a rejection without clicking into that tab first.
+function mmUpdateDocsNavDot(){
+  const dot = document.getElementById('mmDocsNavDot');
+  if(!dot || !currentAppRecord) return;
+  const docs = currentAppRecord.regulatoryDocuments || {};
+  const anyRejected = Object.keys(docs).some(name => docs[name] && docs[name].status === 'Rejected');
+  dot.classList.toggle('hidden', !anyRejected);
 }
 
 async function mmRefreshRecord(){
@@ -15825,7 +16712,17 @@ async function mmGoView(view){
     await Promise.all([poa_refreshLinkedJcfApp(), poa_refreshMuniSettings()]);
   }
 
-  if(view === 'summary' || view === 'permit' || view === 'payment'){
+  // Fix: this used to only refresh currentAppRecord (the actual source of
+  // regulatoryDocuments' statuses) for summary/permit/payment — NOT for
+  // documents or noise, even though those two are exactly the views that
+  // display a document's Rejected state. An applicant who logged in and
+  // went straight to "Upload Documents" (without first visiting one of the
+  // other three tabs) would see whatever stale copy of the record was
+  // loaded when the Main Menu first opened, so a document an officer had
+  // since rejected would silently still show as if nothing had happened
+  // until they happened to visit another tab first. Documents and noise now
+  // refresh the same way.
+  if(view === 'summary' || view === 'documents' || view === 'permit' || view === 'payment' || view === 'noise'){
     await mmRefreshRecord();
     const poa_statusBadge = document.getElementById('mmStatusBadge');
     poa_statusBadge.textContent = currentAppRecord.status || 'Submitted';
@@ -15839,6 +16736,7 @@ async function mmGoView(view){
     const hasEitherPermit = !!(currentAppRecord.permitGenerated) ||
       !!(currentLinkedJcfApp && currentLinkedJcfApp.permitGenerated);
     document.getElementById('mmPermitNav').disabled = !hasEitherPermit;
+    mmUpdateDocsNavDot();
   }
 
   // Blur/lock every other section until the Application Fee has been paid
@@ -16374,6 +17272,7 @@ async function openJcfForm(){
     muniId: r.muniId,
     municipalityName: r.municipalityName,
     applicantName: r.applicant.name,
+    applicantEmail: r.applicant.email || '',
     applicantPhone: r.applicant.phone,
     applicantTrn: r.applicant.trn,
     applicantAddr1: r.applicant.addr1 || '',
@@ -16465,11 +17364,23 @@ function renderMmSummary(){
   (r.venue.additionalParking || []).forEach(p=>{
     html += mmDetailRow(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + poa_formatCurrency(p.cost) : ''}`);
   });
+  // This venue was typed in manually rather than picked from the
+  // municipality's own registered venues, so it isn't a real registered
+  // venue yet — the municipality reviews it (see the Municipal officer
+  // portal's Venues Pending Review panel) and either adds it to their venue
+  // database (at which point its own venue cost is billed separately, on
+  // top of the flat Venue Inspection Fee already paid below) or rejects it.
+  if(r.costs && r.costs.venueIsNew){
+    const registryLabel = r.venueRegistryStatus === 'accepted' ? 'Accepted — added to the venue database'
+      : r.venueRegistryStatus === 'rejected' ? `Not added${r.venueRegistryRejectReason ? ' — ' + r.venueRegistryRejectReason : ''}`
+      : 'Pending municipality review';
+    html += mmDetailRow('Venue database status', registryLabel);
+  }
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Application Costs</div>`;
   html += `<div class="review-row"><div class="rr-label">Application fee</div><div class="rr-value">${poa_formatCurrency(r.costs.applicationFee)}${r.applicationFeePaid ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>' : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>'}</div></div>`;
-  html += mmDetailRow('Venue cost', poa_formatCurrency(r.costs.venueCost));
+  html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost));
   html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
   // Municipal portion (everything except the Atendify application fee) gets
   // its own Paid/Unpaid tag too, same treatment as the Atendify fee above —
@@ -16613,7 +17524,7 @@ async function printPaymentAdvice(previewRecord){
 
       <div class="doc-breakdown-title">Payment Breakdown</div>
       <div class="doc-breakdown-row" style="color:#666;"><span>Service Fee (paid online to Atendify — not due at cashier):</span><span>${poa_formatCurrency(r.costs.applicationFee)}</span></div>
-      <div class="doc-breakdown-row"><span>License Fee:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
+      <div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
       <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>
       <div class="doc-breakdown-row total"><span>TOTAL DUE AT ${poa_escapeHtml((r.municipalityName || 'MUNICIPAL CORPORATION').toUpperCase())}:</span><span>${poa_formatCurrency(r.costs.total - (r.costs.applicationFee || 0))}</span></div>
     </div>
@@ -16626,6 +17537,46 @@ async function fetchMuniSignature(muniId){
   if(!window.storage || !muniId) return null;
   try{
     const result = await window.storage.get(`municipality:${muniId}:signature`, true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
+  }
+}
+
+// JCF-side equivalent of fetchMuniSignature above, for rendering the SAME
+// jcfd_buildPermitDocHtml() permit on the applicant's own Main Menu. The
+// signature is stored under `jcfBranch:{branchId}:signature` (see the JCF
+// Officer Portal's own jcfd_renderApplicationDetail()), keyed by the
+// Division's numeric agency id — but the jcfApplication record itself never
+// stores that id directly (only p.parish, e.g. "St. James", stamped onto the
+// permit at approval time). The 'agency' prefix is already fully publicly
+// readable (see supabase_schema.sql — the same directory the JCF login page
+// uses to list divisions before anyone signs in), so the Division's id is
+// found by matching a JCF-type, Active agency on that same parish.
+async function fetchJcfSignature(parish){
+  if(!window.storage || !parish) return null;
+  try{
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    const branch = agencies.find(a => a.type === 'JCF' && a.parish === parish);
+    if(!branch) return null;
+    const result = await window.storage.get(`jcfBranch:${branch.id}:signature`, true);
+    return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
+  } catch(err){
+    return null;
+  }
+}
+
+// `platform:jcfCrest` is admin-only under current RLS — the JCF Officer
+// Portal's own read of it (jcfdCachedCrest) silently comes back empty for
+// the same reason, so every JCF permit (Chief's own account included) falls
+// back to jcfd_buildPermitDocHtml's generic shield icon today. This mirrors
+// that same best-effort attempt so the applicant's copy stays in lockstep —
+// if a future policy ever exposes this key, both views pick up the real
+// crest with no further change needed here.
+async function fetchJcfCrest(){
+  if(!window.storage) return null;
+  try{
+    const result = await window.storage.get('platform:jcfCrest', true);
     return (result && result.value) ? JSON.parse(result.value).fileData || null : null;
   } catch(err){
     return null;
@@ -16899,8 +17850,8 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
-          : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">LOGO OF MC</div>`}
+          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
@@ -16940,46 +17891,21 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   `;
 }
 
-// The JCF Noise Abatement Permit is a completely separate document from
-// the Municipal Corporation's Places of Amusement permit above — issued by
-// the JCF Division (see jcfd_approve() in the JCF Officer Portal's own
-// script scope), not the municipality, and carrying a much smaller record
-// shape ({number, permitTypeLabel, issuedDate, expiresDate} — no venue,
-// applicant address, or signature data the way the municipal permit has).
-// Reuses the same .permit-doc/.permit-doc-top/.permit-doc-grid styling for
-// visual consistency rather than a second, divergent template.
-function poa_buildJcfPermitDocHtml(p, appNumber, qrTargetId){
-  qrTargetId = qrTargetId || 'jcfPermitQrTarget';
-  return `
-    <div class="permit-doc">
-      <div class="permit-doc-top">
-        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
-        <div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center;">JCF</div>
-        <div class="permit-doc-qr">
-          <div class="qr-box" id="${qrTargetId}"></div>
-          <div class="qr-scan-label">SCAN ME</div>
-        </div>
-      </div>
-      <div class="permit-doc-muniblock">
-        <div class="permit-doc-muniname">JAMAICA CONSTABULARY FORCE</div>
-      </div>
-      <div class="permit-doc-reg">NOISE ABATEMENT ACT</div>
-      <div class="permit-doc-title-box">NOISE ABATEMENT PERMIT</div>
-
-      <div class="permit-doc-grid">
-        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</div><div class="pdg-label">DATE ISSUED</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(p.number || '')}</div><div class="pdg-label">PERMIT NO.</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(poa_formatLongDate(p.expiresDate))}</div><div class="pdg-label">EVENT DATE</div></div>
-        <div><div class="pdg-value">${poa_escapeHtml(p.permitTypeLabel || 'JCF Noise Abatement Permit')}</div><div class="pdg-label">PERMIT TYPE</div></div>
-      </div>
-
-      <p class="permit-doc-body">This Noise Abatement Permit is granted by the Jamaica Constabulary Force in respect of application <strong>${poa_escapeHtml(appNumber || '')}</strong>, authorizing the noise-generating activity described in that application on the date(s) noted above, subject to the conditions of the Noise Abatement Act.</p>
-
-      <div class="permit-doc-efile">e-File</div>
-    </div>
-  `;
-}
-
+// The JCF Noise Abatement Permit's applicant-facing copy used to be built
+// by a separate, much-simplified renderer here (poa_buildJcfPermitDocHtml),
+// fed only {number, permitTypeLabel, issuedDate, expiresDate} — a shape that
+// matched the JCF Officer Portal's now-dead jcfd_approve() function, not the
+// real approve flow. The button actually wired up in that portal
+// (jcfd_openApproveModal → jcfd_confirmApprove(), see the JCF script scope)
+// stores a much richer rec.permit — divisionName, issuedTo, applicantAddress,
+// eventName, eventDate, expectedPatrons, parish, permitYear, etc. — and
+// renders it with its own jcfd_buildPermitDocHtml(), giving the JCF Chief's
+// account the full permit layout the applicant never saw. Rather than
+// maintain a second, divergent template that has to be kept in sync by hand,
+// the applicant's copy now calls that SAME renderer (exported as
+// window.jcfd_buildPermitDocHtml) directly on the SAME jcfApp.permit data —
+// guaranteed byte-for-byte identical to what the JCF Division itself prints,
+// pulled straight from the application record.
 function poa_renderPermitQr(targetId, data){
   const el = document.getElementById(targetId);
   if(!el || typeof QRCode === 'undefined') return;
@@ -17019,17 +17945,20 @@ async function renderMmPermit(){
       </div>`;
   }
   if(hasJcfPermit){
+    const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
+    const jcfCrest = await fetchJcfCrest();
     html += `
       <h3 style="margin:0 0 10px;">JCF Noise Abatement Permit</h3>
-      ${poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'mmJcfPermitQrTarget')}
+      ${window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'mmJcfPermitQrTarget', jcfCrest)}
       <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
         <button class="btn" onclick="printPermitFromMenu('jcf')">🖨 Print permit</button>
       </div>`;
   }
   body.innerHTML = html;
 
-  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', r.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
-  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+  if(hasMuniPermit) poa_renderPermitQr('mmPermitQrTarget', window.atdVerifyUrl(r.appNumber));
+  if(hasJcfPermit) poa_renderPermitQr('mmJcfPermitQrTarget', window.atdVerifyUrl(r.appNumber));
 }
 
 async function printPermitFromMenu(kind){
@@ -17039,8 +17968,10 @@ async function printPermitFromMenu(kind){
 
   if(kind === 'jcf'){
     if(!jcfApp || !jcfApp.permitGenerated || !jcfApp.permit) return;
-    document.getElementById('printArea').innerHTML = poa_buildJcfPermitDocHtml(jcfApp.permit, r.appNumber, 'printPermitQrTarget');
-    poa_renderPermitQr('printPermitQrTarget', jcfApp.permit.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+    const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
+    const jcfCrest = await fetchJcfCrest();
+    document.getElementById('printArea').innerHTML = window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'printPermitQrTarget', jcfCrest);
+    poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(r.appNumber));
     document.body.classList.add('printing-doc');
     window.print();
     setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
@@ -17052,7 +17983,7 @@ async function printPermitFromMenu(kind){
   const signature = await fetchMuniSignature(r.muniId);
   const logo = await window.fetchMuniLogo(r.muniId);
   document.getElementById('printArea').innerHTML = poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo);
-  poa_renderPermitQr('printPermitQrTarget', p.qrData || `https://atendifyapp.com/verify/${r.appNumber}`);
+  poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(r.appNumber));
   document.body.classList.add('printing-doc');
   window.print();
   setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
@@ -17087,7 +18018,6 @@ window.mmGoView = mmGoView;
 window.openMainMenu = openMainMenu;
 window.poa_getCurrentAppRecord = function(){ return currentAppRecord; };
 window.poa_buildPermitDocHtml = poa_buildPermitDocHtml;
-window.poa_buildJcfPermitDocHtml = poa_buildJcfPermitDocHtml;
 window.poa_renderPermitQr = poa_renderPermitQr;
 window.onApMethodChange = onApMethodChange;
 window.onApplyParishChange = onApplyParishChange;
@@ -17152,10 +18082,19 @@ const DEMO_PASSWORD = 'Password@123';
 // this too; it defaults off for Accountant/Supervisor so a CEO opts a
 // specific staffer into it deliberately, per user, rather than it being on
 // by default for a role that previously had no approval authority at all.
+// manageVenues (added alongside the Venue Registry's Accept/Reject workflow
+// for applicant-suggested venues — see renderPendingVenues()/
+// submitAcceptPendingVenue() below) defaults to the same value as `review`
+// for every role: it's a separate, independently-revocable grant, but a
+// Supervisor/CEO who could already review applications is the natural
+// person to also vet a venue an applicant proposed, so there's no reason to
+// make them start unchecked. Existing staff accounts saved before this
+// permission existed are normalized the same way at login/session-restore
+// time — see muni_enterShellAsUser() below.
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false },
-  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true }
 };
 
 let municipalUsers = [];
@@ -17415,6 +18354,16 @@ muni_initRegistryData();
 })();
 
 function muni_enterShellAsUser(user){
+  // manageVenues was added after some staff accounts were already created —
+  // rather than leaving every existing account's Venues Pending Review
+  // panel silently hidden until a CEO happens to re-open and re-save each
+  // one, default the missing permission to whatever `review` is already set
+  // to (see ROLE_DEFAULTS's comment above for why that's the right default).
+  // Only fills it in when the key is genuinely absent (undefined) — an
+  // account a CEO has already explicitly unchecked it for keeps that choice.
+  if(user && user.permissions && user.permissions.manageVenues === undefined){
+    user.permissions.manageVenues = !!user.permissions.review;
+  }
   currentUser = user;
   document.getElementById('muni_loginScreen').classList.add('hidden');
   document.getElementById('muni_appShell').classList.remove('hidden');
@@ -17681,7 +18630,7 @@ function muni_goPage(page, keepAppsActive){
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
-  if(page === 'venues') renderVenues();
+  if(page === 'venues'){ renderVenues(); renderPendingVenues(); }
   if(page === 'ads') renderAdItems();
   if(page === 'watchlist') renderWatchlist();
   if(page === 'slaBreaches') renderSlaBreaches();
@@ -18341,19 +19290,63 @@ async function loadVenues(){
     const fetchedIds = new Set(fetched.map(v => v.id));
     venues = venues.filter(v => !fetchedIds.has(v.id));
     fetched.forEach(v => venues.push(v));
-    if(!document.getElementById('page-venues').classList.contains('hidden')) renderVenues();
+    if(!document.getElementById('page-venues').classList.contains('hidden')){ renderVenues(); renderPendingVenues(); }
   } catch(err){ /* keep local/seed venues */ }
 }
 
 function venueStatusBadge(v){
+  if(v.rejected) return '<span class="badge badge-red">Rejected</span>';
   if(v.flagged) return '<span class="badge badge-red">Flagged</span>';
   return v.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Inactive</span>';
+}
+
+// A venue an applicant manually typed in on their own application, still
+// awaiting a reviewing officer's Accept/Reject decision — see the "Venues
+// Pending Review" panel above the main registered-venues table. Kept out of
+// myVenues()'s own list below (renderVenues()) until it's actually accepted
+// or rejected, so it never appears half-vetted alongside real registered
+// venues.
+function pendingVenues(){
+  return myVenues().filter(v => v.pendingApproval);
+}
+
+function renderPendingVenues(){
+  const panel = document.getElementById('pendingVenuesPanel');
+  const body = document.getElementById('pendingVenuesBody');
+  if(!panel || !body) return;
+
+  const list = pendingVenues();
+  const canManage = hasPerm('manageVenues');
+  panel.classList.toggle('hidden', !canManage || !list.length);
+  if(!canManage || !list.length) return;
+
+  list.sort((a,b)=> (a.created || '').localeCompare(b.created || ''));
+  body.innerHTML = list.map(v => {
+    const location = [v.streetName, v.district].filter(Boolean).join(', ') || '—';
+    return `
+      <tr>
+        <td class="cell-primary">${muni_escapeHtml(v.name)}</td>
+        <td>${muni_escapeHtml(location)}</td>
+        <td>${v.maxCap || 0}</td>
+        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${JSON.stringify(v.id)})'>Accept</button>
+            <button class="btn btn-sm btn-danger" onclick='openVenueRejectModal(${JSON.stringify(v.id)})'>Reject</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderVenues(){
   const body = document.getElementById('venuesBody');
   const search = document.getElementById('venueSearchInput').value.trim().toLowerCase();
-  let list = myVenues().filter(v => !search || v.name.toLowerCase().includes(search));
+  // Pending entries live in the "Venues Pending Review" panel above, not
+  // here, until a reviewing officer accepts or rejects them — see
+  // pendingVenues()/renderPendingVenues().
+  let list = myVenues().filter(v => !v.pendingApproval).filter(v => !search || v.name.toLowerCase().includes(search));
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
   if(!list.length){
@@ -18584,6 +19577,140 @@ async function unflagVenue(id){
   await persistVenue(v);
   muni_showToast(`${v.name} has been unflagged.`);
   renderVenues();
+}
+
+// ==================== Venues Pending Review (Accept/Reject) ====================
+let acceptingVenueId = null;
+let rejectingVenueId = null;
+
+function openVenueAcceptModal(id){
+  if(!hasPerm('manageVenues')){
+    muni_showToast("You don't have permission to manage the venue database.");
+    return;
+  }
+  const v = pendingVenues().find(v => v.id === id);
+  if(!v) return;
+  acceptingVenueId = id;
+  document.getElementById('venueAcceptModalSub').textContent =
+    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment.`;
+  document.getElementById('venueAcceptCostInput').value = '';
+  document.getElementById('venueAcceptModal').classList.remove('hidden');
+}
+function closeVenueAcceptModal(){
+  document.getElementById('venueAcceptModal').classList.add('hidden');
+  acceptingVenueId = null;
+}
+
+function openVenueRejectModal(id){
+  if(!hasPerm('manageVenues')){
+    muni_showToast("You don't have permission to manage the venue database.");
+    return;
+  }
+  rejectingVenueId = id;
+  document.getElementById('venueRejectReasonInput').value = '';
+  document.getElementById('venueRejectModal').classList.remove('hidden');
+}
+function closeVenueRejectModal(){
+  document.getElementById('venueRejectModal').classList.add('hidden');
+  rejectingVenueId = null;
+}
+
+// Applies a Venue Cost the officer just attached to a newly-accepted venue
+// to the SAME application that suggested it, as an additional payment
+// request — the exact mechanism requestAdditionalPayment() already uses for
+// a manually-typed request, just raised automatically here instead. Shared
+// out of both call sites so the two never drift apart.
+async function chargeVenueCostToApplication(appNumber, venueName, cost){
+  const a = applications.find(x => x.appNumber === appNumber);
+  if(!a) return;
+  if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
+  a.additionalPaymentRequests.push({
+    amount: cost,
+    reason: `Venue Cost — ${venueName} (assessed on acceptance into the venue database)`,
+    status: 'Pending',
+    requestedBy: currentUser.name,
+    requestedDate: new Date().toISOString().slice(0, 10),
+    receiptNumber: '', notes: '',
+    applicantFileName: '', applicantUploadedDate: '',
+    documentedBy: '', documentedDate: ''
+  });
+  await persistIfFromStorage(a);
+  const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+  if(applicantEmail){
+    window.atdNotifyApplicant(applicantEmail, 'additional_payment_requested',
+      `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(cost)} (Venue Cost) for ${a.appNumber}.`, a.appNumber);
+  }
+  if(activeAppId === a.id) renderAppDetail();
+}
+
+async function submitAcceptPendingVenue(){
+  const cost = parseFloat(document.getElementById('venueAcceptCostInput').value);
+  if(!cost || cost <= 0){
+    muni_showToast('Please enter the venue cost — this is required before a pending venue can be accepted.');
+    return;
+  }
+  const v = venues.find(v => v.id === acceptingVenueId);
+  if(!v) return;
+
+  v.cost = cost;
+  v.active = true;
+  v.pendingApproval = false;
+  v.approvedBy = currentUser.name;
+  v.approvedAt = new Date().toISOString();
+  await persistVenue(v);
+
+  if(v.sourceAppNumber){
+    const a = applications.find(x => x.appNumber === v.sourceAppNumber);
+    if(a){
+      a.venueRegistryStatus = 'accepted';
+      await persistIfFromStorage(a);
+    }
+    await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+  }
+
+  muni_showToast(`${v.name} added to your venue database. An additional payment of ${muni_formatCurrency(cost)} has been requested${v.sourceAppNumber ? ' on ' + v.sourceAppNumber : ''}.`);
+  closeVenueAcceptModal();
+  renderVenues();
+  renderPendingVenues();
+  muni_renderAll();
+}
+
+async function submitRejectPendingVenue(){
+  const reason = document.getElementById('venueRejectReasonInput').value.trim();
+  if(!reason){
+    muni_showToast('Please provide a reason for rejecting this venue.');
+    return;
+  }
+  const v = venues.find(v => v.id === rejectingVenueId);
+  if(!v) return;
+
+  v.pendingApproval = false;
+  v.rejected = true;
+  v.rejectReason = reason;
+  v.rejectedBy = currentUser.name;
+  v.rejectedAt = new Date().toISOString();
+  await persistVenue(v);
+
+  if(v.sourceAppNumber){
+    const a = applications.find(x => x.appNumber === v.sourceAppNumber);
+    if(a){
+      a.venueRegistryStatus = 'rejected';
+      a.venueRegistryRejectReason = reason;
+      await persistIfFromStorage(a);
+      const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+      if(applicantEmail){
+        window.atdNotifyApplicant(applicantEmail, 'venue_rejected',
+          `${myMunicipalityName()} could not add the venue you entered on ${a.appNumber} to the venue database: ${reason}`, a.appNumber);
+      }
+      if(activeAppId === a.id) renderAppDetail();
+    }
+  }
+
+  muni_showToast(`${v.name} has been rejected and will not be added to the venue database.`);
+  closeVenueRejectModal();
+  renderVenues();
+  renderPendingVenues();
+  muni_renderAll();
 }
 
 // ==================== Advertisements ====================
@@ -20067,7 +21194,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -20109,6 +21236,7 @@ function applyRoleDefaults(){
   document.getElementById('permApprove').checked = defaults.approve;
   document.getElementById('permApproveCapped').checked = !!defaults.approveCapped;
   document.getElementById('permManageUsers').checked = defaults.manageUsers;
+  document.getElementById('permManageVenues').checked = !!defaults.manageVenues;
 }
 
 function generateUserPassword(){
@@ -20139,6 +21267,7 @@ function openUserModal(id){
     document.getElementById('permApprove').checked = !!u.permissions.approve;
     document.getElementById('permApproveCapped').checked = !!u.permissions.approveCapped;
     document.getElementById('permManageUsers').checked = !!u.permissions.manageUsers;
+    document.getElementById('permManageVenues').checked = !!u.permissions.manageVenues;
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
   } else {
@@ -20170,7 +21299,8 @@ async function saveUser(){
     review: document.getElementById('permReview').checked,
     approve: document.getElementById('permApprove').checked,
     approveCapped: document.getElementById('permApproveCapped').checked,
-    manageUsers: document.getElementById('permManageUsers').checked
+    manageUsers: document.getElementById('permManageUsers').checked,
+    manageVenues: document.getElementById('permManageVenues').checked
   };
 
   if(!name || !email){
@@ -20556,7 +21686,26 @@ function renderSubmissionColumn(a){
     : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>';
   html += `<div class="panel"><div class="detail-section-title">Application Costs</div>`;
   html += `<div class="detail-row"><div class="dr-label">Application fee <span style="font-weight:400;">(payable to Atendify)</span></div><div class="dr-value">${muni_formatCurrency(r.costs.applicationFee)}${appFeeTag}</div></div>`;
-  html += detailRow('Venue cost', muni_formatCurrency(r.costs.venueCost));
+  // The venue on this application was either picked from this municipality's
+  // own registered venues (an already-assessed "Venue Cost") or typed in
+  // manually by the applicant — in which case this line is the flat,
+  // standard $5,000 Venue Inspection Fee, NOT that venue's real assessed
+  // cost. Labeling it plainly here (rather than the generic "Venue cost"
+  // every application used to show) is what lets a reviewing officer tell,
+  // at a glance, which one they're looking at — see a.venueIsNew below for
+  // the venue database's own review status, which is where that venue's
+  // real cost gets billed separately once accepted.
+  html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost));
+  if(a.venueIsNew){
+    const registryLabel = a.venueRegistryStatus === 'accepted'
+      ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
+      : a.venueRegistryStatus === 'rejected'
+        ? `Rejected${a.venueRegistryRejectReason ? ' — ' + muni_escapeHtml(a.venueRegistryRejectReason) : ''}`
+        : (hasPerm('manageVenues')
+          ? 'Pending review — see Venues Pending Review on the Venues page'
+          : 'Pending review by a staff member who can manage the venue database');
+    html += detailRow('Venue database status', registryLabel);
+  }
   html += detailRow('Advertisement total', muni_formatCurrency(r.costs.adTotal));
   html += `<div class="detail-row" style="border-top:1px solid var(--border-color); margin-top:2px; padding-top:10px;"><div class="dr-label"><strong>Payable to ${muni_escapeHtml(myMunicipalityName())}</strong></div><div class="dr-value"><strong>${muni_formatCurrency(municipalAmount)}</strong>${municipalFeeTag}</div></div>`;
   html += detailRow('Total (incl. Atendify fee)', muni_formatCurrency(r.costs.total));
@@ -20928,7 +22077,8 @@ async function renderAppDetail(){
   if(printArea){
     if(a.permitGenerated && a.permit){
       printArea.innerHTML = muni_buildPermitDocHtml(a.permit, cachedSignature);
-      muni_renderPermitQr('permitQrTarget', a.permit.qrData);
+      // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+      muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(a.appNumber));
     } else {
       printArea.innerHTML = '';
     }
@@ -21181,8 +22331,26 @@ async function openApplicantFileModal(kind){
 async function updateDocStatus(newStatus, toastMessage){
   const a = applications.find(a => a.id === activeAppId);
   const r = a.raw;
-  const d = r.regulatoryDocuments[activeDocName];
+  // Captured now — closeDocModal() below (on success) resets the module-level
+  // activeDocName to null, and the email sent further down needs the name.
+  const docName = activeDocName;
+  const d = r.regulatoryDocuments[docName];
   const note = document.getElementById('docNoteInput').value.trim();
+
+  // Captured so a failed save (e.g. an RLS rejection, an expired session)
+  // can be rolled back instead of showing "Document rejected" and closing
+  // the modal while nothing was actually saved — the same class of bug
+  // verifyPayment() below already guards against, that this function never
+  // did. Previously this always showed the success toast and closed the
+  // modal regardless of whether persistIfFromStorage() actually succeeded,
+  // which is why an officer could reject a document, see no real
+  // confirmation (persistIfFromStorage's own failure toast, if any, was
+  // immediately overwritten by this one), and the applicant's Main Menu
+  // would never show the rejection because it was genuinely never saved.
+  const prevStatus = d.status;
+  const prevNote = d.officerNote;
+  const prevRawRequiredDocs = r.requiredDocumentsSubmitted;
+  const prevRequiredDocs = a.requiredDocumentsSubmitted;
 
   d.status = newStatus;
   d.officerNote = note;
@@ -21196,28 +22364,61 @@ async function updateDocStatus(newStatus, toastMessage){
   r.requiredDocumentsSubmitted = computed;
   a.requiredDocumentsSubmitted = computed;
 
-  await persistIfFromStorage(a);
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    // persistIfFromStorage() has already shown its own failure toast — roll
+    // back the in-memory change and leave the modal open so the officer can
+    // see the real status and retry, instead of silently proceeding as if
+    // this had worked.
+    d.status = prevStatus;
+    d.officerNote = prevNote;
+    r.requiredDocumentsSubmitted = prevRawRequiredDocs;
+    a.requiredDocumentsSubmitted = prevRequiredDocs;
+    return;
+  }
+
   muni_showToast(toastMessage);
   closeDocModal();
   renderAppDetail();
   muni_renderAll();
+
+  if(newStatus === 'Rejected'){
+    const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+    const applicantName = a.raw && a.raw.applicant && a.raw.applicant.name;
+    if(applicantEmail){
+      window.atdSendEmail('document_rejected', applicantEmail, {
+        appNumber: a.appNumber, applicantName, documentName: docName, officerNote: note,
+        municipalityName: (a.raw && a.raw.municipalityName) || myMunicipalityName()
+      });
+      window.atdNotifyApplicant(applicantEmail, 'document_rejected',
+        `${docName} on your application ${a.appNumber} was rejected: "${note}". Please log in and re-upload.`, a.appNumber);
+    }
+  }
 }
 
-function approveDocument(){
-  updateDocStatus('Approved', `${activeDocName} approved.`);
+// These three are the only callers of updateDocStatus() and are themselves
+// only ever invoked from onclick="" handlers, which never look at a return
+// value — so returning the promise here changes nothing about how the UI
+// behaves. It's still worth doing: without it, updateDocStatus()'s save,
+// rollback-on-failure, toast, and email all run as an unobserved
+// fire-and-forget promise, which is easy to accidentally race against
+// elsewhere (e.g. an automated test, or future code that wants to know the
+// reject actually finished) with no way to tell it's still in flight.
+async function approveDocument(){
+  return updateDocStatus('Approved', `${activeDocName} approved.`);
 }
-function rejectDocument(){
+async function rejectDocument(){
   const note = document.getElementById('docNoteInput').value.trim();
   if(!note){
     muni_showToast('Please add a note explaining why this document is being rejected.');
     return;
   }
-  updateDocStatus('Rejected', `${activeDocName} rejected. The applicant will see your note and be asked to re-upload.`);
+  return updateDocStatus('Rejected', `${activeDocName} rejected. The applicant will see your note and be asked to re-upload.`);
 }
-function saveDocNote(){
+async function saveDocNote(){
   const a = applications.find(a => a.id === activeAppId);
   const d = a.raw.regulatoryDocuments[activeDocName];
-  updateDocStatus(d.status, 'Note saved.');
+  return updateDocStatus(d.status, 'Note saved.');
 }
 
 // Returns true only if the write to backend storage actually succeeded
@@ -21247,6 +22448,8 @@ async function persistIfFromStorage(a){
     a.raw.permitGenerated = a.permitGenerated;
     a.raw.permit = a.permit || null;
     a.raw.additionalPaymentRequests = a.additionalPaymentRequests || [];
+    a.raw.venueRegistryStatus = a.venueRegistryStatus || '';
+    a.raw.venueRegistryRejectReason = a.venueRegistryRejectReason || '';
     a.raw.paymentVerifiedAt = a.paymentVerifiedAt || '';
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
@@ -21552,7 +22755,7 @@ function generatePermit(a){
     validity: isAnnual ? `1 April ${permitYear} – 31 March ${permitYear + 1}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
-    qrData: `https://atendifyapp.com/verify/${a.appNumber}`
+    qrData: window.atdVerifyUrl(a.appNumber)
   };
   a.permit = permit;
   a.permitGenerated = true;
@@ -21642,12 +22845,46 @@ function setFinalStatus(status){
       window.atdNotifyApplicant(applicantEmail, 'application_rejected',
         `Your application ${a.appNumber} was not approved by ${municipalityName}.`, a.appNumber);
     }
+    if(status === 'Rejected') muni_autoRejectLinkedJcfIfEnabled(a);
     muni_showToast(`${a.appNumber} marked as ${status}.`);
   }
 
   persistIfFromStorage(a);
   renderAppDetail();
   muni_renderAll();
+}
+
+// Mirrors jcfd_autoRejectLinkedPoaIfEnabled (JCF script scope) in the other
+// direction: if the JCF Division serving this application's parish has
+// turned on "Auto-reject application if the Municipal Corporation rejects"
+// (Settings → SLA Policy → Municipal Integration), mark the linked JCF
+// Noise Abatement Permit application Rejected too. Best-effort — any
+// failure here must not affect the Municipal rejection itself, which has
+// already been saved above.
+async function muni_autoRejectLinkedJcfIfEnabled(a){
+  if(!window.storage || !a || !a.appNumber) return;
+  try{
+    const jcfApp = await muni_findLinkedJcfApplication(a.appNumber);
+    if(!jcfApp || jcfApp.status === 'Rejected') return;
+
+    const parish = a.raw && a.raw.parish;
+    if(!parish) return;
+    const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
+    const branch = agencies.find(x => x.type === 'JCF' && x.parish === parish);
+    if(!branch) return;
+
+    const settingsResult = await window.storage.get(`jcfBranch:${branch.id}:settings`, true);
+    const settings = (settingsResult && settingsResult.value) ? JSON.parse(settingsResult.value) : {};
+    if(!settings.autoRejectOnMuniReject) return;
+
+    const rejectedBy = currentUser ? currentUser.name : ((a.raw && a.raw.municipalityName) || myMunicipalityName());
+    jcfApp.status = 'Rejected';
+    jcfApp.finalDecision = `Auto-rejected: linked Places of Amusement application ${a.appNumber} was rejected by ${rejectedBy}.`;
+    jcfApp.permitGenerated = false;
+    await window.storage.set(`jcfApplication:${a.appNumber}`, JSON.stringify(jcfApp), true);
+  } catch(err){
+    // best-effort only — the Municipal rejection itself already succeeded
+  }
 }
 
 function printPermit(){
@@ -21723,6 +22960,9 @@ async function loadSubmittedApplications(silent){
         requiredDocumentsSubmitted: !!rec.requiredDocumentsSubmitted,
         venueApproved: !!rec.venueApproved,
         venueIsNew: !!(rec.costs && rec.costs.venueIsNew),
+        venueRegistryStatus: rec.venueRegistryStatus || '',
+        venueRegistryVenueId: rec.venueRegistryVenueId || '',
+        venueRegistryRejectReason: rec.venueRegistryRejectReason || '',
         permitGenerated: !!rec.permitGenerated,
         permit: rec.permit || null,
         additionalPaymentRequests: rec.additionalPaymentRequests || [],
@@ -22064,6 +23304,15 @@ window.openPromotionModal = openPromotionModal;
 window.closePromotionModal = closePromotionModal;
 window.savePromotion = savePromotion;
 window.togglePromotionStatus = togglePromotionStatus;
+window.loadVenues = loadVenues;
+window.renderPendingVenues = renderPendingVenues;
+window.openVenueAcceptModal = openVenueAcceptModal;
+window.closeVenueAcceptModal = closeVenueAcceptModal;
+window.submitAcceptPendingVenue = submitAcceptPendingVenue;
+window.openVenueRejectModal = openVenueRejectModal;
+window.closeVenueRejectModal = closeVenueRejectModal;
+window.submitRejectPendingVenue = submitRejectPendingVenue;
+window.muni_enterShellAsUser = muni_enterShellAsUser;
 })();</script>
 <script>(function(){
 'use strict';
@@ -22567,6 +23816,7 @@ function admin_goPage(page){
   const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', formtemplates: 'Application Forms', settings: 'Settings' };
   document.getElementById('admin_topbarTitle').textContent = titles[page];
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
+  if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -24589,6 +25839,35 @@ window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
 // Saves everything in the POA tab in one shot: its declaration + the two
 // documents nested under it (Payment Advice notice, Notice of Application
 // intro/closing) from platform:formTemplates, plus the POA half of
+// ---------------- Footer & Legal Content (Settings page) ----------------
+// See window.atdLoadFooterContent / window.ATD_DEFAULT_FOOTER_CONTENT in the
+// shared shim near the top of <body> for the storage shape and defaults —
+// this is a thin editor over that one platform:footerContent blob, same
+// pattern as renderFormTemplatesPage/savePoaFormSettings just below.
+async function renderFooterContentPanel(){
+  const el = document.getElementById('admin_footer_copyright');
+  if(!el) return;
+  const content = await window.atdLoadFooterContent();
+  document.getElementById('admin_footer_copyright').value = content.copyrightNotice;
+  document.getElementById('admin_footer_contact').value = content.contactInfo;
+  document.getElementById('admin_footer_privacy').value = content.privacyPolicy;
+  document.getElementById('admin_footer_terms').value = content.termsOfUse;
+}
+window.renderFooterContentPanel = renderFooterContentPanel;
+
+async function admin_saveFooterContent(){
+  const content = await window.atdLoadFooterContent();
+  const copyrightVal = document.getElementById('admin_footer_copyright').value.trim();
+  content.copyrightNotice = copyrightVal || window.ATD_DEFAULT_FOOTER_CONTENT.copyrightNotice;
+  content.contactInfo = document.getElementById('admin_footer_contact').value.trim();
+  content.privacyPolicy = document.getElementById('admin_footer_privacy').value.trim() || window.ATD_DEFAULT_FOOTER_CONTENT.privacyPolicy;
+  content.termsOfUse = document.getElementById('admin_footer_terms').value.trim() || window.ATD_DEFAULT_FOOTER_CONTENT.termsOfUse;
+  await window.storage.set('platform:footerContent', JSON.stringify(content), true);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'footerContent.update', details: 'Updated public site footer content (copyright, contact, Privacy Policy, Terms of Use).' });
+  admin_showToast('Footer content saved. Visitors will see the new wording next time the page loads.');
+}
+window.admin_saveFooterContent = admin_saveFooterContent;
+
 // platform:formFieldConfig (the JCF half is read back unchanged and
 // rewritten as-is, so saving one tab never clobbers the other's settings).
 async function savePoaFormSettings(){
@@ -24820,7 +26099,7 @@ const ADMIN_SAMPLE_POA_PERMIT = {
   expectedPatrons: '250',
   issuedDate: admin_todayIso(),
   expiresDate: '2026-12-16',
-  qrData: 'https://atendifyapp.com/preview/sample-poa-permit'
+  qrData: location.origin + '/preview/sample-poa-permit'
 };
 
 const ADMIN_SAMPLE_JCF_PERMIT = {
@@ -24837,7 +26116,7 @@ const ADMIN_SAMPLE_JCF_PERMIT = {
   issuedDate: admin_todayIso(),
   expiresDate: '2026-12-16',
   expectedPatrons: '250',
-  qrData: 'https://atendifyapp.com/preview/sample-jcf-permit'
+  qrData: location.origin + '/preview/sample-jcf-permit'
 };
 
 const ADMIN_DOC_PREVIEW_QR_ID = 'adminDocPreviewQrTarget';
@@ -25421,8 +26700,8 @@ const JCF_FIELD_CHECKS = {
     { key:'promoterParish', kind:'text', id:'promoterParish', label:'Promoter parish' },
     { key:'dateOfBirth', kind:'text', id:'dateOfBirth', label:'Promoter date of birth' },
     { key:'patronsExpected', kind:'text', id:'patronsExpected', label:'Number of patrons expected' },
-    { key:'photoIdFile', kind:'file', label:'Photo ID' },
-    { key:'flyerFile', kind:'file', label:'Event flyer' }
+    { key:'photoIdFile', kind:'file', id:'photoIdFile', label:'Photo ID' },
+    { key:'flyerFile', kind:'file', id:'flyerFile', label:'Event flyer' }
   ],
   2: [
     { key:'ownerBreached', kind:'radio', name:'ownerBreached', label:'Has venue owner ever breached the Act?' },
@@ -25431,7 +26710,7 @@ const JCF_FIELD_CHECKS = {
     { key:'ownerContact', kind:'text', id:'ownerContact', label:"Owner's contact number" },
     { key:'ownerAddress', kind:'text', id:'ownerAddress', label:"Owner's address" },
     { key:'jcf_businessType', kind:'text', id:'jcf_businessType', label:'Type of business conducted at venue' },
-    { key:'permissionLetterFile', kind:'file', label:"Proof of Ownership/Authorization" },
+    { key:'permissionLetterFile', kind:'file', id:'permissionLetterFile', label:"Proof of Ownership/Authorization" },
     { key:'spiritLicense', kind:'radio', name:'spiritLicense', label:'Valid spirit license in place?' },
     { key:'communityArrangements', kind:'radio', name:'communityArrangements', label:'Arrangements made with community members?' },
     { key:'parkingArrangements', kind:'radio', name:'parkingArrangements', label:'Arrangements made for parking?' },
@@ -25446,6 +26725,20 @@ const JCF_FIELD_CHECKS = {
 // field isn't currently editable/shown to the applicant, it isn't currently
 // enforceable.
 function jcf_fieldIsVisible(f){
+  // Same fix as the POA wizard's own poa_findMissingRequiredField: Photo ID,
+  // Event flyer, and Proof of Ownership are each a real <input type="file">
+  // that is ALWAYS style="display:none" by design (see photoIdFile/
+  // flyerFile/permissionLetterFile above — the visible control is the
+  // .flyer-upload-box div around it). Checking the input's own offsetParent
+  // for visibility always came back null regardless of whether its box was
+  // actually shown, so marking any of these three "required" in Admin >
+  // Application Forms silently never enforced it. The box (the input's own
+  // parentElement in all three cases) correctly reflects real visibility.
+  if(f.kind === 'file'){
+    const input = document.getElementById(f.id);
+    const box = input ? input.parentElement : null;
+    return !!(box && !input.disabled && box.offsetParent !== null);
+  }
   const el = f.kind === 'radio' ? document.querySelector(`input[name="${f.name}"]`) : document.getElementById(f.id);
   return !!(el && !el.disabled && el.offsetParent !== null);
 }
@@ -26073,6 +27366,34 @@ async function submitJcfApp(){
   const number = jcfAppNumber || ('JCF' + Date.now().toString().slice(-8));
   const signature = getSignatureValue();
 
+  // Mandatory watch list check -- not a toggleable setting like the SLA
+  // auto-reject options below, since this is a compliance rule rather than
+  // a workflow preference. An Active Applicant/DJ/Sound System match on
+  // EITHER the Municipal or JCF watch list auto-rejects this application
+  // immediately, before it ever reaches an officer's queue. Checked in
+  // order (promoter, then each DJ, then each Sound System) and stops at the
+  // first match -- one flagged party is enough to reject the whole filing.
+  let watchlistHit = null;
+  const promoterTrnForWatchlist = jcf_val('promoterTrn');
+  if(promoterTrnForWatchlist){
+    const flag = await window.atdCheckWatchlistFlag(promoterTrnForWatchlist);
+    if(flag) watchlistHit = { role: 'Applicant', flag };
+  }
+  if(!watchlistHit){
+    for(const d of djs){
+      const flag = await window.atdCheckWatchlistFlag(d.trn);
+      if(flag){ watchlistHit = { role: 'DJ', flag }; break; }
+    }
+  }
+  if(!watchlistHit){
+    for(const s of soundSystems){
+      const flag = await window.atdCheckWatchlistFlag(s.trn);
+      if(flag){ watchlistHit = { role: 'Sound System', flag }; break; }
+    }
+  }
+  const watchlistRejectionMessage = watchlistHit
+    ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
+
   const record = {
     jcfAppNumber: number,
     poaAppNumber: poaData ? poaData.appNumber : null,
@@ -26085,14 +27406,14 @@ async function submitJcfApp(){
     // code) — used by the Municipal dashboard's JCF Approval Granted tile to
     // show exactly when the linked JCF application was submitted.
     submittedAt: new Date().toISOString(),
-    status: 'Submitted',
+    status: watchlistHit ? 'Rejected' : 'Submitted',
     assignedOfficerId: null,
     assignedOfficerName: '',
     comments: [],
     recommendation: '',
     recommendationNotes: '',
-    recommendedBy: '',
-    finalDecision: '',
+    recommendedBy: watchlistHit ? 'Auto-rejected: watch list match' : '',
+    finalDecision: watchlistRejectionMessage,
     permitGenerated: false,
     permit: null,
     eventOverview: {
@@ -26168,9 +27489,45 @@ async function submitJcfApp(){
     document.getElementById('confirmPage').classList.remove('hidden');
     document.getElementById('confirmAppNumber').textContent = number;
     document.getElementById('confirmBackToPoaBtn').classList.toggle('hidden', !poaData);
-    jcf_showToast('JCF Noise Abatement application submitted.');
     if(window.AccountBridge && window.AccountBridge.getCurrentUser()){
       window.AccountBridge.clearDraft('jcf');
+    }
+
+    if(watchlistHit){
+      jcf_showToast('This application was rejected — see the confirmation screen for details.');
+      const confirmMsgEl = document.getElementById('confirmPage');
+      if(confirmMsgEl) confirmMsgEl.insertAdjacentHTML('beforeend',
+        `<div class="info-banner warn" style="margin-top:16px;">${jcf_escapeHtml(watchlistRejectionMessage)}</div>`);
+      // Best-effort email + cascade to the linked Places of Amusement
+      // application, if any -- same mandatory rule, not gated by either
+      // municipality's/division's optional SLA auto-reject toggle.
+      const notifyEmail = (poaData && poaData.applicantEmail) || record.ownerEmail;
+      const applicantName = (poaData && poaData.applicantName) || (record.eventOverview && record.eventOverview.promoterName) || '';
+      if(notifyEmail){
+        window.atdSendEmail('application_watchlist_rejected', notifyEmail, {
+          appNumber: number, applicantName, role: watchlistHit.role,
+          flaggedName: watchlistHit.flag.fullName, agencyName: watchlistHit.flag.agencyName
+        });
+        window.atdNotifyApplicant(notifyEmail, 'application_watchlist_rejected', watchlistRejectionMessage, number);
+      }
+      if(record.poaAppNumber && window.storage){
+        try{
+          const poaResult = await window.storage.get(`application:${record.poaAppNumber}`, true);
+          if(poaResult && poaResult.value){
+            const poaRec = JSON.parse(poaResult.value);
+            if(poaRec.status !== 'Rejected'){
+              poaRec.status = 'Rejected';
+              poaRec.recommendation = 'Recommend Reject';
+              poaRec.recommendedBy = `Auto-rejected: watch list match on linked JCF Noise Abatement Permit application ${number} (${watchlistHit.role} ${watchlistHit.flag.fullName}).`;
+              await window.storage.set(`application:${record.poaAppNumber}`, JSON.stringify(poaRec), true);
+            }
+          }
+        } catch(cascadeErr){
+          // best-effort only -- the JCF rejection itself already succeeded
+        }
+      }
+    } else {
+      jcf_showToast('JCF Noise Abatement application submitted.');
     }
   } catch(err){
     // Same reasoning as submitApp() in the POA script: show the actual
@@ -26362,6 +27719,8 @@ window.updateWordCount = updateWordCount;
     venueModal: 'closeVenueModal',
     venueViewModal: 'closeVenueViewModal',
     flagVenueModal: 'closeFlagVenueModal',
+    venueAcceptModal: 'closeVenueAcceptModal',
+    venueRejectModal: 'closeVenueRejectModal',
     docModal: 'closeDocModal',
     jcfPermitModal: 'closeJcfPermitModal',
     userModal: 'closeUserModal',
@@ -26374,7 +27733,8 @@ window.updateWordCount = updateWordCount;
     jcfd_watchlistAddModal: 'jcfd_closeWatchlistAddModal',
     jcfd_watchlistViewModal: 'jcfd_closeWatchlistViewModal',
     jcfd_approveModal: 'jcfd_closeApproveModal',
-    atdFilePreviewModal: 'atdCloseFilePreview'
+    atdFilePreviewModal: 'atdCloseFilePreview',
+    pl_legalModal: 'pl_closeLegalModal'
   };
 
   var atdFocusableSelector = 'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
@@ -26454,13 +27814,14 @@ window.updateWordCount = updateWordCount;
 // exactly as before this existed.
 (async function atdBootstrapSessionRestore(){
   let restored = false;
+  let profile = null;
   try{
     // A /verify/ visitor gets the QR-check page and nothing else — no
     // session to restore, no need to load anything portal-related. The
     // overlay is already force-hidden for this route (see top of <body>).
     if(window.ATD_IS_VERIFY_ROUTE) return;
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
-      const profile = await window.ATDBackend.getProfile();
+      profile = await window.ATDBackend.getProfile();
       if(profile){
         if(profile.role === 'muni' && window.muni_tryRestoreSession){
           restored = await window.muni_tryRestoreSession(profile);
@@ -26470,6 +27831,32 @@ window.updateWordCount = updateWordCount;
           restored = await window.admin_tryRestoreSession(profile);
         }
       }
+    }
+    // Not a staff session (or none restored) — a visitor sitting on the
+    // applicant Main Menu (tracked as a guest, or viewing their own
+    // application while signed into their account) used to lose that view
+    // on every refresh for the same reason staff did before the restore
+    // above existed: nothing persisted which application they were on, so
+    // a refresh always dropped back to the public landing page mid-review.
+    // This doesn't depend on ATDBackend being configured — it works the
+    // same way in the local-only preview environment.
+    if(!restored && window.poa_tryRestoreMainMenu){
+      restored = await window.poa_tryRestoreMainMenu();
+    }
+    // Still nothing restored, but the profile fetched above IS a signed-in
+    // applicant (atd_handle_new_user defaults every non-staff signup to role
+    // 'poa') who simply wasn't sitting on one specific application's Main
+    // Menu (no sessionStorage marker for poa_tryRestoreMainMenu to find) —
+    // e.g. they were on their Account Dashboard, Profile, History, Permits
+    // or Wallet view instead. Every staff portal already gets this same
+    // treatment above (muni/jcfd/admin); the applicant's own self-service
+    // Account portal never did, so a plain refresh always silently logged
+    // them out of it and dropped them to the public landing page even
+    // though their Supabase Auth session was still perfectly valid — the
+    // exact same class of bug already fixed for staff (Fix #43, no backend
+    // change needed — see acct_tryRestoreSession).
+    if(!restored && profile && profile.role === 'poa' && window.acct_tryRestoreSession){
+      restored = await window.acct_tryRestoreSession(profile);
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
