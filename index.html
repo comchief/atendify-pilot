@@ -3731,6 +3731,44 @@
       return res.data || [];
     },
 
+    // Pre-loads a manually-entered venue into the venue database as a
+    // pending entry the moment an applicant submits it on a POA application
+    // (Fix #35, backend/fix35_submit_pending_venue.sql) — see submitApp()'s
+    // best-effort block, right after the application record itself saves.
+    // Family 2's own RLS ("kv_store: muni staff write own agency records")
+    // only lets an authenticated 'muni' staff member INSERT a 'venue:' row,
+    // which a genuinely anonymous applicant never is — so, same pattern as
+    // trackApplication/saveTrackedApplication above, this goes through a
+    // narrow SECURITY DEFINER function instead of a raw insert. It forces
+    // every safety-relevant field itself (pendingApproval true, active
+    // false, cost 0) regardless of what's passed in, so there's no way for
+    // this call to create anything OTHER than an unreviewed, zero-cost,
+    // inactive pending entry — a reviewing officer's Accept/Reject action
+    // (submitAcceptPendingVenue()/submitRejectPendingVenue() in the
+    // Municipal officer portal) is the only path that can ever turn it into
+    // a real, priced, selectable venue.
+    submitPendingVenue: async function (opts) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_submit_pending_venue', {
+          p_id: opts.id,
+          p_muni_number: opts.muniNumber,
+          p_source_app_number: opts.sourceAppNumber,
+          p_name: opts.name,
+          p_addr1: opts.addr1 || '',
+          p_addr2: opts.addr2 || '',
+          p_district: opts.district || '',
+          p_max_cap: opts.maxCap ? parseInt(opts.maxCap, 10) : null,
+          p_max_parking: opts.maxParking ? parseInt(opts.maxParking, 10) : null,
+          p_owner_name: opts.ownerName || '',
+          p_owner_address: opts.ownerAddress || '',
+          p_owner_phone: opts.ownerPhone || ''
+        });
+      });
+      if (res.error) { window.atdShowDebugError('submitPendingVenue(' + opts.id + ')', res.error); return { ok: false, error: res.error.message }; }
+      return res.data || { ok: false };
+    },
+
     // Applicant wallet (Credit Notes) — RLS already scopes this to the
     // caller's own rows ("kv_store: poa reads own wallet transactions" in
     // fix22_wallet.sql), so this is a plain filtered read, one query instead
@@ -6481,6 +6519,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <!-- ===== VENUES PAGE ===== -->
     <div class="page hidden" id="page-venues">
+      <div class="panel hidden" id="pendingVenuesPanel">
+        <div class="panel-head">
+          <h2>Venues Pending Review</h2>
+        </div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Manually typed in by an applicant on a Places of Amusement application rather than picked from your registered venues — not a real venue in your database until you accept it. Accepting requires a cost (billed to the applicant as an additional payment, on top of the Venue Inspection Fee they already paid); rejecting requires a reason.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Venue</th><th>Location</th><th>Max Capacity</th><th>From Application</th><th></th></tr></thead>
+            <tbody id="pendingVenuesBody"></tbody>
+          </table>
+        </div>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h2>Registered venues</h2>
@@ -7369,6 +7419,39 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== Accept Pending Venue Modal ===== -->
+<div class="modal-overlay hidden" id="venueAcceptModal">
+  <div class="modal-box">
+    <h3>Accept venue</h3>
+    <p class="modal-sub" id="venueAcceptModalSub"></p>
+    <div class="field-group">
+      <label for="venueAcceptCostInput">Venue Cost (JMD)</label>
+      <input type="number" id="venueAcceptCostInput" min="0" placeholder="e.g. 15000">
+      <div class="field-hint">Required. Billed to the applicant as an additional payment, on top of the flat Venue Inspection Fee they already paid.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeVenueAcceptModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAcceptPendingVenue()">Accept &amp; add to database</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Reject Pending Venue Modal ===== -->
+<div class="modal-overlay hidden" id="venueRejectModal">
+  <div class="modal-box">
+    <h3>Reject venue</h3>
+    <p class="modal-sub">The applicant will be notified. This venue will not be added to your database.</p>
+    <div class="field-group">
+      <label for="venueRejectReasonInput">Reason for rejecting</label>
+      <textarea id="venueRejectReasonInput" placeholder="e.g. Duplicate of an already-registered venue"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeVenueRejectModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="submitRejectPendingVenue()">Reject venue</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== Document Preview Modal ===== -->
 <div class="modal-overlay hidden" id="docModal">
   <div class="modal-box modal-wide">
@@ -7442,6 +7525,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permApprove"> Approve or reject applications</label>
       <label class="checkbox-row"><input type="checkbox" id="permApproveCapped"> Approve or reject applications with 500 or fewer expected patrons</label>
       <label class="checkbox-row"><input type="checkbox" id="permManageUsers"> Create users & assign roles</label>
+      <label class="checkbox-row"><input type="checkbox" id="permManageVenues"> Manage venue database (accept/reject applicant-suggested venues)</label>
     </div>
 
     <div class="field-group">
@@ -14863,6 +14947,18 @@ async function loadMunicipalityVenues(){
     }
   } catch(err){ return; }
 
+  // A venue an applicant manually entered on some earlier application is
+  // pre-loaded here as a pending entry (see submitApp()'s best-effort block)
+  // so the municipality can review it, but it isn't a real, vetted venue
+  // yet — nobody else should be able to pick it off this list until a
+  // reviewing officer accepts it (see the Venues page's "Venues Pending
+  // Review" panel). The real backend's atd_public_venues (Fix #36,
+  // backend/fix36_public_venues_exclude_pending.sql) already excludes these
+  // server-side; this client-side filter is the same rule applied to the
+  // local-storage-shim fallback path above, which has no such filter of its
+  // own to rely on.
+  dbVenues = dbVenues.filter(v => !v.pendingApproval && !v.rejected);
+
   dbVenues.forEach(v=>{
     const option = document.createElement('option');
     option.value = 'db-' + v.id;
@@ -15741,6 +15837,20 @@ async function buildApplicationRecord(appNumber){
       promoDiscount: c.promoDiscountAmount,
       promotionId: c.promotionId
     },
+    // A manually-entered venue (c.venueIsNew) isn't a real registered venue
+    // yet — it gets pre-loaded into the municipality's venue database as a
+    // pending entry right after this record is saved (see submitApp()'s
+    // best-effort block below), and a reviewing officer accepts or rejects
+    // it from the Venues page's "Venues Pending Review" panel. The id is
+    // generated here (not after that write) so it can be embedded in THIS
+    // same record up front — the submitted application and its pending
+    // venue entry stay linked from the moment either one exists, with no
+    // second write back to this record needed just to attach the link
+    // afterward. Left '' for a database-picked venue, which never goes
+    // through this review at all.
+    venueRegistryStatus: c.venueIsNew ? 'pending' : '',
+    venueRegistryVenueId: c.venueIsNew ? `venue-${Date.now()}-${Math.floor(Math.random()*100000)}` : '',
+    venueRegistryRejectReason: '',
     // SLA-pipeline timestamps (see the "Review Turnaround (SLA)" settings and
     // the notification bell): each is set the moment its triggering action
     // happens (payment submission, payment verification, venue-inspection
@@ -16001,6 +16111,65 @@ async function submitApp(){
       window.atdNotify(record.muniId, 'review', 'application_submitted',
         `New application ${appNumber} submitted by ${(record.applicant && record.applicant.name) || 'an applicant'}.`,
         appNumber);
+    }
+
+    // Best-effort: pre-load a manually-entered venue into the municipality's
+    // venue database as a pending entry (see buildApplicationRecord's
+    // venueRegistryVenueId note above). If this fails, the application is
+    // still submitted successfully — the venue just won't show up on the
+    // Venues page's "Venues Pending Review" panel until someone notices and
+    // adds it by hand, same fallback the photo ID/flier/logo/ownership
+    // uploads below already accept.
+    if(record.costs && record.costs.venueIsNew && record.venue && record.venue.name && record.venueRegistryVenueId){
+      try{
+        const pendingVenueDetail = {
+          id: record.venueRegistryVenueId,
+          muniNumber: record.muniId,
+          sourceAppNumber: appNumber,
+          name: record.venue.name,
+          addr1: record.venue.addr1,
+          addr2: record.venue.addr2,
+          district: record.venue.district,
+          maxCap: record.venue.maxCap,
+          maxParking: record.venue.maxParking,
+          ownerName: record.venue.ownerName,
+          ownerAddress: record.venue.ownerAddress,
+          ownerPhone: record.venue.ownerPhone
+        };
+        if(window.ATDBackend && window.ATDBackend.isConfigured()){
+          await window.ATDBackend.submitPendingVenue(pendingVenueDetail);
+        } else if(window.storage){
+          await window.storage.set(`venue:${record.venueRegistryVenueId}`, JSON.stringify({
+            id: record.venueRegistryVenueId,
+            muniId: record.muniId,
+            name: record.venue.name,
+            streetNumber: '',
+            streetName: [record.venue.addr1, record.venue.addr2].filter(Boolean).join(', '),
+            district: record.venue.district || '',
+            cost: 0,
+            maxCap: parseInt(record.venue.maxCap, 10) || 0,
+            maxParking: parseInt(record.venue.maxParking, 10) || 0,
+            ownerName: record.venue.ownerName || '',
+            ownerAddress: record.venue.ownerAddress || '',
+            ownerPhone: record.venue.ownerPhone || '',
+            active: false,
+            flagged: false,
+            flagReason: '',
+            pendingApproval: true,
+            rejected: false,
+            sourceAppNumber: appNumber,
+            createdBy: `Applicant (via ${appNumber})`,
+            created: new Date().toISOString().slice(0, 10)
+          }), true);
+        }
+        if(record.muniId != null){
+          window.atdNotify(record.muniId, 'manageVenues', 'venue_pending_review',
+            `New venue "${record.venue.name}" submitted on ${appNumber} needs review before it can be added to the venue database.`,
+            appNumber);
+        }
+      } catch(venueErr){
+        // non-critical — ignore, see comment above
+      }
     }
 
     if(record.applicant && record.applicant.email){
@@ -16969,11 +17138,23 @@ function renderMmSummary(){
   (r.venue.additionalParking || []).forEach(p=>{
     html += mmDetailRow(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + poa_formatCurrency(p.cost) : ''}`);
   });
+  // This venue was typed in manually rather than picked from the
+  // municipality's own registered venues, so it isn't a real registered
+  // venue yet — the municipality reviews it (see the Municipal officer
+  // portal's Venues Pending Review panel) and either adds it to their venue
+  // database (at which point its own venue cost is billed separately, on
+  // top of the flat Venue Inspection Fee already paid below) or rejects it.
+  if(r.costs && r.costs.venueIsNew){
+    const registryLabel = r.venueRegistryStatus === 'accepted' ? 'Accepted — added to the venue database'
+      : r.venueRegistryStatus === 'rejected' ? `Not added${r.venueRegistryRejectReason ? ' — ' + r.venueRegistryRejectReason : ''}`
+      : 'Pending municipality review';
+    html += mmDetailRow('Venue database status', registryLabel);
+  }
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Application Costs</div>`;
   html += `<div class="review-row"><div class="rr-label">Application fee</div><div class="rr-value">${poa_formatCurrency(r.costs.applicationFee)}${r.applicationFeePaid ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>' : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>'}</div></div>`;
-  html += mmDetailRow('Venue cost', poa_formatCurrency(r.costs.venueCost));
+  html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost));
   html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
   // Municipal portion (everything except the Atendify application fee) gets
   // its own Paid/Unpaid tag too, same treatment as the Atendify fee above —
@@ -17117,7 +17298,7 @@ async function printPaymentAdvice(previewRecord){
 
       <div class="doc-breakdown-title">Payment Breakdown</div>
       <div class="doc-breakdown-row" style="color:#666;"><span>Service Fee (paid online to Atendify — not due at cashier):</span><span>${poa_formatCurrency(r.costs.applicationFee)}</span></div>
-      <div class="doc-breakdown-row"><span>License Fee:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
+      <div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
       <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>
       <div class="doc-breakdown-row total"><span>TOTAL DUE AT ${poa_escapeHtml((r.municipalityName || 'MUNICIPAL CORPORATION').toUpperCase())}:</span><span>${poa_formatCurrency(r.costs.total - (r.costs.applicationFee || 0))}</span></div>
     </div>
@@ -17675,10 +17856,19 @@ const DEMO_PASSWORD = 'Password@123';
 // this too; it defaults off for Accountant/Supervisor so a CEO opts a
 // specific staffer into it deliberately, per user, rather than it being on
 // by default for a role that previously had no approval authority at all.
+// manageVenues (added alongside the Venue Registry's Accept/Reject workflow
+// for applicant-suggested venues — see renderPendingVenues()/
+// submitAcceptPendingVenue() below) defaults to the same value as `review`
+// for every role: it's a separate, independently-revocable grant, but a
+// Supervisor/CEO who could already review applications is the natural
+// person to also vet a venue an applicant proposed, so there's no reason to
+// make them start unchecked. Existing staff accounts saved before this
+// permission existed are normalized the same way at login/session-restore
+// time — see muni_enterShellAsUser() below.
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false },
-  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true }
 };
 
 let municipalUsers = [];
@@ -17938,6 +18128,16 @@ muni_initRegistryData();
 })();
 
 function muni_enterShellAsUser(user){
+  // manageVenues was added after some staff accounts were already created —
+  // rather than leaving every existing account's Venues Pending Review
+  // panel silently hidden until a CEO happens to re-open and re-save each
+  // one, default the missing permission to whatever `review` is already set
+  // to (see ROLE_DEFAULTS's comment above for why that's the right default).
+  // Only fills it in when the key is genuinely absent (undefined) — an
+  // account a CEO has already explicitly unchecked it for keeps that choice.
+  if(user && user.permissions && user.permissions.manageVenues === undefined){
+    user.permissions.manageVenues = !!user.permissions.review;
+  }
   currentUser = user;
   document.getElementById('muni_loginScreen').classList.add('hidden');
   document.getElementById('muni_appShell').classList.remove('hidden');
@@ -18204,7 +18404,7 @@ function muni_goPage(page, keepAppsActive){
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
-  if(page === 'venues') renderVenues();
+  if(page === 'venues'){ renderVenues(); renderPendingVenues(); }
   if(page === 'ads') renderAdItems();
   if(page === 'watchlist') renderWatchlist();
   if(page === 'slaBreaches') renderSlaBreaches();
@@ -18864,19 +19064,63 @@ async function loadVenues(){
     const fetchedIds = new Set(fetched.map(v => v.id));
     venues = venues.filter(v => !fetchedIds.has(v.id));
     fetched.forEach(v => venues.push(v));
-    if(!document.getElementById('page-venues').classList.contains('hidden')) renderVenues();
+    if(!document.getElementById('page-venues').classList.contains('hidden')){ renderVenues(); renderPendingVenues(); }
   } catch(err){ /* keep local/seed venues */ }
 }
 
 function venueStatusBadge(v){
+  if(v.rejected) return '<span class="badge badge-red">Rejected</span>';
   if(v.flagged) return '<span class="badge badge-red">Flagged</span>';
   return v.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Inactive</span>';
+}
+
+// A venue an applicant manually typed in on their own application, still
+// awaiting a reviewing officer's Accept/Reject decision — see the "Venues
+// Pending Review" panel above the main registered-venues table. Kept out of
+// myVenues()'s own list below (renderVenues()) until it's actually accepted
+// or rejected, so it never appears half-vetted alongside real registered
+// venues.
+function pendingVenues(){
+  return myVenues().filter(v => v.pendingApproval);
+}
+
+function renderPendingVenues(){
+  const panel = document.getElementById('pendingVenuesPanel');
+  const body = document.getElementById('pendingVenuesBody');
+  if(!panel || !body) return;
+
+  const list = pendingVenues();
+  const canManage = hasPerm('manageVenues');
+  panel.classList.toggle('hidden', !canManage || !list.length);
+  if(!canManage || !list.length) return;
+
+  list.sort((a,b)=> (a.created || '').localeCompare(b.created || ''));
+  body.innerHTML = list.map(v => {
+    const location = [v.streetName, v.district].filter(Boolean).join(', ') || '—';
+    return `
+      <tr>
+        <td class="cell-primary">${muni_escapeHtml(v.name)}</td>
+        <td>${muni_escapeHtml(location)}</td>
+        <td>${v.maxCap || 0}</td>
+        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${JSON.stringify(v.id)})'>Accept</button>
+            <button class="btn btn-sm btn-danger" onclick='openVenueRejectModal(${JSON.stringify(v.id)})'>Reject</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderVenues(){
   const body = document.getElementById('venuesBody');
   const search = document.getElementById('venueSearchInput').value.trim().toLowerCase();
-  let list = myVenues().filter(v => !search || v.name.toLowerCase().includes(search));
+  // Pending entries live in the "Venues Pending Review" panel above, not
+  // here, until a reviewing officer accepts or rejects them — see
+  // pendingVenues()/renderPendingVenues().
+  let list = myVenues().filter(v => !v.pendingApproval).filter(v => !search || v.name.toLowerCase().includes(search));
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
   if(!list.length){
@@ -19107,6 +19351,140 @@ async function unflagVenue(id){
   await persistVenue(v);
   muni_showToast(`${v.name} has been unflagged.`);
   renderVenues();
+}
+
+// ==================== Venues Pending Review (Accept/Reject) ====================
+let acceptingVenueId = null;
+let rejectingVenueId = null;
+
+function openVenueAcceptModal(id){
+  if(!hasPerm('manageVenues')){
+    muni_showToast("You don't have permission to manage the venue database.");
+    return;
+  }
+  const v = pendingVenues().find(v => v.id === id);
+  if(!v) return;
+  acceptingVenueId = id;
+  document.getElementById('venueAcceptModalSub').textContent =
+    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment.`;
+  document.getElementById('venueAcceptCostInput').value = '';
+  document.getElementById('venueAcceptModal').classList.remove('hidden');
+}
+function closeVenueAcceptModal(){
+  document.getElementById('venueAcceptModal').classList.add('hidden');
+  acceptingVenueId = null;
+}
+
+function openVenueRejectModal(id){
+  if(!hasPerm('manageVenues')){
+    muni_showToast("You don't have permission to manage the venue database.");
+    return;
+  }
+  rejectingVenueId = id;
+  document.getElementById('venueRejectReasonInput').value = '';
+  document.getElementById('venueRejectModal').classList.remove('hidden');
+}
+function closeVenueRejectModal(){
+  document.getElementById('venueRejectModal').classList.add('hidden');
+  rejectingVenueId = null;
+}
+
+// Applies a Venue Cost the officer just attached to a newly-accepted venue
+// to the SAME application that suggested it, as an additional payment
+// request — the exact mechanism requestAdditionalPayment() already uses for
+// a manually-typed request, just raised automatically here instead. Shared
+// out of both call sites so the two never drift apart.
+async function chargeVenueCostToApplication(appNumber, venueName, cost){
+  const a = applications.find(x => x.appNumber === appNumber);
+  if(!a) return;
+  if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
+  a.additionalPaymentRequests.push({
+    amount: cost,
+    reason: `Venue Cost — ${venueName} (assessed on acceptance into the venue database)`,
+    status: 'Pending',
+    requestedBy: currentUser.name,
+    requestedDate: new Date().toISOString().slice(0, 10),
+    receiptNumber: '', notes: '',
+    applicantFileName: '', applicantUploadedDate: '',
+    documentedBy: '', documentedDate: ''
+  });
+  await persistIfFromStorage(a);
+  const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+  if(applicantEmail){
+    window.atdNotifyApplicant(applicantEmail, 'additional_payment_requested',
+      `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(cost)} (Venue Cost) for ${a.appNumber}.`, a.appNumber);
+  }
+  if(activeAppId === a.id) renderAppDetail();
+}
+
+async function submitAcceptPendingVenue(){
+  const cost = parseFloat(document.getElementById('venueAcceptCostInput').value);
+  if(!cost || cost <= 0){
+    muni_showToast('Please enter the venue cost — this is required before a pending venue can be accepted.');
+    return;
+  }
+  const v = venues.find(v => v.id === acceptingVenueId);
+  if(!v) return;
+
+  v.cost = cost;
+  v.active = true;
+  v.pendingApproval = false;
+  v.approvedBy = currentUser.name;
+  v.approvedAt = new Date().toISOString();
+  await persistVenue(v);
+
+  if(v.sourceAppNumber){
+    const a = applications.find(x => x.appNumber === v.sourceAppNumber);
+    if(a){
+      a.venueRegistryStatus = 'accepted';
+      await persistIfFromStorage(a);
+    }
+    await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+  }
+
+  muni_showToast(`${v.name} added to your venue database. An additional payment of ${muni_formatCurrency(cost)} has been requested${v.sourceAppNumber ? ' on ' + v.sourceAppNumber : ''}.`);
+  closeVenueAcceptModal();
+  renderVenues();
+  renderPendingVenues();
+  muni_renderAll();
+}
+
+async function submitRejectPendingVenue(){
+  const reason = document.getElementById('venueRejectReasonInput').value.trim();
+  if(!reason){
+    muni_showToast('Please provide a reason for rejecting this venue.');
+    return;
+  }
+  const v = venues.find(v => v.id === rejectingVenueId);
+  if(!v) return;
+
+  v.pendingApproval = false;
+  v.rejected = true;
+  v.rejectReason = reason;
+  v.rejectedBy = currentUser.name;
+  v.rejectedAt = new Date().toISOString();
+  await persistVenue(v);
+
+  if(v.sourceAppNumber){
+    const a = applications.find(x => x.appNumber === v.sourceAppNumber);
+    if(a){
+      a.venueRegistryStatus = 'rejected';
+      a.venueRegistryRejectReason = reason;
+      await persistIfFromStorage(a);
+      const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+      if(applicantEmail){
+        window.atdNotifyApplicant(applicantEmail, 'venue_rejected',
+          `${myMunicipalityName()} could not add the venue you entered on ${a.appNumber} to the venue database: ${reason}`, a.appNumber);
+      }
+      if(activeAppId === a.id) renderAppDetail();
+    }
+  }
+
+  muni_showToast(`${v.name} has been rejected and will not be added to the venue database.`);
+  closeVenueRejectModal();
+  renderVenues();
+  renderPendingVenues();
+  muni_renderAll();
 }
 
 // ==================== Advertisements ====================
@@ -20590,7 +20968,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -20632,6 +21010,7 @@ function applyRoleDefaults(){
   document.getElementById('permApprove').checked = defaults.approve;
   document.getElementById('permApproveCapped').checked = !!defaults.approveCapped;
   document.getElementById('permManageUsers').checked = defaults.manageUsers;
+  document.getElementById('permManageVenues').checked = !!defaults.manageVenues;
 }
 
 function generateUserPassword(){
@@ -20662,6 +21041,7 @@ function openUserModal(id){
     document.getElementById('permApprove').checked = !!u.permissions.approve;
     document.getElementById('permApproveCapped').checked = !!u.permissions.approveCapped;
     document.getElementById('permManageUsers').checked = !!u.permissions.manageUsers;
+    document.getElementById('permManageVenues').checked = !!u.permissions.manageVenues;
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
   } else {
@@ -20693,7 +21073,8 @@ async function saveUser(){
     review: document.getElementById('permReview').checked,
     approve: document.getElementById('permApprove').checked,
     approveCapped: document.getElementById('permApproveCapped').checked,
-    manageUsers: document.getElementById('permManageUsers').checked
+    manageUsers: document.getElementById('permManageUsers').checked,
+    manageVenues: document.getElementById('permManageVenues').checked
   };
 
   if(!name || !email){
@@ -21079,7 +21460,26 @@ function renderSubmissionColumn(a){
     : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>';
   html += `<div class="panel"><div class="detail-section-title">Application Costs</div>`;
   html += `<div class="detail-row"><div class="dr-label">Application fee <span style="font-weight:400;">(payable to Atendify)</span></div><div class="dr-value">${muni_formatCurrency(r.costs.applicationFee)}${appFeeTag}</div></div>`;
-  html += detailRow('Venue cost', muni_formatCurrency(r.costs.venueCost));
+  // The venue on this application was either picked from this municipality's
+  // own registered venues (an already-assessed "Venue Cost") or typed in
+  // manually by the applicant — in which case this line is the flat,
+  // standard $5,000 Venue Inspection Fee, NOT that venue's real assessed
+  // cost. Labeling it plainly here (rather than the generic "Venue cost"
+  // every application used to show) is what lets a reviewing officer tell,
+  // at a glance, which one they're looking at — see a.venueIsNew below for
+  // the venue database's own review status, which is where that venue's
+  // real cost gets billed separately once accepted.
+  html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost));
+  if(a.venueIsNew){
+    const registryLabel = a.venueRegistryStatus === 'accepted'
+      ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
+      : a.venueRegistryStatus === 'rejected'
+        ? `Rejected${a.venueRegistryRejectReason ? ' — ' + muni_escapeHtml(a.venueRegistryRejectReason) : ''}`
+        : (hasPerm('manageVenues')
+          ? 'Pending review — see Venues Pending Review on the Venues page'
+          : 'Pending review by a staff member who can manage the venue database');
+    html += detailRow('Venue database status', registryLabel);
+  }
   html += detailRow('Advertisement total', muni_formatCurrency(r.costs.adTotal));
   html += `<div class="detail-row" style="border-top:1px solid var(--border-color); margin-top:2px; padding-top:10px;"><div class="dr-label"><strong>Payable to ${muni_escapeHtml(myMunicipalityName())}</strong></div><div class="dr-value"><strong>${muni_formatCurrency(municipalAmount)}</strong>${municipalFeeTag}</div></div>`;
   html += detailRow('Total (incl. Atendify fee)', muni_formatCurrency(r.costs.total));
@@ -21822,6 +22222,8 @@ async function persistIfFromStorage(a){
     a.raw.permitGenerated = a.permitGenerated;
     a.raw.permit = a.permit || null;
     a.raw.additionalPaymentRequests = a.additionalPaymentRequests || [];
+    a.raw.venueRegistryStatus = a.venueRegistryStatus || '';
+    a.raw.venueRegistryRejectReason = a.venueRegistryRejectReason || '';
     a.raw.paymentVerifiedAt = a.paymentVerifiedAt || '';
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
@@ -22332,6 +22734,9 @@ async function loadSubmittedApplications(silent){
         requiredDocumentsSubmitted: !!rec.requiredDocumentsSubmitted,
         venueApproved: !!rec.venueApproved,
         venueIsNew: !!(rec.costs && rec.costs.venueIsNew),
+        venueRegistryStatus: rec.venueRegistryStatus || '',
+        venueRegistryVenueId: rec.venueRegistryVenueId || '',
+        venueRegistryRejectReason: rec.venueRegistryRejectReason || '',
         permitGenerated: !!rec.permitGenerated,
         permit: rec.permit || null,
         additionalPaymentRequests: rec.additionalPaymentRequests || [],
@@ -22673,6 +23078,15 @@ window.openPromotionModal = openPromotionModal;
 window.closePromotionModal = closePromotionModal;
 window.savePromotion = savePromotion;
 window.togglePromotionStatus = togglePromotionStatus;
+window.loadVenues = loadVenues;
+window.renderPendingVenues = renderPendingVenues;
+window.openVenueAcceptModal = openVenueAcceptModal;
+window.closeVenueAcceptModal = closeVenueAcceptModal;
+window.submitAcceptPendingVenue = submitAcceptPendingVenue;
+window.openVenueRejectModal = openVenueRejectModal;
+window.closeVenueRejectModal = closeVenueRejectModal;
+window.submitRejectPendingVenue = submitRejectPendingVenue;
+window.muni_enterShellAsUser = muni_enterShellAsUser;
 })();</script>
 <script>(function(){
 'use strict';
@@ -27079,6 +27493,8 @@ window.updateWordCount = updateWordCount;
     venueModal: 'closeVenueModal',
     venueViewModal: 'closeVenueViewModal',
     flagVenueModal: 'closeFlagVenueModal',
+    venueAcceptModal: 'closeVenueAcceptModal',
+    venueRejectModal: 'closeVenueRejectModal',
     docModal: 'closeDocModal',
     jcfPermitModal: 'closeJcfPermitModal',
     userModal: 'closeUserModal',
