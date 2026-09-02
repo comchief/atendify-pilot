@@ -12227,6 +12227,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // to be stacked in.
     let html = '';
 
+    // Once rejected, no further action is available anywhere in the
+    // Official Use column except the Final Decision card's own "Reopen for
+    // Review" button below — every other card (Assignment, Checklist, Watch
+    // List, Comments, Review & Recommendation) is skipped entirely rather
+    // than just having its buttons disabled, so there's no way to keep
+    // working an application whose rejection hasn't been reopened. Reopening
+    // (jcfd_reopenForReview()) sets rec.status back to 'Submitted', which is
+    // what brings all of this back on the next render.
+    if(rec.status === 'Rejected'){
+      html += `<div class="official-card"><div class="status-banner bad">This application was rejected${rec.finalDecision ? ': ' + acctEscapeHtml(rec.finalDecision) : ''}. Use "Reopen for Review" below to make further changes.</div></div>`;
+    } else {
+
     // Assignment card
     html += `<div class="official-card">
       <h4>Assignment</h4>
@@ -12398,9 +12410,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `<div class="official-card"><h4>Review &amp; Recommendation</h4><p class="no-permission-note">Only a Supervisor or Chief can record a recommendation.</p></div>`;
     }
 
+    } // end of "rec.status !== 'Rejected'" gate around Assignment..Review & Recommendation
+
     // Final decision card (gated by the "decide" permission — the Chief
     // always has it; a Supervisor/Officer only if the Chief has granted it
-    // in Role Permissions).
+    // in Role Permissions). Once a decision has been made (Approved or
+    // Rejected), Approve/Reject are replaced by a single "Reopen for
+    // Review" button — reopening (jcfd_reopenForReview()) sets the status
+    // back to 'Submitted', which is what un-hides the rest of the Official
+    // Use column above and restores the Approve/Reject controls here.
     if(canDecide){
       const cl = rec.officialChecklist || {};
       const checklistLabels = {
@@ -12410,13 +12428,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         venueUseLetterSubmitted: 'the venue use letter has not been submitted'
       };
       const missingChecklistItems = Object.keys(checklistLabels).filter(key => !cl[key]).map(key => checklistLabels[key]);
+      const isDecided = rec.status === 'Approved' || rec.status === 'Rejected';
       html += `<div class="official-card">
         <h4>Final Decision</h4>
         <p class="col-desc">Current status: <strong>${acctEscapeHtml(rec.status)}</strong>${rec.permitGenerated ? ' · Permit issued (' + acctEscapeHtml(rec.permit ? rec.permit.number : '') + ')' : ''}</p>
-        ${missingChecklistItems.length && rec.status !== 'Approved' ? `<div class="status-banner warn" style="margin-top:8px;">Cannot approve yet — ${acctEscapeHtml(missingChecklistItems.join('; '))}.</div>` : ''}
-        <div class="btn-row" style="justify-content:flex-start;">
-          <button class="btn btn-primary" onclick="jcfd_openApproveModal()" ${(rec.status==='Approved' || missingChecklistItems.length) ? 'disabled' : ''} ${missingChecklistItems.length ? 'title="Complete the Official Use Checklist before approving"' : ''}>Approve &amp; issue permit</button>
-          <button class="btn" onclick="jcfd_reject()" ${rec.status==='Rejected'?'disabled':''}>Reject</button>
+        ${rec.status === 'Rejected' && rec.finalDecision ? `<div class="status-banner bad" style="margin-top:8px;">${acctEscapeHtml(rec.finalDecision)}</div>` : ''}
+        ${missingChecklistItems.length && !isDecided ? `<div class="status-banner warn" style="margin-top:8px;">Cannot approve yet — ${acctEscapeHtml(missingChecklistItems.join('; '))}.</div>` : ''}
+        ${!isDecided ? `<div class="field-group" style="margin-top:10px;"><label for="jcfd_rejectReasonInput">Reason for rejection (required to reject)</label><textarea id="jcfd_rejectReasonInput" placeholder="Explain why this application is being rejected"></textarea></div>` : ''}
+        <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
+          ${isDecided
+            ? `<button class="btn" onclick="jcfd_reopenForReview()">Reopen for Review</button>`
+            : `<button class="btn btn-primary" onclick="jcfd_openApproveModal()" ${missingChecklistItems.length ? 'disabled title="Complete the Official Use Checklist before approving"' : ''}>Approve &amp; issue permit</button>
+               <button class="btn" onclick="jcfd_reject()">Reject</button>`}
         </div>
       </div>`;
     } else if(jcfd_hasPerm('decideCapped')){
@@ -12653,9 +12676,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_showToast("You don't have permission to approve or reject this application.");
       return;
     }
+    const reasonEl = document.getElementById('jcfd_rejectReasonInput');
+    const reason = reasonEl ? reasonEl.value.trim() : '';
+    if(!reason){
+      jcfd_showToast('Please provide a reason for rejecting this application.');
+      return;
+    }
     rec.status = 'Rejected';
     rec.decidedAt = new Date().toISOString();
-    rec.finalDecision = 'Rejected by ' + jcfdCurrentUser.name;
+    rec.finalDecision = `Rejected by ${jcfdCurrentUser.name}: ${reason}`;
     rec.permitGenerated = false;
     await jcfd_saveActiveApp(rec);
     await jcfd_autoRejectLinkedPoaIfEnabled(rec);
@@ -12663,6 +12692,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_renderApplicationDetail();
   }
   window.jcfd_reject = jcfd_reject;
+
+  // Undoes a Final Decision (Approved or Rejected) so the application can be
+  // worked again — sets status back to 'Submitted', which is what un-hides
+  // the rest of the Official Use column (see jcfd_renderApplicationDetail's
+  // "rec.status !== 'Rejected'" gate) and restores the Approve/Reject
+  // controls on the Final Decision card itself. Does not clear
+  // rec.finalDecision/rec.permit (kept as a historical record of the prior
+  // decision until a new one overwrites them); permitGenerated is cleared so
+  // a stale "Issued Permit" card doesn't keep showing while a new decision
+  // is pending.
+  async function jcfd_reopenForReview(){
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    if(!jcfd_canDecideApp(rec)){
+      jcfd_showToast("You don't have permission to reopen this application for review.");
+      return;
+    }
+    if(!(await window.atdConfirm('Reopen this application for review? This allows a new final decision to be made.'))) return;
+    rec.status = 'Submitted';
+    rec.permitGenerated = false;
+    await jcfd_saveActiveApp(rec);
+    jcfd_showToast('Application reopened for review.');
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_reopenForReview = jcfd_reopenForReview;
 
   // If this municipality has turned on "Auto-reject application if JCF
   // rejects the linked JCF application" (CEO Settings page), mark the linked
@@ -12679,10 +12733,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(!poaResult || !poaResult.value) return;
       const poaRec = JSON.parse(poaResult.value);
       if(poaRec.status === 'Rejected') return;
+      const rejectedBy = jcfdCurrentUser ? jcfdCurrentUser.name : 'JCF';
+      const autoRejectMessage = `Auto-rejected: JCF Noise Abatement Permit application ${rec.jcfAppNumber || ''} was rejected by ${rejectedBy}${rec.finalDecision ? ' (' + rec.finalDecision + ')' : ''}.`;
       poaRec.status = 'Rejected';
       poaRec.recommendation = 'Recommend Reject';
-      poaRec.recommendedBy = `Auto-rejected: JCF Noise Abatement Permit application ${rec.jcfAppNumber || ''} was rejected by ${jcfdCurrentUser ? jcfdCurrentUser.name : 'JCF'}.`;
+      poaRec.recommendedBy = autoRejectMessage;
+      // finalDecision is what every other "outcome" display in this app
+      // reads (see acct_showJcfSummary's own `rec.finalDecision || 'Rejected
+      // by JCF'` fallback, and jcfApp.finalDecision on the Municipal side's
+      // "JCF Approval Granted" card) — the auto-reject path used to only set
+      // recommendedBy, which nothing applicant-facing ever displays, so the
+      // applicant's own Main Menu correctly flipped to a "Rejected" badge on
+      // next load but never showed *why*.
+      poaRec.finalDecision = autoRejectMessage;
       await window.storage.set(`application:${rec.poaAppNumber}`, JSON.stringify(poaRec), true);
+
+      // This is the actual "communicated to the Applicant" step that was
+      // entirely missing before: a manual Municipal rejection (setFinalStatus)
+      // always emails + in-app-notifies the applicant, but this auto-reject
+      // path wrote straight to storage and never went through either —
+      // meaning an applicant whose JCF filing got auto-rejected the linked
+      // POA application saw nothing at all until/unless they happened to
+      // reload their Main Menu on their own.
+      const applicantEmail = poaRec.applicant && poaRec.applicant.email;
+      if(applicantEmail){
+        const applicantName = poaRec.applicant && poaRec.applicant.name;
+        window.atdSendEmail('application_rejected', applicantEmail, {
+          appNumber: poaRec.appNumber, applicantName, municipalityName: poaRec.municipalityName
+        });
+        window.atdNotifyApplicant(applicantEmail, 'application_rejected', autoRejectMessage, poaRec.appNumber);
+      }
     } catch(err){
       // best-effort only — the JCF rejection itself already succeeded
     }
@@ -21778,6 +21858,26 @@ async function renderAppDetail(){
   const cards = document.getElementById('officialUseCards');
   let cardsHtml = '';
 
+  // Computed live (see muni_computeRequiredDocumentsSubmitted) and hoisted
+  // above the Rejected/not-Rejected gate below because the Final Decision
+  // card's missing-items check further down needs it regardless of which
+  // branch of that gate ran — declaring it only inside the "not Rejected"
+  // branch (as it originally was, before that gate existed) left it out of
+  // scope there and threw a ReferenceError on every non-Rejected render.
+  const liveRequiredDocsSubmitted = muni_computeRequiredDocumentsSubmitted(a);
+
+  // Once rejected, no further action is available anywhere in the Official
+  // Use column except the Final Decision card's own "Reopen for review"
+  // button below — mirrors the same restriction on the JCF Division portal
+  // (jcfd_renderApplicationDetail). Every other card (Watchlist, Document
+  // Check, JCF Approval Granted, Payment Verification, Additional Payment,
+  // Review & Recommendation) is skipped entirely rather than just having its
+  // buttons disabled. Reopening (muni_reopenForReview()) sets a.status back
+  // to 'Pending Approval', which is what brings all of this back.
+  if(a.status === 'Rejected'){
+    cardsHtml += `<div class="official-card"><div class="status-banner bad">This application was rejected${a.finalDecision ? ': ' + muni_escapeHtml(a.finalDecision) : ''}. Use "Reopen for review" below to make further changes.</div></div>`;
+  } else {
+
   // ---- Watchlist card ----
   const applicantTrn = a.raw && a.raw.applicant ? a.raw.applicant.trn : '';
   const wlEntry = findWatchlistEntry(applicantTrn);
@@ -21831,7 +21931,6 @@ async function renderAppDetail(){
   const docBreakdown = muni_computeDocBreakdown(a);
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
   const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
-  const liveRequiredDocsSubmitted = muni_computeRequiredDocumentsSubmitted(a);
   const canEditDocCheck = hasPerm('review');
   cardsHtml += `<div class="official-card"><h4>Document Check</h4>`;
   cardsHtml += `
@@ -22047,6 +22146,8 @@ async function renderAppDetail(){
   }
   cardsHtml += `</div>`;
 
+  } // end of "a.status !== 'Rejected'" gate around Watchlist..Review & Recommendation
+
   // ---- Final decision card ----
   cardsHtml += `<div class="official-card"><h4>Final Decision</h4>`;
   if(muni_canDecideApp(a)){
@@ -22064,15 +22165,17 @@ async function renderAppDetail(){
         cardsHtml += `<div class="status-banner warn">Cannot approve yet — ${muni_escapeHtml(missingItems.join('; '))}.</div>`;
       }
       cardsHtml += `
-        <div class="action-btn-row">
+        <div class="field-group" style="margin-top:10px;"><label for="rejectReasonInput">Reason for rejection (required to reject)</label><textarea id="rejectReasonInput" placeholder="Explain why this application is being rejected"></textarea></div>
+        <div class="action-btn-row" style="margin-top:10px;">
           <button class="btn btn-success btn-sm" onclick="setFinalStatus('Approved')" ${missingItems.length ? 'disabled title="Resolve the items above before approving"' : ''}>Approve application</button>
           <button class="btn btn-danger btn-sm" onclick="setFinalStatus('Rejected')">Reject application</button>
         </div>`;
     } else if(a.status === 'Approved' || a.status === 'Rejected'){
       cardsHtml += `
         <p class="recommendation-note">This application is ${a.status.toLowerCase()}.</p>
-        <div class="action-btn-row">
-          <button class="btn btn-sm" onclick="advanceStatus('Pending Approval')">Reopen for review</button>
+        ${a.status === 'Rejected' && a.finalDecision ? `<div class="status-banner bad" style="margin-top:8px;">${muni_escapeHtml(a.finalDecision)}</div>` : ''}
+        <div class="action-btn-row" style="margin-top:10px;">
+          <button class="btn btn-sm" onclick="muni_reopenForReview()">Reopen for review</button>
         </div>`;
     } else {
       cardsHtml += `<p class="recommendation-note">A final decision can be made once the application reaches Pending Approval.</p>`;
@@ -22478,6 +22581,7 @@ async function persistIfFromStorage(a){
     a.raw.paymentVerifiedAt = a.paymentVerifiedAt || '';
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
+    a.raw.finalDecision = a.finalDecision || '';
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
     return true;
   } catch(err){
@@ -22620,6 +22724,33 @@ function advanceStatus(newStatus){
   renderAppDetail();
   muni_renderAll();
 }
+
+// Undoes a Final Decision (Approved or Rejected) so the application can be
+// worked again — sets status back to 'Pending Approval', which is what
+// un-hides the rest of the Official Use column (see renderAppDetail's
+// "a.status !== 'Rejected'" gate) and restores the Approve/Reject controls
+// on the Final Decision card itself. Mirrors jcfd_reopenForReview() in the
+// JCF Division portal. Does not clear a.finalDecision (kept as a historical
+// record of the prior decision until a new one overwrites it); permitGenerated
+// is cleared so a stale "Permit" card doesn't keep showing while a new
+// decision is pending — the plain advanceStatus('Pending Approval') this
+// button used to call directly never did that.
+async function muni_reopenForReview(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!muni_canDecideApp(a)){
+    muni_showToast("You don't have permission to reopen this application for review.");
+    return;
+  }
+  if(!(await window.atdConfirm('Reopen this application for review? This allows a new final decision to be made.'))) return;
+  a.status = 'Pending Approval';
+  a.permitGenerated = false;
+  muni_showToast(`${a.appNumber} reopened for review.`);
+  persistIfFromStorage(a);
+  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.statusChange', details: `${a.appNumber} reopened for review.`, muniId: currentUser.muniId });
+  renderAppDetail();
+  muni_renderAll();
+}
+
 function setRecommendation(rec){
   const a = applications.find(a => a.id === activeAppId);
   if(a.recommendation){
@@ -22824,6 +22955,16 @@ function setFinalStatus(status){
     return;
   }
 
+  let rejectReason = '';
+  if(status === 'Rejected'){
+    const reasonEl = document.getElementById('rejectReasonInput');
+    rejectReason = reasonEl ? reasonEl.value.trim() : '';
+    if(!rejectReason){
+      muni_showToast('Please provide a reason for rejecting this application.');
+      return;
+    }
+  }
+
   if(status === 'Approved'){
     const missingItems = [];
     if(!a.paymentVerified) missingItems.push('payment has not been verified');
@@ -22863,12 +23004,15 @@ function setFinalStatus(status){
     }
     muni_showToast(`${a.appNumber} approved. Permit ${permit.number} generated${applicantEmail ? ` and emailed to ${applicantEmail}` : ''}.`);
   } else {
+    if(status === 'Rejected'){
+      a.finalDecision = `Rejected by ${currentUser.name}: ${rejectReason}`;
+    }
     if(applicantEmail && status === 'Rejected'){
       window.atdSendEmail('application_rejected', applicantEmail, {
-        appNumber: a.appNumber, applicantName, municipalityName
+        appNumber: a.appNumber, applicantName, municipalityName, reason: rejectReason
       });
       window.atdNotifyApplicant(applicantEmail, 'application_rejected',
-        `Your application ${a.appNumber} was not approved by ${municipalityName}.`, a.appNumber);
+        `Your application ${a.appNumber} was not approved by ${municipalityName}: ${rejectReason}`, a.appNumber);
     }
     if(status === 'Rejected') muni_autoRejectLinkedJcfIfEnabled(a);
     muni_showToast(`${a.appNumber} marked as ${status}.`);
@@ -23275,6 +23419,7 @@ window.muni_refreshLoginRegistry = async function(){
 };
 window.muni_openAppModal = muni_openAppModal;
 window.muni_renderApplications = muni_renderApplications;
+window.muni_reopenForReview = muni_reopenForReview;
 window.openAdModal = openAdModal;
 window.openApplicantFileModal = openApplicantFileModal;
 window.openDocModal = openDocModal;
