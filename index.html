@@ -14133,6 +14133,15 @@ window.poa_applyPromoCode = poa_applyPromoCode;
 
 function showMuniSelect(){
   document.getElementById('poa_infoPage').classList.add('hidden');
+  // Same reasoning as startApplication()'s own fix just below: this tab
+  // could be showing the Main Menu (opened moments earlier, or silently
+  // restored by poa_tryRestoreMainMenu()) or the wizard itself (an
+  // applicant backing out of an in-progress application to start a
+  // different one) when this is reached — hide both explicitly rather than
+  // trusting whatever this tab happened to be showing before.
+  document.getElementById('trackPage').classList.add('hidden');
+  document.getElementById('mainMenuPage').classList.add('hidden');
+  document.getElementById('poa_applicationFlow').classList.add('hidden');
   document.getElementById('muniSelectPage').classList.remove('hidden');
   window.scrollTo({top:0, behavior:'smooth'});
   // Refresh from the shared registry every time an applicant reaches this
@@ -14180,6 +14189,25 @@ async function confirmMuniSelect(){
 async function startApplication(){
   document.getElementById('muniSelectPage').classList.add('hidden');
   document.getElementById('poa_infoPage').classList.add('hidden');
+  // Fix: this used to leave trackPage/mainMenuPage exactly as they were,
+  // which was fine for the ONLY caller this originally had (confirmMuniSelect(),
+  // reached from poa_infoPage/muniSelectPage, where neither could possibly
+  // be showing yet). poa_resumeDraft() later started calling this too —
+  // and a logged-in applicant reaches "Resume application" from their
+  // Dashboard regardless of what this same tab was last showing, which can
+  // easily be another application's Main Menu (opened moments earlier, or
+  // silently restored on this exact page load by poa_tryRestoreMainMenu()'s
+  // own refresh-survival marker in sessionStorage). Without this, the two
+  // views stacked on the same page at once — the wizard's current step
+  // showing right above a stale Main Menu (tracking-code banner, payment
+  // stepper and all) for a completely different application — confirmed
+  // live from a user report showing exactly that. openMainMenu() already
+  // hides poa_applicationFlow when it takes over; this is the missing other
+  // half, so starting or resuming an application always fully replaces
+  // whatever this tab was showing before, the same way every other
+  // view-switch in this wizard already does.
+  document.getElementById('trackPage').classList.add('hidden');
+  document.getElementById('mainMenuPage').classList.add('hidden');
   document.getElementById('poa_applicationFlow').classList.remove('hidden');
   document.getElementById('stepHeaderMuni').textContent = selectedMunicipality ? selectedMunicipality.name : '—';
   // Step 3's advertisement-approval disclaimer used to hardcode "the St.
