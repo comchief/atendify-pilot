@@ -3731,6 +3731,30 @@
       return res.data || [];
     },
 
+    // Public read of the one municipality-settings field an applicant's Main
+    // Menu actually needs before the License Fee is paid — whether this
+    // municipality allows deferring it until after JCF approval (the CEO's
+    // Settings > "Municipal Fee Payment Timing" toggle, saveMuniSettings()).
+    // The 'municipality:{muniId}:settings' row's own RLS ("kv_store: muni
+    // staff read own agency records (key muniId)") only grants SELECT to
+    // authenticated muni staff — there's no policy letting a genuinely
+    // anonymous or signed-in poa applicant read that row at all, so
+    // poa_refreshMuniSettings()'s old plain window.storage.get() was always
+    // silently denied for every applicant, leaving currentMuniSettings null
+    // and the Main Menu falling back to "requires the License Fee to be paid
+    // immediately" regardless of what the CEO actually configured (Fix #40,
+    // backend/fix40_public_muni_payment_timing.sql). Same narrow
+    // SECURITY DEFINER pattern as verifyPermit/publicVenues above — returns
+    // only this one boolean, never the full settings row.
+    publicMuniPaymentTiming: async function (muniNumber) {
+      if (!client) return false;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_public_muni_payment_timing', { p_muni_number: muniNumber });
+      });
+      if (res.error) { window.atdShowDebugError('publicMuniPaymentTiming(' + muniNumber + ')', res.error); return false; }
+      return !!res.data;
+    },
+
     // Pre-loads a manually-entered venue into the venue database as a
     // pending entry the moment an applicant submits it on a POA application
     // (Fix #35, backend/fix35_submit_pending_venue.sql) — see submitApp()'s
@@ -16292,7 +16316,22 @@ async function poa_refreshLinkedJcfApp(){
 
 async function poa_refreshMuniSettings(){
   currentMuniSettings = null;
-  if(!window.storage || !currentAppRecord || !currentAppRecord.muniId) return;
+  if(!currentAppRecord || !currentAppRecord.muniId) return;
+  // An applicant (anonymous guest or signed-in poa account) has no RLS grant
+  // to read the 'municipality:{muniId}:settings' row directly — see Fix #40
+  // — so go through the public RPC first, which is the only way this ever
+  // resolves to anything but null on the deployed backend. The plain
+  // window.storage.get() below stays only as a fallback for the local-
+  // storage-shim test/demo harness (no real backend configured, no RLS to
+  // work around), and as a last resort if the RPC call itself throws.
+  if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.publicMuniPaymentTiming){
+    try{
+      const allowDeferred = await window.ATDBackend.publicMuniPaymentTiming(currentAppRecord.muniId);
+      currentMuniSettings = { allowDeferredMunicipalPayment: !!allowDeferred };
+      return;
+    } catch(err){ /* fall through to the plain read below */ }
+  }
+  if(!window.storage) return;
   try{
     const result = await window.storage.get(`municipality:${currentAppRecord.muniId}:settings`, true);
     if(result && result.value) currentMuniSettings = JSON.parse(result.value);
