@@ -10420,6 +10420,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_logout = acct_logout;
 
+  // Companion to muni_tryRestoreSession/jcfd_tryRestoreSession/
+  // admin_tryRestoreSession (see atdBootstrapSessionRestore) — same idea,
+  // for the applicant's own self-service Account portal. Supabase Auth's
+  // session already survives a page refresh on its own (supabase-js
+  // persists it in localStorage by default); what was missing was anything
+  // that noticed that persisted session on load and re-populated
+  // acct_currentUser / showed the logged-in dashboard instead of the public
+  // landing page. Returns true only once the matching accountUser profile
+  // record is actually found and shown, so a stale/deleted account still
+  // falls through to the normal logged-out landing page exactly as before
+  // this existed.
+  async function acct_tryRestoreSession(profile){
+    try{
+      if(!window.storage) return false;
+      const email = String((profile && profile.email) || '').toLowerCase();
+      if(!email) return false;
+      const result = await window.storage.get('accountUser:' + email, true);
+      if(!result || !result.value) return false;
+      acct_currentUser = JSON.parse(result.value);
+      showHub('account');
+      acct_showLoggedInUI();
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+  window.acct_tryRestoreSession = acct_tryRestoreSession;
+
   // Sets the sidebar avatar circle (#acct_avatarInitial) to the applicant's
   // uploaded photo if they have one, otherwise falls back to their name's
   // first initial — then refreshes the public/POA header avatar (see
@@ -14577,6 +14605,42 @@ function poa_formatTrnValue(digits){
   if(digits.length <= 6) return digits.slice(0,3) + '-' + digits.slice(3);
   return digits.slice(0,3) + '-' + digits.slice(3,6) + '-' + digits.slice(6);
 }
+
+// Reported as "typing lag" / "the words are lagging behind how it is being
+// typed" — what was actually happening: every formatter below rewrote the
+// input's ENTIRE value on every keystroke (el.value = ...), and assigning
+// .value always snaps the caret to the very end of the new string. So on
+// every single character typed into the TRN/phone fields, the cursor got
+// silently kicked to the end regardless of where the applicant was actually
+// typing — backspacing or correcting a digit in the middle felt exactly
+// like the display falling behind their keystrokes, especially typing at
+// normal speed. This helper reformats the same way but recomputes and
+// restores the caret position afterward, by counting how many digits sat
+// before the caret pre-format and walking the newly-formatted string to the
+// same digit count — so the caret stays put relative to the digits around
+// it instead of jumping to the end every time.
+function poa_reformatPreservingCaret(el, formatFn){
+  const caretWasAtEnd = el.selectionStart === el.value.length;
+  const digitsBeforeCaret = el.value.slice(0, el.selectionStart == null ? el.value.length : el.selectionStart).replace(/\D/g, '').length;
+  const digits = el.value.replace(/\D/g, '');
+  el.value = formatFn(digits);
+  if(caretWasAtEnd){
+    // Typing at the end (the overwhelmingly common case) — leave the
+    // browser's own end-of-value caret placement alone, no extra work.
+    return;
+  }
+  let seen = 0, pos = el.value.length;
+  if(digitsBeforeCaret === 0){
+    pos = 0;
+  } else {
+    for(let i = 0; i < el.value.length; i++){
+      if(/\d/.test(el.value[i])) seen++;
+      if(seen === digitsBeforeCaret){ pos = i + 1; break; }
+    }
+  }
+  el.setSelectionRange(pos, pos);
+}
+
 function poa_attachTrnFormatter(id){
   const el = document.getElementById(id);
   if(!el) return;
@@ -14584,8 +14648,7 @@ function poa_attachTrnFormatter(id){
   el.setAttribute('maxlength', '11');
   el.setAttribute('inputmode', 'numeric');
   el.addEventListener('input', ()=>{
-    const digits = el.value.replace(/\D/g, '');
-    el.value = poa_formatTrnValue(digits);
+    poa_reformatPreservingCaret(el, poa_formatTrnValue);
   });
 }
 
@@ -14603,8 +14666,7 @@ function poa_attachPhoneFormatter(id){
   el.setAttribute('maxlength', '14');
   el.setAttribute('inputmode', 'tel');
   el.addEventListener('input', ()=>{
-    const digits = el.value.replace(/\D/g, '');
-    el.value = poa_formatPhoneValue(digits);
+    poa_reformatPreservingCaret(el, poa_formatPhoneValue);
   });
 }
 
@@ -27655,13 +27717,14 @@ window.updateWordCount = updateWordCount;
 // exactly as before this existed.
 (async function atdBootstrapSessionRestore(){
   let restored = false;
+  let profile = null;
   try{
     // A /verify/ visitor gets the QR-check page and nothing else — no
     // session to restore, no need to load anything portal-related. The
     // overlay is already force-hidden for this route (see top of <body>).
     if(window.ATD_IS_VERIFY_ROUTE) return;
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
-      const profile = await window.ATDBackend.getProfile();
+      profile = await window.ATDBackend.getProfile();
       if(profile){
         if(profile.role === 'muni' && window.muni_tryRestoreSession){
           restored = await window.muni_tryRestoreSession(profile);
@@ -27682,6 +27745,21 @@ window.updateWordCount = updateWordCount;
     // same way in the local-only preview environment.
     if(!restored && window.poa_tryRestoreMainMenu){
       restored = await window.poa_tryRestoreMainMenu();
+    }
+    // Still nothing restored, but the profile fetched above IS a signed-in
+    // applicant (atd_handle_new_user defaults every non-staff signup to role
+    // 'poa') who simply wasn't sitting on one specific application's Main
+    // Menu (no sessionStorage marker for poa_tryRestoreMainMenu to find) —
+    // e.g. they were on their Account Dashboard, Profile, History, Permits
+    // or Wallet view instead. Every staff portal already gets this same
+    // treatment above (muni/jcfd/admin); the applicant's own self-service
+    // Account portal never did, so a plain refresh always silently logged
+    // them out of it and dropped them to the public landing page even
+    // though their Supabase Auth session was still perfectly valid — the
+    // exact same class of bug already fixed for staff (Fix #43, no backend
+    // change needed — see acct_tryRestoreSession).
+    if(!restored && profile && profile.role === 'poa' && window.acct_tryRestoreSession){
+      restored = await window.acct_tryRestoreSession(profile);
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
