@@ -12610,7 +12610,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
 
       if(rec.recommendation){
-        const recBadgeClass = rec.recommendation === 'Recommend Approval' ? 'badge-green'
+        // Fix #48 — the picker below now only ever offers "Recommend
+        // Approve"/"Recommend Reject" (matching the Municipal Officer
+        // portal's own Review & Recommendation card, which already had just
+        // these two). Older applications recommended before this change can
+        // still have the previous three-option wording saved
+        // ("Recommend Approval"/"Recommend Rejection"/"Needs More
+        // Information") — this keeps coloring those correctly too, rather
+        // than only recognizing the new exact strings.
+        const recBadgeClass = /^Recommend Approv/.test(rec.recommendation) ? 'badge-green'
           : (rec.recommendation === 'Needs More Information' ? 'badge-amber' : 'badge-red');
         html += `
           <p class="recommendation-note"><span class="badge ${recBadgeClass}">${acctEscapeHtml(rec.recommendation)}</span></p>
@@ -12636,9 +12644,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="field-group"><label for="jcfd_recSelect">Recommendation</label>
             <select id="jcfd_recSelect">
               <option value="">Select…</option>
-              <option value="Recommend Approval">Recommend Approval</option>
-              <option value="Recommend Rejection">Recommend Rejection</option>
-              <option value="Needs More Information">Needs More Information</option>
+              <option value="Recommend Approve">Recommend Approve</option>
+              <option value="Recommend Reject">Recommend Reject</option>
             </select>
           </div>
           <div class="field-group"><label for="jcfd_recNotes">Notes</label><textarea id="jcfd_recNotes">${acctEscapeHtml(rec.recommendationNotes || '')}</textarea></div>
