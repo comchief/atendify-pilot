@@ -14989,30 +14989,6 @@ async function poa_resumeDraft(data){
       el.value = data[id];
     }
   });
-  // Fix #47 -- venueSearch (the "pick a registered venue" dropdown) is a
-  // <select>; the generic restore loop above sets its .value directly,
-  // which never fires a 'change' event. The venueSearch 'change' listener
-  // is the ONLY thing that populates dbVenues and re-derives poa_venueName/
-  // vAddr1/vAddr2/district/maxCap/maxParking from the actual venue record
-  // -- and dbVenues otherwise only ever gets loaded by visiting Step 4
-  // (see poa_goStep()'s `if(n === 4) loadMunicipalityVenues()`). So if the
-  // applicant had picked a database venue before saving this draft, then
-  // resumes straight into a later step (e.g. Review) without happening to
-  // revisit Step 4 in this session, dbVenues stays the empty array it's
-  // initialized to. computeCosts()/buildApplicationRecord() would still
-  // see venueSearch start with 'db-...' but can never find a matching
-  // entry in an empty list, so the venue this applicant actually selected
-  // from the database silently prices at nothing. Explicitly reloading the
-  // venue list and re-firing the same selection logic here closes that gap
-  // regardless of which step the draft resumes into, and also picks up
-  // that venue's current cost/details rather than whatever was frozen into
-  // the draft when it was saved.
-  if(data.venueSearch && String(data.venueSearch).indexOf('db-') === 0){
-    await loadMunicipalityVenues();
-    const venueSelect = document.getElementById('venueSearch');
-    venueSelect.value = data.venueSearch;
-    venueSelect.dispatchEvent(new Event('change'));
-  }
   poa_goStep(data.__step || 1);
   poa_recalcAge();
 }
@@ -15770,33 +15746,6 @@ function clearDbVenueSelection(){
   document.getElementById('venueSearch').value = '';
   document.getElementById('manualVenueFields').classList.add('hidden');
   renderDbVenueCard(null);
-  // Fix #47 -- this used to reset only the dropdown itself and left
-  // poa_venueName/vAddr1/vAddr2/district/maxCap/maxParking still populated
-  // with the JUST-CLEARED database venue's own details (the venueSearch
-  // 'change' handler below writes the selected venue's name/address/
-  // capacity into these same inputs, since computeCosts()/
-  // buildApplicationRecord() read the venue name/address/capacity off
-  // these inputs regardless of whether it came from the database or was
-  // typed in manually). If the applicant clicked "Change venue" and then
-  // never picked a new one before submitting, computeCosts() saw a blank
-  // venueSearch (no 'db-...' prefix) but a non-empty poa_venueName still
-  // holding the real registered venue's own name -- misclassifying an
-  // already-registered venue as a brand-new MANUALLY typed one and
-  // charging the flat Venue Inspection Fee instead of that venue's real,
-  // already-assessed Venue Cost. Confirmed live: Harbour City Mall (a
-  // real St. James venue with a $40,000 Venue Cost on file) vs. the flat
-  // $5,000 inspection fee -- exactly the mismatch reported for
-  // POA-072026-07. Clearing these fields here makes "Change venue" an
-  // actual clean slate, so a cleared database selection's name can never
-  // survive into a submission that no longer references it.
-  document.getElementById('poa_venueName').value = '';
-  document.getElementById('vAddr1').value = '';
-  document.getElementById('vAddr2').value = '';
-  document.getElementById('district').value = '';
-  document.getElementById('maxCap').value = '';
-  document.getElementById('maxParking').value = '';
-  additionalParkingList = [];
-  renderAdditionalParking();
 }
 
 function showVenueUnavailableNotice(message){
