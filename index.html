@@ -2750,6 +2750,29 @@
   .acct-start-card .icon img{ width:40px; height:40px; object-fit:contain; }
   .acct-start-card .title{ font-weight:700; font-size:15px; }
 
+  /* "Your Upcoming Events" (approved applications with an uploaded event
+     flyer — see acct_renderDashboard()) and its detail modal
+     (acct_openEventModal()). */
+  .acct-events-row{ display:grid; grid-template-columns:repeat(auto-fill, minmax(200px,1fr)); gap:16px; margin-bottom:32px; }
+  .acct-event-card{ border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; cursor:pointer; transition:box-shadow 0.15s; }
+  .acct-event-card:hover{ box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+  .acct-event-flyer{ width:100%; height:160px; object-fit:cover; display:block; }
+  .acct-event-flyer-placeholder{
+    width:100%; height:160px; display:flex; align-items:center; justify-content:center; text-align:center;
+    background:var(--track); color:var(--text-muted); font-size:13px; font-weight:600; padding:12px; box-sizing:border-box;
+  }
+  .acct-event-info{ padding:12px 14px; }
+  .acct-event-name{ font-weight:700; font-size:14.5px; margin-bottom:4px; }
+  .acct-event-date{ font-size:12.5px; color:var(--text-muted); }
+
+  .acct-approver-row{ display:flex; flex-wrap:wrap; gap:14px; margin-top:4px; }
+  .acct-approver{ display:flex; flex-direction:column; align-items:center; gap:6px; width:84px; text-align:center; }
+  .acct-approver img, .acct-approver .acct-approver-fallback{
+    width:52px; height:52px; object-fit:contain; border-radius:8px; border:1px solid var(--border); background:#fff;
+  }
+  .acct-approver .acct-approver-fallback{ display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--text-muted); background:var(--track); }
+  .acct-approver-name{ font-size:11px; color:var(--text-muted); line-height:1.3; }
+
   .acct-app-card{
     display:flex; justify-content:space-between; align-items:center; gap:16px;
     border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; margin-bottom:12px;
@@ -9453,6 +9476,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <div class="toast" id="acct_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 </div>
 
+<!-- ===== Upcoming Event Modal (Account dashboard "Your Upcoming Events") ===== -->
+<div class="modal-overlay hidden" id="acct_eventModal">
+  <div class="modal-box">
+    <h3 id="acct_eventModalTitle">Event</h3>
+    <p class="modal-sub" id="acct_eventModalSub"></p>
+    <div class="detail-row"><div class="dr-label">Date of event</div><div class="dr-value" id="acct_eventModalDate"></div></div>
+    <div class="detail-row"><div class="dr-label">Location</div><div class="dr-value" id="acct_eventModalLocation"></div></div>
+    <div class="detail-row" id="acct_eventModalCloseOffRow"><div class="dr-label">Permit close-off time (per JCF)</div><div class="dr-value" id="acct_eventModalCloseOff"></div></div>
+    <div class="detail-row"><div class="dr-label">Approved by</div>
+      <div class="dr-value"><div class="acct-approver-row" id="acct_eventModalApprovedBy"></div></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="acct_closeEventModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="shell-jcfd" class="app-shell hidden">
   <div class="suite-back-bar">
     <button type="button" onclick="jcfd_logout()">&larr; Log out</button>
@@ -10542,7 +10582,47 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return o.rec.status !== 'Approved' && o.rec.status !== 'Rejected';
     });
 
+    // "Your Upcoming Events" — approved Places of Amusement applications
+    // for a dated event (Annual licenses have no single event date, so
+    // amusement.eventDate is only ever set on a Special Event application)
+    // whose event date hasn't passed yet. The flyer image itself has to be
+    // fetched separately (see buildApplicationRecord's note on
+    // _flierFileDataPending — it's stored under its own
+    // `applicationFlier:<appNumber>` key, not embedded in the record).
+    const today = new Date().toISOString().slice(0,10);
+    const upcomingEvents = owned.filter(function(o){
+      return o.type === 'poa' && o.rec.status === 'Approved' &&
+        o.rec.amusement && o.rec.amusement.eventDate && o.rec.amusement.eventDate >= today;
+    }).sort(function(a,b){
+      return (a.rec.amusement.eventDate || '').localeCompare(b.rec.amusement.eventDate || '');
+    });
+    const upcomingFlyers = await Promise.all(upcomingEvents.map(function(o){
+      if(!window.storage) return null;
+      return window.storage.get('applicationFlier:' + o.rec.appNumber, true).then(function(r){
+        try{ return (r && r.value) ? (JSON.parse(r.value).fileData || null) : null; }catch(e){ return null; }
+      }).catch(function(){ return null; });
+    }));
+
     let html = '<h2>Dashboard</h2>';
+
+    if(upcomingEvents.length){
+      html += '<div class="section-title" style="margin-top:8px;">Your Upcoming Events</div>' +
+        '<div class="acct-events-row">' +
+        upcomingEvents.map(function(o, i){
+          const eventName = o.rec.amusement.eventName || 'Event';
+          const flyer = upcomingFlyers[i];
+          const flyerHtml = flyer
+            ? '<img class="acct-event-flyer" src="' + flyer + '" alt="' + acctEscapeHtml(eventName) + ' flyer">'
+            : '<div class="acct-event-flyer acct-event-flyer-placeholder">' + acctEscapeHtml(eventName) + '</div>';
+          return '<div class="acct-event-card" onclick="acct_openEventModal(\'' + o.key + '\')">' +
+            flyerHtml +
+            '<div class="acct-event-info">' +
+              '<div class="acct-event-name">' + acctEscapeHtml(eventName) + '</div>' +
+              '<div class="acct-event-date">' + acctEscapeHtml(o.rec.amusement.eventDate || '') + '</div>' +
+            '</div></div>';
+        }).join('') +
+        '</div>';
+    }
 
     if(draftPoa || draftJcf || inProgress.length){
       html += '<div class="acct-tiles">';
@@ -10578,6 +10658,98 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     container.innerHTML = html;
   }
   window.acct_renderDashboard = acct_renderDashboard;
+
+  // jcfApplication's storage key is always `jcfApplication:<poaAppNumber>`
+  // verbatim (same convention documented on fix44_flag_poa_072026_06_promoter.sql)
+  // -- no separate lookup table needed to find the Noise Abatement filing
+  // linked to a given Places of Amusement application.
+  async function acct_findLinkedJcfApp(poaAppNumber){
+    if(!window.storage || !poaAppNumber) return null;
+    try{
+      const r = await window.storage.get('jcfApplication:' + poaAppNumber, true);
+      return (r && r.value) ? JSON.parse(r.value) : null;
+    } catch(e){ return null; }
+  }
+
+  // Opens the "Your Upcoming Events" detail modal for one approved
+  // application. Everything except the application record itself (the
+  // Municipal Corporation's logo, the linked JCF permit and its crest) is
+  // fetched on demand rather than upfront for every card on the dashboard --
+  // same reasoning as openApplicantFileModal's on-demand file fetch.
+  async function acct_openEventModal(key){
+    try{
+      const r = await window.storage.get(key, true);
+      if(!r || !r.value) return;
+      const rec = JSON.parse(r.value);
+      const eo = rec.amusement || {};
+      const venue = rec.venue || {};
+
+      document.getElementById('acct_eventModalTitle').textContent = eo.eventName || 'Event';
+      document.getElementById('acct_eventModalSub').textContent = rec.municipalityName || '';
+      document.getElementById('acct_eventModalDate').textContent = eo.eventDate || 'N/A';
+      document.getElementById('acct_eventModalLocation').textContent =
+        [venue.name, venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ') || 'N/A';
+
+      const closeOffRow = document.getElementById('acct_eventModalCloseOffRow');
+      const closeOffEl = document.getElementById('acct_eventModalCloseOff');
+      closeOffRow.classList.add('hidden');
+      closeOffEl.textContent = '';
+
+      const approvedByEl = document.getElementById('acct_eventModalApprovedBy');
+      approvedByEl.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Loading…', 14) : 'Loading…';
+
+      document.getElementById('acct_eventModal').classList.remove('hidden');
+
+      const [muniLogo, linkedJcf] = await Promise.all([
+        window.fetchMuniLogo ? window.fetchMuniLogo(rec.muniId) : Promise.resolve(null),
+        acct_findLinkedJcfApp(rec.appNumber)
+      ]);
+
+      // The modal may have been closed (or reopened for a different event)
+      // while these fetches were in flight -- same guard
+      // openApplicantFileModal() uses for its own on-demand preview fetch.
+      if(document.getElementById('acct_eventModal').classList.contains('hidden')) return;
+
+      let approvers = '<div class="acct-approver">' +
+        (muniLogo
+          ? '<img src="' + muniLogo + '" alt="' + acctEscapeHtml(rec.municipalityName || 'Municipal Corporation') + ' logo">'
+          : '<div class="acct-approver-fallback">' + acctEscapeHtml((rec.municipalityName || 'M').charAt(0)) + '</div>') +
+        '<div class="acct-approver-name">' + acctEscapeHtml(rec.municipalityName || 'Municipal Corporation') + '</div></div>';
+
+      // Only credit the JCF Noise Abatement Division once it has actually
+      // issued a permit -- a linked JCF application that's still pending
+      // (or one that was never filed at all, e.g. an Annual license) never
+      // granted an approval to show here.
+      if(linkedJcf && linkedJcf.permitGenerated && linkedJcf.permit){
+        const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+        if(document.getElementById('acct_eventModal').classList.contains('hidden')) return;
+        const jcfDivisionName = linkedJcf.permit.divisionName || 'Jamaica Constabulary Force';
+        approvers += '<div class="acct-approver">' +
+          (jcfCrest
+            ? '<img src="' + jcfCrest + '" alt="' + acctEscapeHtml(jcfDivisionName) + ' crest">'
+            : '<div class="acct-approver-fallback">JCF</div>') +
+          '<div class="acct-approver-name">' + acctEscapeHtml(jcfDivisionName) + '</div></div>';
+
+        // expiresTime12 is the 12-hour, human-readable form of the same
+        // close-off time the permit document itself prints as "This event
+        // should end at: <time> EST." (see jcfd_buildPermitDocHtml) --
+        // that's the JCF-directed close-off time for this permit.
+        if(linkedJcf.permit.expiresTime12 || linkedJcf.permit.expiresTime){
+          closeOffEl.textContent = linkedJcf.permit.expiresTime12 || linkedJcf.permit.expiresTime;
+          closeOffRow.classList.remove('hidden');
+        }
+      }
+      approvedByEl.innerHTML = approvers;
+    } catch(err){
+      showToastFallback('Could not load that event.');
+    }
+  }
+  window.acct_openEventModal = acct_openEventModal;
+
+  function acct_closeEventModal(){
+    document.getElementById('acct_eventModal').classList.add('hidden');
+  }
+  window.acct_closeEventModal = acct_closeEventModal;
 
   function acct_resumePoaDraft(){
     acct_getDraft('poa').then(function(data){
