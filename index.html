@@ -10665,13 +10665,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         html += '<div class="acct-tile"><div class="acct-tile-label">Draft saved ' + acctEscapeHtml(draftPoa.savedDate || '') + '</div>' +
           '<div class="acct-tile-title">Places of Amusement License</div>' +
           '<div class="acct-tile-sub">Pick up where you left off.</div>' +
-          '<button class="btn btn-primary btn-sm" onclick="acct_resumePoaDraft()">Resume application</button></div>';
+          '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          '<button class="btn btn-primary btn-sm" onclick="acct_resumePoaDraft()">Resume application</button>' +
+          '<button class="btn btn-outline-danger btn-sm" onclick="acct_deleteDraft(\'poa\')">Delete draft</button>' +
+          '</div></div>';
       }
       if(draftJcf){
         html += '<div class="acct-tile"><div class="acct-tile-label">Draft saved ' + acctEscapeHtml(draftJcf.savedDate || '') + '</div>' +
           '<div class="acct-tile-title">JCF Noise Abatement Permit</div>' +
           '<div class="acct-tile-sub">Pick up where you left off.</div>' +
-          '<button class="btn btn-primary btn-sm" onclick="acct_resumeJcfDraft()">Resume application</button></div>';
+          '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+          '<button class="btn btn-primary btn-sm" onclick="acct_resumeJcfDraft()">Resume application</button>' +
+          '<button class="btn btn-outline-danger btn-sm" onclick="acct_deleteDraft(\'jcf\')">Delete draft</button>' +
+          '</div></div>';
       }
       inProgress.forEach(function(o){
         const label = o.type === 'poa' ? 'Places of Amusement License' : 'JCF Noise Abatement Permit';
@@ -10799,6 +10805,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     });
   }
   window.acct_resumeJcfDraft = acct_resumeJcfDraft;
+
+  // Deletes a saved-in-progress draft the applicant no longer wants to
+  // resume (POA or JCF). The 'accountDraft' prefix's DELETE policy was
+  // added by fix41_accountdraft_delete_policy.sql (originally so
+  // AccountBridge.clearDraft('poa'/'jcf') could actually remove the draft
+  // row after a successful submission) — this reuses that exact same
+  // policy for an applicant-initiated delete instead of an automatic one.
+  // window.storage.delete() always resolves { ok: true } even when the
+  // underlying delete is denied or fails (see storage.delete()'s own
+  // "mirror the old shim: swallow and report ok" comment; a real failure
+  // still surfaces on the shared debug panel) — the same fire-and-forget
+  // convention clearDraft() itself already relies on, so this follows it
+  // rather than inventing a new success/failure contract just for this
+  // one button.
+  async function acct_deleteDraft(type){
+    const label = type === 'jcf' ? 'JCF Noise Abatement Permit' : 'Places of Amusement License';
+    const confirmed = await window.atdConfirm(
+      `Delete your saved ${label} draft? This can't be undone — you'll need to start over from scratch if you want to apply again.`);
+    if(!confirmed) return;
+    try{
+      await window.storage.delete('accountDraft:' + acct_currentUser.email + ':' + type, true);
+    } catch(e){ /* ignore -- best effort, matches clearDraft()'s own convention elsewhere */ }
+    showToastFallback('Draft deleted.');
+    await acct_renderDashboard();
+  }
+  window.acct_deleteDraft = acct_deleteDraft;
 
   async function acct_viewApplication(type, key){
     if(type === 'poa'){
@@ -14957,6 +14989,30 @@ async function poa_resumeDraft(data){
       el.value = data[id];
     }
   });
+  // Fix #47 -- venueSearch (the "pick a registered venue" dropdown) is a
+  // <select>; the generic restore loop above sets its .value directly,
+  // which never fires a 'change' event. The venueSearch 'change' listener
+  // is the ONLY thing that populates dbVenues and re-derives poa_venueName/
+  // vAddr1/vAddr2/district/maxCap/maxParking from the actual venue record
+  // -- and dbVenues otherwise only ever gets loaded by visiting Step 4
+  // (see poa_goStep()'s `if(n === 4) loadMunicipalityVenues()`). So if the
+  // applicant had picked a database venue before saving this draft, then
+  // resumes straight into a later step (e.g. Review) without happening to
+  // revisit Step 4 in this session, dbVenues stays the empty array it's
+  // initialized to. computeCosts()/buildApplicationRecord() would still
+  // see venueSearch start with 'db-...' but can never find a matching
+  // entry in an empty list, so the venue this applicant actually selected
+  // from the database silently prices at nothing. Explicitly reloading the
+  // venue list and re-firing the same selection logic here closes that gap
+  // regardless of which step the draft resumes into, and also picks up
+  // that venue's current cost/details rather than whatever was frozen into
+  // the draft when it was saved.
+  if(data.venueSearch && String(data.venueSearch).indexOf('db-') === 0){
+    await loadMunicipalityVenues();
+    const venueSelect = document.getElementById('venueSearch');
+    venueSelect.value = data.venueSearch;
+    venueSelect.dispatchEvent(new Event('change'));
+  }
   poa_goStep(data.__step || 1);
   poa_recalcAge();
 }
@@ -15714,6 +15770,33 @@ function clearDbVenueSelection(){
   document.getElementById('venueSearch').value = '';
   document.getElementById('manualVenueFields').classList.add('hidden');
   renderDbVenueCard(null);
+  // Fix #47 -- this used to reset only the dropdown itself and left
+  // poa_venueName/vAddr1/vAddr2/district/maxCap/maxParking still populated
+  // with the JUST-CLEARED database venue's own details (the venueSearch
+  // 'change' handler below writes the selected venue's name/address/
+  // capacity into these same inputs, since computeCosts()/
+  // buildApplicationRecord() read the venue name/address/capacity off
+  // these inputs regardless of whether it came from the database or was
+  // typed in manually). If the applicant clicked "Change venue" and then
+  // never picked a new one before submitting, computeCosts() saw a blank
+  // venueSearch (no 'db-...' prefix) but a non-empty poa_venueName still
+  // holding the real registered venue's own name -- misclassifying an
+  // already-registered venue as a brand-new MANUALLY typed one and
+  // charging the flat Venue Inspection Fee instead of that venue's real,
+  // already-assessed Venue Cost. Confirmed live: Harbour City Mall (a
+  // real St. James venue with a $40,000 Venue Cost on file) vs. the flat
+  // $5,000 inspection fee -- exactly the mismatch reported for
+  // POA-072026-07. Clearing these fields here makes "Change venue" an
+  // actual clean slate, so a cleared database selection's name can never
+  // survive into a submission that no longer references it.
+  document.getElementById('poa_venueName').value = '';
+  document.getElementById('vAddr1').value = '';
+  document.getElementById('vAddr2').value = '';
+  document.getElementById('district').value = '';
+  document.getElementById('maxCap').value = '';
+  document.getElementById('maxParking').value = '';
+  additionalParkingList = [];
+  renderAdditionalParking();
 }
 
 function showVenueUnavailableNotice(message){
@@ -19932,7 +20015,7 @@ function openVenueAcceptModal(id){
   if(!v) return;
   acceptingVenueId = id;
   document.getElementById('venueAcceptModalSub').textContent =
-    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment.`;
+    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment — crediting the Venue Inspection Fee they already paid at submission, so they're never charged twice for the same venue.`;
   document.getElementById('venueAcceptCostInput').value = '';
   document.getElementById('venueAcceptModal').classList.remove('hidden');
 }
@@ -19960,27 +20043,50 @@ function closeVenueRejectModal(){
 // request — the exact mechanism requestAdditionalPayment() already uses for
 // a manually-typed request, just raised automatically here instead. Shared
 // out of both call sites so the two never drift apart.
+//
+// Fix #46 — this used to bill the FULL assessed cost here, on top of the
+// flat $VENUE_INSPECTION_FEE "Venue Inspection Fee" (see computeCosts())
+// the applicant already paid as part of costs.total at submission time for
+// this manually-added venue. That double-charged every applicant whose
+// manually-entered venue got accepted into the database: e.g. Harbour City
+// Mall (a real St. James venue with an assessed Venue Cost of $40,000 —
+// confirmed live via Claude in Chrome against
+// https://www.atendifyapp.com/'s public venue picker) has to have been
+// manually typed rather than selected from the dropdown on POA-072026-07,
+// so the applicant was billed the $5,000 flat inspection fee at
+// submission, and would ALSO have been billed the full $40,000 again here
+// once the venue was accepted — $45,000 total for a venue a database
+// selection would have correctly charged $40,000 for. This credits the
+// inspection fee already paid against the newly-assessed cost and bills
+// only the difference (never bills a negative amount, and skips raising a
+// request at all once the inspection fee already covers the assessed
+// cost).
 async function chargeVenueCostToApplication(appNumber, venueName, cost){
   const a = applications.find(x => x.appNumber === appNumber);
-  if(!a) return;
-  if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
-  a.additionalPaymentRequests.push({
-    amount: cost,
-    reason: `Venue Cost — ${venueName} (assessed on acceptance into the venue database)`,
-    status: 'Pending',
-    requestedBy: currentUser.name,
-    requestedDate: new Date().toISOString().slice(0, 10),
-    receiptNumber: '', notes: '',
-    applicantFileName: '', applicantUploadedDate: '',
-    documentedBy: '', documentedDate: ''
-  });
-  await persistIfFromStorage(a);
-  const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
-  if(applicantEmail){
-    window.atdNotifyApplicant(applicantEmail, 'additional_payment_requested',
-      `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(cost)} (Venue Cost) for ${a.appNumber}.`, a.appNumber);
+  if(!a) return { additionalDue: cost, alreadyPaid: 0 };
+  const alreadyPaid = (a.raw && a.raw.costs && typeof a.raw.costs.venueCost === 'number') ? a.raw.costs.venueCost : 0;
+  const additionalDue = Math.round(Math.max(0, cost - alreadyPaid) * 100) / 100;
+  if(additionalDue > 0){
+    if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
+    a.additionalPaymentRequests.push({
+      amount: additionalDue,
+      reason: `Venue Cost — ${venueName} (assessed at ${muni_formatCurrency(cost)}; ${muni_formatCurrency(alreadyPaid)} inspection fee already paid is credited)`,
+      status: 'Pending',
+      requestedBy: currentUser.name,
+      requestedDate: new Date().toISOString().slice(0, 10),
+      receiptNumber: '', notes: '',
+      applicantFileName: '', applicantUploadedDate: '',
+      documentedBy: '', documentedDate: ''
+    });
+    await persistIfFromStorage(a);
+    const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+    if(applicantEmail){
+      window.atdNotifyApplicant(applicantEmail, 'additional_payment_requested',
+        `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(additionalDue)} (Venue Cost, after crediting the inspection fee you already paid) for ${a.appNumber}.`, a.appNumber);
+    }
+    if(activeAppId === a.id) renderAppDetail();
   }
-  if(activeAppId === a.id) renderAppDetail();
+  return { additionalDue, alreadyPaid };
 }
 
 async function submitAcceptPendingVenue(){
@@ -19999,16 +20105,21 @@ async function submitAcceptPendingVenue(){
   v.approvedAt = new Date().toISOString();
   await persistVenue(v);
 
+  let billing = { additionalDue: cost, alreadyPaid: 0 };
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
     if(a){
       a.venueRegistryStatus = 'accepted';
       await persistIfFromStorage(a);
     }
-    await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+    billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
   }
 
-  muni_showToast(`${v.name} added to your venue database. An additional payment of ${muni_formatCurrency(cost)} has been requested${v.sourceAppNumber ? ' on ' + v.sourceAppNumber : ''}.`);
+  const billedMsg = !v.sourceAppNumber ? ''
+    : billing.additionalDue > 0
+      ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber} (the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid was credited).`
+      : ` The ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid on ${v.sourceAppNumber} covers this cost — no additional payment is due.`;
+  muni_showToast(`${v.name} added to your venue database.${billedMsg}`);
   closeVenueAcceptModal();
   renderVenues();
   renderPendingVenues();
