@@ -20803,10 +20803,23 @@ function renderReports(){
   // totals) rather than the flat paymentAmount field, since paymentAmount
   // historically mirrored the grand total (including the Atendify fee) for
   // storage-loaded records.
-  const revenue = list.filter(a => a.paymentVerified).reduce((sum,a)=>{
-    const costs = a.raw && a.raw.costs;
-    const municipalAmount = costs ? (costs.total - costs.applicationFee) : (a.paymentAmount || 0);
-    return sum + municipalAmount;
+  //
+  // Also folds in any additional payments this municipality has requested
+  // and documented (see requestAdditionalPayment/documentAdditionalPayment)
+  // — a second, independently-verified revenue stream on top of the
+  // venue/advertisement fees baked into costs at submission time. Counted
+  // per-request (only 'Documented' ones, i.e. actually collected) rather
+  // than gated on the same application's own paymentVerified flag, since an
+  // additional payment can be documented before — or after — the original
+  // license fee is verified; they're tracked independently.
+  const revenue = list.reduce((sum,a)=>{
+    let municipalAmount = 0;
+    if(a.paymentVerified){
+      const costs = a.raw && a.raw.costs;
+      municipalAmount = costs ? (costs.total - costs.applicationFee) : (a.paymentAmount || 0);
+    }
+    const additionalCollected = (a.additionalPaymentRequests || []).reduce((s, req) => s + (req.status === 'Documented' ? (req.amount || 0) : 0), 0);
+    return sum + municipalAmount + additionalCollected;
   }, 0);
 
   document.getElementById('reportSummaryCards').innerHTML = `
@@ -23583,6 +23596,18 @@ async function admin_loadApplications(){
           // municipalityRevenue for every real record built by
           // buildApplicationRecord().
           municipalityRevenue: (rec.costs ? ((rec.costs.venueCost || 0) + (rec.costs.adTotal || 0)) : 0),
+          // Additional payments a Municipal officer has separately requested
+          // for this application (see requestAdditionalPayment /
+          // documentAdditionalPayment on the Municipal portal) — a second
+          // revenue stream on top of the venue/advertisement fees baked into
+          // costs at submission time, each with its own lifecycle
+          // (Pending -> Paid -> Documented). Billed = every request
+          // regardless of status; Collected = only ones the Municipal
+          // Accountant has actually documented as received, mirroring how
+          // paymentVerified gates the main license fee above — but tracked
+          // independently of it, since one can be verified without the other.
+          additionalPaymentBilled: (rec.additionalPaymentRequests || []).reduce((sum, req) => sum + (req.amount || 0), 0),
+          additionalPaymentCollected: (rec.additionalPaymentRequests || []).reduce((sum, req) => sum + (req.status === 'Documented' ? (req.amount || 0) : 0), 0),
           paymentVerified: !!rec.paymentVerified,
           // Atendify's own application-fee verification, distinct from
           // paymentVerified above (the municipality's license fee, verified
@@ -24084,6 +24109,16 @@ function admin_amountOwed(a, amount, applyWaiver, verifiedField){
   return Math.max(0, base - waiver);
 }
 
+// Same "still owed" idea as admin_amountOwed above, but for additional
+// payments (see requestAdditionalPayment/documentAdditionalPayment) —
+// tracked per-request rather than gated on a single verified flag, so this
+// sums whatever hasn't been documented yet across every request on the
+// application rather than checking one boolean.
+function admin_additionalPaymentOwed(a){
+  if(a.status === 'Rejected' || a.status === 'Withdrawn' || admin_isExpired(a)) return 0;
+  return Math.max(0, (a.additionalPaymentBilled || 0) - (a.additionalPaymentCollected || 0));
+}
+
 // Whole calendar days between today and a YYYY-MM-DD date string, computed
 // in local time (matches how <input type="date"> values are entered and
 // how admin_computeNextDue already handles dates elsewhere in this file).
@@ -24235,12 +24270,18 @@ async function admin_renderNationalOverview(){
   // in admin_loadApplications()). This panel is the municipality's share
   // only; Atendify's own application-fee revenue is broken out separately
   // below.
-  const totalBilled = applications.reduce((sum, a) => sum + (a.municipalityRevenue || 0), 0);
-  const totalCollected = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0), 0);
+  //
+  // Also folds in additional payments a Municipal officer has requested on
+  // top of that (see a.additionalPaymentBilled/additionalPaymentCollected
+  // in admin_loadApplications()) — a second, independently-verified
+  // municipality-side revenue stream, so it counts here the same way the
+  // base venue/advertisement fees do.
+  const totalBilled = applications.reduce((sum, a) => sum + (a.municipalityRevenue || 0) + (a.additionalPaymentBilled || 0), 0);
+  const totalCollected = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0) + (a.additionalPaymentCollected || 0), 0);
   const totalWaivers = applications.reduce((sum, a) => sum + (a.waiverAmount || 0), 0);
   const totalDiscounts = applications.reduce((sum, a) => sum + (a.discountAmount || 0), 0);
   const totalRefunds = applications.reduce((sum, a) => sum + (a.refundAmount || 0), 0);
-  const outstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.municipalityRevenue), 0);
+  const outstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.municipalityRevenue) + admin_additionalPaymentOwed(a), 0);
 
   const revenueStatsEl = document.getElementById('admin_ovwRevenueStats');
   if(revenueStatsEl){
@@ -24259,9 +24300,9 @@ async function admin_renderNationalOverview(){
   if(byMuniBody){
     byMuniBody.innerHTML = corporations.map(m => {
       const apps = applications.filter(a => a.muniId === m.muniNumber);
-      const billed = apps.reduce((sum, a) => sum + (a.municipalityRevenue || 0), 0);
-      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0), 0);
-      const owed = apps.reduce((sum, a) => sum + admin_amountOwed(a, a.municipalityRevenue), 0);
+      const billed = apps.reduce((sum, a) => sum + (a.municipalityRevenue || 0) + (a.additionalPaymentBilled || 0), 0);
+      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0) + (a.additionalPaymentCollected || 0), 0);
+      const owed = apps.reduce((sum, a) => sum + admin_amountOwed(a, a.municipalityRevenue) + admin_additionalPaymentOwed(a), 0);
       return `<tr>
         <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
         <td>${admin_formatCurrency(billed)}</td>
@@ -24275,8 +24316,8 @@ async function admin_renderNationalOverview(){
   if(byTypeBody){
     byTypeBody.innerHTML = ['Annual', 'Special'].map(type => {
       const apps = applications.filter(a => a.licenseType === type);
-      const billed = apps.reduce((sum, a) => sum + (a.municipalityRevenue || 0), 0);
-      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0), 0);
+      const billed = apps.reduce((sum, a) => sum + (a.municipalityRevenue || 0) + (a.additionalPaymentBilled || 0), 0);
+      const collected = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.municipalityRevenue || 0) : 0) + (a.additionalPaymentCollected || 0), 0);
       return `<tr><td class="cell-primary">${type}</td><td>${admin_formatCurrency(billed)}</td><td>${admin_formatCurrency(collected)}</td></tr>`;
     }).join('');
   }
@@ -25627,7 +25668,11 @@ function admin_renderReports(){
   const totalApps = applications.length;
   const approvedApps = applications.filter(a => a.status === 'Approved').length;
   const rejectedApps = applications.filter(a => a.status === 'Rejected').length;
-  const verifiedRevenue = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.paymentAmount || 0) : 0), 0);
+  // Includes documented additional payments (see additionalPaymentCollected
+  // in admin_loadApplications()) alongside the base paymentAmount — real
+  // money the platform has verified as collected, on top of whatever was
+  // billed at submission time.
+  const verifiedRevenue = applications.reduce((sum, a) => sum + (a.paymentVerified ? (a.paymentAmount || 0) : 0) + (a.additionalPaymentCollected || 0), 0);
 
   appStatsEl.innerHTML = `
     <div class="stat-card"><div class="sc-value">${totalApps}</div><div class="sc-label">Total applications</div></div>
@@ -25642,7 +25687,7 @@ function admin_renderReports(){
     const approved = apps.filter(a => a.status === 'Approved').length;
     const rejected = apps.filter(a => a.status === 'Rejected').length;
     const inProgress = apps.length - approved - rejected;
-    const revenue = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.paymentAmount || 0) : 0), 0);
+    const revenue = apps.reduce((sum, a) => sum + (a.paymentVerified ? (a.paymentAmount || 0) : 0) + (a.additionalPaymentCollected || 0), 0);
     return `<tr>
       <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
       <td>${apps.length}</td>
