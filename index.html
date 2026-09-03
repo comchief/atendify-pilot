@@ -3778,6 +3778,28 @@
       return !!res.data;
     },
 
+    // Pre-submission watch list check (Fix #45, backend/fix45_public_watchlist_check.sql)
+    // — the Municipal ('watchlist:{trn}') and JCF ('jcfWatchlist:{trn}')
+    // watch list rows are each guarded by RLS restricted to signed-in
+    // muni/jcfd staff (see supabase_schema.sql's Family 5/6 policies), so a
+    // genuinely anonymous or signed-in 'poa' applicant's own plain
+    // window.storage.get() of either key was always silently denied,
+    // exactly like publicVenues/publicMuniPaymentTiming above before their
+    // own fixes — meaning a flagged TRN never actually blocked a
+    // resubmission on the real deployed backend, only in this local
+    // no-RLS sandbox. Same narrow SECURITY DEFINER pattern as those: returns
+    // only { fullName, agencyName } for the one TRN asked about, never the
+    // whole watch list (a flat RLS policy here would let anyone with the
+    // anon key dump every flagged person's name and reason nationwide).
+    checkWatchlistFlag: async function (trn) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_check_watchlist_flag', { p_trn: trn });
+      });
+      if (res.error) { window.atdShowDebugError('checkWatchlistFlag(' + trn + ')', res.error); return null; }
+      return res.data || null;
+    },
+
     // Pre-loads a manually-entered venue into the venue database as a
     // pending entry the moment an applicant submits it on a POA application
     // (Fix #35, backend/fix35_submit_pending_venue.sql) — see submitApp()'s
@@ -4478,6 +4500,19 @@
   window.atdCheckWatchlistFlag = async function(trn){
     const norm = String(trn || '').replace(/\D/g, '');
     if(!norm || !window.storage) return null;
+
+    // On a real deployed backend, go through the narrow SECURITY DEFINER
+    // RPC (Fix #45, backend/fix45_public_watchlist_check.sql) instead of
+    // reading watchlist:/jcfWatchlist: rows directly — those are each
+    // locked to signed-in muni/jcfd staff by RLS, so a plain
+    // window.storage.get() below is silently denied for every applicant
+    // (anonymous or signed-in 'poa') on the real backend, even when the
+    // flag genuinely exists — this local no-RLS sandbox is the only place
+    // the direct-read fallback below still works.
+    if(window.ATDBackend && window.ATDBackend.isConfigured()){
+      return await window.ATDBackend.checkWatchlistFlag(norm);
+    }
+
     const agencies = (window.admin_getAgencies && window.admin_getAgencies()) || [];
     try{
       const muniRes = await window.storage.get(`watchlist:${norm}`, true);
