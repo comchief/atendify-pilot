@@ -3093,6 +3093,7 @@
   var FILE_FIELDS_BY_PREFIX = {
     applicationPhotoId: ['fileData'],
     applicationFlier: ['fileData'],
+    applicationBizReg: ['fileData'],
     applicationLogo: ['fileData'],
     applicationOwnership: ['fileData'],
     applicationFeeReceipt: ['fileData'],
@@ -4784,23 +4785,26 @@
   // which keep whatever validation they already had before this feature.
   // ATD_DEFAULT_FORM_FIELD_CONFIG intentionally reproduces today's real
   // behavior exactly: every POA field defaults to NOT required (POA enforces
-  // nothing today beyond the declaration) EXCEPT fileFlier (Event Flier),
-  // which is required by default — see the "remove (Optional) from Event
-  // Flier" fix — and every JCF field keeps the required/optional split it
-  // already has today (see the hardcoded `if(!value)` checks in
-  // continueFromStep1/2 and submitJcfApp). So an install that never opens
-  // the new "Required Fields" admin panel behaves identically to before
-  // this feature existed (Event Flier aside); only fields an admin actively
-  // toggles change behavior from there.
+  // nothing today beyond the declaration) EXCEPT fileFlier (Event Flier) and
+  // fileBizReg (Business Registration Document, Annual's own equivalent
+  // upload), both required by default — see the "remove (Optional) from
+  // Event Flier" fix and the Annual license path's "render it similar to ID
+  // (Make mandatory)" instruction — and every JCF field keeps the
+  // required/optional split it already has today (see the hardcoded
+  // `if(!value)` checks in continueFromStep1/2 and submitJcfApp). So an
+  // install that never opens the new "Required Fields" admin panel behaves
+  // identically to before this feature existed (those two uploads aside);
+  // only fields an admin actively toggles change behavior from there.
   window.ATD_DEFAULT_FORM_FIELD_CONFIG = {
     poa: {
       fullName: false, companyName: false, filePhotoId: false, fileLogo: false,
       phone: false, home: false, email: false, trn: false, poa_dob: false, gender: false,
       addr1: false, addr2: false, apDistrict: false, parish: false,
       licenseType: false, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
-      privateSecurity: false, fileFlier: true,
+      privateSecurity: false, fileFlier: true, fileBizReg: true,
       adDisplay: false,
-      poa_venueName: false, vAddr1: false, vAddr2: false, district: false, maxCap: false, maxParking: false, useOfVenue: false, fileOwnership: false
+      poa_venueName: false, vAddr1: false, vAddr2: false, district: false, maxCap: false, maxParking: false,
+      totalBuildingCap: false, numBuildings: false, useOfVenue: false, fileOwnership: false
     },
     jcf: {
       jcfEventName: true, photoIdFile: true, flyerFile: true,
@@ -4883,15 +4887,18 @@
       eventDate: {label:'Date of the event (Special event)', step:'Step 2 — Amusement'},
       eventType: {label:'Type of event (Special event)', step:'Step 2 — Amusement'},
       patrons: {label:'Expected number of patrons (Special event)', step:'Step 2 — Amusement'},
-      privateSecurity: {label:'Private security (Yes/No)', step:'Step 2 — Amusement'},
-      fileFlier: {label:'Event flier upload', step:'Step 2 — Amusement'},
+      privateSecurity: {label:'Private security (Yes/No, Special event)', step:'Step 2 — Amusement'},
+      fileFlier: {label:'Event flier upload (Special event)', step:'Step 2 — Amusement'},
+      fileBizReg: {label:'Business Registration Document upload (Annual license)', step:'Step 2 — Amusement'},
       adDisplay: {label:'Advertisement display (Yes/No)', step:'Step 3 — Advertisement'},
       poa_venueName: {label:'Venue name (manual entry)', step:'Step 4 — Venue'},
       vAddr1: {label:'Venue street number (manual entry)', step:'Step 4 — Venue'},
       vAddr2: {label:'Venue street name (manual entry)', step:'Step 4 — Venue'},
       district: {label:'Venue district (manual entry)', step:'Step 4 — Venue'},
-      maxCap: {label:'Venue max capacity (manual entry)', step:'Step 4 — Venue'},
-      maxParking: {label:'Venue max parking capacity (manual entry)', step:'Step 4 — Venue'},
+      maxCap: {label:'Venue max capacity (manual entry, Grounds)', step:'Step 4 — Venue'},
+      maxParking: {label:'Venue max parking capacity (manual entry, Grounds)', step:'Step 4 — Venue'},
+      totalBuildingCap: {label:'Total building capacity (manual entry, Building, Annual license)', step:'Step 4 — Venue'},
+      numBuildings: {label:'Number of buildings (manual entry, Building, Annual license)', step:'Step 4 — Venue'},
       // useOfVenue and both Documents fields below now show regardless of
       // whether the venue was picked from the database or entered
       // manually — see the "move Use of venue/Documents out of the
@@ -5894,41 +5901,63 @@
           </div>
         </div>
 
-        <!-- Private security only applies to a Special Event filing -- an
-             Annual (ongoing business) license has no single event to guard,
-             so this whole section is hidden for Annual (see the license
-             type toggle listener below) rather than admin-configurable. -->
-        <div id="privateSecuritySection">
-          <div class="section-title">Private security</div>
-          <div class="yesno" style="margin-bottom:20px;">
-            <label><input type="radio" name="privateSecurity" value="Yes" id="secYes"> Yes</label>
-            <label><input type="radio" name="privateSecurity" value="No" id="secNo"> No</label>
+        <!-- Private security AND the Event Flier upload only apply to a
+             Special Event filing -- an Annual (ongoing business) license has
+             no single event to guard or advertise, so this whole wrapper is
+             hidden for Annual (see poa_applyLicenseTypeFields) rather than
+             admin-configurable. Annual gets its own, separate Business
+             Registration Document upload below (bizRegSection) instead of
+             sharing this one relabeled. -->
+        <div id="specialOnlyDocsSection">
+          <div id="privateSecuritySection">
+            <div class="section-title">Private security</div>
+            <div class="yesno" style="margin-bottom:20px;">
+              <label><input type="radio" name="privateSecurity" value="Yes" id="secYes"> Yes</label>
+              <label><input type="radio" name="privateSecurity" value="No" id="secNo"> No</label>
+            </div>
+
+            <div id="securitySection" class="hidden" style="margin-bottom:28px;">
+              <div class="section-header-row">
+                <div class="col-desc" style="margin:0;">Manage security records below</div>
+                <button class="btn" type="button" onclick="openSecurityModal()">Add new</button>
+              </div>
+              <div class="record-list" id="securityList"></div>
+            </div>
           </div>
 
-          <div id="securitySection" class="hidden" style="margin-bottom:28px;">
-            <div class="section-header-row">
-              <div class="col-desc" style="margin:0;">Manage security records below</div>
-              <button class="btn" type="button" onclick="openSecurityModal()">Add new</button>
+          <div class="section-title">Event Flier</div>
+          <div class="upload-row" onclick="document.getElementById('fileFlier').click()">
+            <div class="upload-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
             </div>
-            <div class="record-list" id="securityList"></div>
+            <div>
+              <div class="upload-title">Event Flier</div>
+              <div class="upload-sub" id="flierLabel">Click to upload document</div>
+            </div>
+            <input type="file" id="fileFlier" accept="image/*,.pdf" onchange="fileChosen(this,'flierLabel'); previewImage(this,'flierPreviewImg','flierPreviewWrap')">
           </div>
         </div>
 
-        <!-- Same upload for both paths (id="fileFlier") -- only the label
-             changes: "Business Registration Document" for Annual, "Event
-             Flier" for Special (see the license type toggle listener
-             below), since an ongoing business license needs proof the
-             business itself is registered, not an event flier. -->
-        <div class="section-title" id="flierSectionTitle">Event Flier</div>
-        <div class="upload-row" onclick="document.getElementById('fileFlier').click()">
-          <div class="upload-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <!-- Annual-only: proof the business itself is registered, styled and
+             made mandatory like Photo ID / Company Logo (its own dedicated
+             upload+preview, not shared with Special's Event Flier above --
+             see poa_applyLicenseTypeFields). -->
+        <div id="bizRegSection" class="hidden">
+          <div class="section-title">Business Registration Document</div>
+          <div class="upload-row" onclick="document.getElementById('fileBizReg').click()">
+            <div class="upload-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+            </div>
+            <div>
+              <div class="upload-title">Business Registration Document</div>
+              <div class="upload-sub" id="bizRegLabel">Click to upload document</div>
+            </div>
+            <input type="file" id="fileBizReg" accept="image/*,.pdf" onchange="fileChosen(this,'bizRegLabel'); previewImage(this,'bizRegPreviewImg','bizRegPreviewWrap')">
           </div>
-          <div>
-            <div class="upload-title" id="flierUploadTitle">Event Flier</div>
-            <div class="upload-sub" id="flierLabel">Click to upload document</div>
+          <div id="bizRegPreviewWrap" class="hidden" style="margin-top:12px;">
+            <div class="col-desc" style="margin-bottom:8px; font-weight:600; color:var(--text);">Business Registration Document preview</div>
+            <img id="bizRegPreviewImg" style="max-width:100%; border-radius:8px; border:1px solid var(--border); display:block;">
           </div>
-          <input type="file" id="fileFlier" accept="image/*,.pdf" onchange="fileChosen(this,'flierLabel'); previewImage(this,'flierPreviewImg','flierPreviewWrap')">
         </div>
 
         <div class="btn-row">
@@ -6081,7 +6110,11 @@
             <input type="text" id="district">
           </div>
 
-          <div class="field-group field-row">
+          <!-- Grounds Only (or Grounds and Building) fields -- Special always
+               shows this pair regardless of Use of venue (unchanged); Annual
+               shows/hides it based on the Registration of Use selection (see
+               poa_applyAnnualCapacityFields). -->
+          <div class="field-group field-row" id="groundsCapacityFields">
             <div>
               <label for="maxCap" id="maxCapLabel">Venue max capacity</label>
               <input type="number" id="maxCap" min="0">
@@ -6092,9 +6125,24 @@
             </div>
           </div>
 
-          <button class="link-btn" style="margin-bottom:16px;" type="button" onclick="openParkingModal()">+ Create additional parking</button>
+          <!-- Building Only (or Grounds and Building) fields -- Annual only,
+               see poa_applyAnnualCapacityFields. -->
+          <div class="field-group field-row hidden" id="buildingCapacityFields">
+            <div>
+              <label for="totalBuildingCap">Total building capacity</label>
+              <input type="number" id="totalBuildingCap" min="0">
+            </div>
+            <div>
+              <label for="numBuildings">Number of Buildings</label>
+              <input type="number" id="numBuildings" min="0">
+            </div>
+          </div>
 
-          <div id="additionalParkingList" class="record-list" style="margin-bottom:10px;"></div>
+          <div id="parkingExtrasWrap">
+            <button class="link-btn" style="margin-bottom:16px;" type="button" onclick="openParkingModal()">+ Create additional parking</button>
+
+            <div id="additionalParkingList" class="record-list" style="margin-bottom:10px;"></div>
+          </div>
 
           <div class="field-group" style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn btn-primary" type="button" onclick="saveVenueDetails()">Save venue details</button>
@@ -6133,7 +6181,7 @@
              instruction ("those selection will guide the fee calculation"). -->
         <div id="poa_calcSummary" class="hidden info-banner" style="margin-top:20px;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <span>Registration of Use: <strong id="calcUseOfVenue">—</strong> &nbsp;·&nbsp; Venue Capacity: <strong id="calcVenueCapacity">—</strong></span>
+          <span id="poa_calcSummaryText">Registration of Use: <strong>—</strong></span>
         </div>
       </div>
       <div>
@@ -7175,6 +7223,69 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Annual License &mdash; Capacity Band Fees</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">The License Fee charged on an Annual application depends on the applicant's Registration of Use (Grounds Only / Building Only / Grounds and Building) and which capacity band their entered capacity falls into. Set the fee for each of the 9 combinations below. Only the CEO can change these.</p>
+
+        <div style="display:flex; flex-direction:column; gap:18px;">
+          <div>
+            <h3 style="font-size:14px; margin:0 0 8px;">Grounds Only</h3>
+            <div class="field-row">
+              <div class="field-group">
+                <label for="capFee_GroundsOnly_band1">Up to 300 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsOnly_band1" min="0" step="0.01" placeholder="e.g. 5000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_GroundsOnly_band2">301&ndash;1,000 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsOnly_band2" min="0" step="0.01" placeholder="e.g. 10000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_GroundsOnly_band3">Over 1,000 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsOnly_band3" min="0" step="0.01" placeholder="e.g. 20000">
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-size:14px; margin:0 0 8px;">Building Only</h3>
+            <div class="field-row">
+              <div class="field-group">
+                <label for="capFee_BuildingOnly_band1">Up to 300 persons (JMD)</label>
+                <input type="number" id="capFee_BuildingOnly_band1" min="0" step="0.01" placeholder="e.g. 5000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_BuildingOnly_band2">301&ndash;1,000 persons (JMD)</label>
+                <input type="number" id="capFee_BuildingOnly_band2" min="0" step="0.01" placeholder="e.g. 10000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_BuildingOnly_band3">Over 1,000 persons (JMD)</label>
+                <input type="number" id="capFee_BuildingOnly_band3" min="0" step="0.01" placeholder="e.g. 20000">
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-size:14px; margin:0 0 8px;">Grounds and Building</h3>
+            <div class="field-row">
+              <div class="field-group">
+                <label for="capFee_GroundsandBuilding_band1">Up to 300 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsandBuilding_band1" min="0" step="0.01" placeholder="e.g. 5000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_GroundsandBuilding_band2">301&ndash;1,000 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsandBuilding_band2" min="0" step="0.01" placeholder="e.g. 10000">
+              </div>
+              <div class="field-group">
+                <label for="capFee_GroundsandBuilding_band3">Over 1,000 persons (JMD)</label>
+                <input type="number" id="capFee_GroundsandBuilding_band3" min="0" step="0.01" placeholder="e.g. 20000">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-sm" style="margin-top:14px;" onclick="saveAnnualCapacityFees()">Save capacity band fees</button>
+      </div>
+
+      <div class="panel">
         <div class="panel-head">
           <h2>Business Types <span style="font-weight:400; color:var(--text-muted); font-size:13px;">(Annual License)</span></h2>
           <button class="btn btn-primary btn-sm" onclick="openFormElementModal('business', null)">+ Add business type</button>
@@ -7204,7 +7315,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div class="panel">
         <div class="panel-head"><h2 style="font-size:18px;">Reset</h2></div>
-        <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">Restore the platform's default business types, event types, document requirements, and Venue Inspection Fee for this municipality. Any customizations made here will be lost.</p>
+        <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">Restore the platform's default business types, event types, document requirements, Venue Inspection Fee, and Annual License Capacity Band Fees for this municipality. Any customizations made here will be lost.</p>
         <button class="btn btn-outline-danger btn-sm" onclick="resetFormElementsToDefault()">Reset to platform defaults</button>
       </div>
     </div>
@@ -15035,7 +15146,8 @@ const POA_FIELD_CHECKS = {
     { key:'eventType', kind:'text', id:'eventType', label:'Type of event' },
     { key:'patrons', kind:'text', id:'patrons', label:'Expected number of patrons' },
     { key:'privateSecurity', kind:'radio', name:'privateSecurity', visId:'secYes', label:'Private security' },
-    { key:'fileFlier', kind:'file', id:'fileFlier', label:'Event flier' }
+    { key:'fileFlier', kind:'file', id:'fileFlier', label:'Event flier' },
+    { key:'fileBizReg', kind:'file', id:'fileBizReg', label:'Business Registration Document' }
   ],
   3: [
     { key:'adDisplay', kind:'radio', name:'adDisplay', visId:'adYes', label:'Advertisement display' }
@@ -15047,6 +15159,8 @@ const POA_FIELD_CHECKS = {
     { key:'district', kind:'text', id:'district', label:'Venue district' },
     { key:'maxCap', kind:'text', id:'maxCap', label:'Venue max capacity' },
     { key:'maxParking', kind:'text', id:'maxParking', label:'Venue max parking capacity' },
+    { key:'totalBuildingCap', kind:'text', id:'totalBuildingCap', label:'Total building capacity' },
+    { key:'numBuildings', kind:'text', id:'numBuildings', label:'Number of buildings' },
     { key:'useOfVenue', kind:'text', id:'useOfVenue', label:'Use of venue' },
     { key:'fileOwnership', kind:'file', id:'fileOwnership', label:'Proof of ownership/authorization' }
   ]
@@ -15118,16 +15232,7 @@ function poa_findMissingRequiredField(stepNum, cfg){
       : f.kind === 'file' ? document.getElementById(f.id)?.parentElement
       : document.getElementById(f.id);
     if(!poa_fieldIsVisible(visEl)) continue; // hidden/disabled right now — not applicable
-    if(!poa_fieldHasValue(f)){
-      // fileFlier's on-screen label depends on license type (see
-      // poa_applyLicenseTypeFields) -- match it here so the "Please
-      // complete ... " message says the same thing the applicant sees.
-      if(f.key === 'fileFlier'){
-        const isAnnual = document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual';
-        return isAnnual ? 'Business Registration Document' : 'Event Flier';
-      }
-      return f.label;
-    }
+    if(!poa_fieldHasValue(f)) return f.label;
   }
   return null;
 }
@@ -15203,6 +15308,17 @@ async function poa_resumeDraft(data){
     venueSelect.value = data.venueSearch;
     venueSelect.dispatchEvent(new Event('change'));
   }
+  // Same reasoning as Fix #47 above, for useOfVenue (also a <select>, also
+  // set via .value with no 'change' event by the generic restore loop):
+  // poa_applyAnnualCapacityFields() reads useOfVenue to decide which
+  // capacity fields (Grounds vs Building) to show, but the licenseType
+  // radio's own 'change' event fired EARLIER in that same loop, before
+  // useOfVenue's restored value was in place — so it ran against the wrong
+  // Registration of Use. Re-running poa_applyLicenseTypeFields() now, with
+  // every field's final restored value already in place, is simpler than
+  // reordering the whole restore loop and re-derives every other
+  // license-type-dependent section correctly too.
+  poa_applyLicenseTypeFields(document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual');
   poa_goStep(data.__step || 1);
   poa_recalcAge();
 }
@@ -15459,28 +15575,40 @@ eventDateInput.addEventListener('change', ()=>{
 });
 
 // License type toggle
-// Private security only applies to Special Event (a one-off event needing
-// crowd control); an Annual (ongoing business) license has no single event
-// to secure, so that whole section is hidden for Annual rather than
-// admin-configurable. The shared upload (id="fileFlier") is relabeled
-// "Business Registration Document" for Annual vs "Event Flier" for
-// Special -- an ongoing business needs proof the business itself is
+// Private security and the Event Flier upload only apply to Special Event
+// (a one-off event needing crowd control and its own promotional flier); an
+// Annual (ongoing business) license has neither, so the whole
+// specialOnlyDocsSection wrapper is hidden for Annual rather than
+// admin-configurable. Annual shows its own separate Business Registration
+// Document upload (bizRegSection) instead -- proof the business itself is
 // registered, not a flier for an event that doesn't exist on this path.
 function poa_applyLicenseTypeFields(isAnnual){
   document.getElementById('specialFields').classList.toggle('hidden', isAnnual);
   document.getElementById('annualFields').classList.toggle('hidden', !isAnnual);
-  document.getElementById('privateSecuritySection').classList.toggle('hidden', isAnnual);
+  document.getElementById('specialOnlyDocsSection').classList.toggle('hidden', isAnnual);
+  document.getElementById('bizRegSection').classList.toggle('hidden', !isAnnual);
   if(isAnnual){
     // No private security question on this path -- clear any answer/records
     // left over from switching back and forth so a stale "Yes" + records
     // never silently survives into a submitted Annual application.
     document.querySelectorAll('input[name="privateSecurity"]').forEach(el => el.checked = false);
     document.getElementById('securitySection').classList.add('hidden');
+    // Same cleanup for the now-hidden Event Flier -- a file chosen while
+    // Special was selected has no meaning for Annual.
+    const flierInput = document.getElementById('fileFlier');
+    if(flierInput) flierInput.value = '';
+    document.getElementById('flierLabel').textContent = 'Click to upload document';
+    document.getElementById('flierPreviewWrap').classList.add('hidden');
+  } else {
+    // Mirror the same cleanup in the other direction -- a Business
+    // Registration Document chosen while Annual was selected has no meaning
+    // once switched to Special, so clear its input/preview rather than
+    // leaving a stale file silently attached to a since-hidden field.
+    const bizRegInput = document.getElementById('fileBizReg');
+    if(bizRegInput) bizRegInput.value = '';
+    document.getElementById('bizRegLabel').textContent = 'Click to upload document';
+    document.getElementById('bizRegPreviewWrap').classList.add('hidden');
   }
-  const flierLabel = isAnnual ? 'Business Registration Document' : 'Event Flier';
-  document.getElementById('flierSectionTitle').textContent = flierLabel;
-  document.getElementById('flierUploadTitle').textContent = flierLabel;
-  document.getElementById('flierPreviewLabel').textContent = flierLabel + ' preview';
   poa_applyVenueStepLicenseType(isAnnual);
   updateRequiredDocs();
 }
@@ -15524,7 +15652,36 @@ function poa_applyVenueStepLicenseType(isAnnual){
     // selection, same as always.
     document.getElementById('manualVenueFields').classList.add('hidden');
   }
+  poa_applyAnnualCapacityFields();
 }
+
+// Annual only: which capacity fields show depends on the Registration of Use
+// (useOfVenue) selection -- Grounds Only shows Venue Capacity/Venue Max
+// Parking Capacity, Building Only shows Total Building Capacity/Number of
+// Buildings, and Grounds and Building shows all four (per the pilot
+// contact's explicit instruction). Special always shows the Grounds pair
+// regardless of Use of venue -- unchanged, pre-existing behavior -- so this
+// only actually branches when Annual is selected. Clearing whichever pair
+// gets hidden keeps a stale figure from an earlier selection out of the
+// submitted application.
+function poa_applyAnnualCapacityFields(){
+  const isAnnual = poa_isAnnualSelected();
+  const useOfVenue = poa_val('useOfVenue');
+  const showGrounds = !isAnnual || useOfVenue === 'Grounds Only' || useOfVenue === 'Grounds and Building';
+  const showBuilding = isAnnual && (useOfVenue === 'Building Only' || useOfVenue === 'Grounds and Building');
+  document.getElementById('groundsCapacityFields').classList.toggle('hidden', !showGrounds);
+  document.getElementById('parkingExtrasWrap').classList.toggle('hidden', !showGrounds);
+  document.getElementById('buildingCapacityFields').classList.toggle('hidden', !showBuilding);
+  if(!showGrounds){
+    document.getElementById('maxCap').value = '';
+    document.getElementById('maxParking').value = '';
+  }
+  if(!showBuilding){
+    document.getElementById('totalBuildingCap').value = '';
+    document.getElementById('numBuildings').value = '';
+  }
+}
+document.getElementById('useOfVenue').addEventListener('change', poa_applyAnnualCapacityFields);
 
 // --- Required documents (from Yearly Amusement Requirements) ---
 const ANNUAL_REQUIREMENTS = [
@@ -15552,11 +15709,53 @@ const EVENT_REQUIREMENTS = {
 // falls back to until its CEO customizes its own via Manage > Form Elements.
 const DEFAULT_ANNUAL_BUSINESS_TYPES = ["Bar", "Restaurant", "Hotel", "Beach", "Community Center", "Night Club", "Theatre", "Amusement Arcade", "Other"];
 
+// Annual license fee calculation — set by the CEO under Manage > Form
+// Elements, read here by computeCosts() (see the isAnnualLic branch). Three
+// Registration of Use categories (matching the useOfVenue select's own
+// option values exactly), each with three capacity bands. Which capacity
+// figure is compared against the bands depends on the category: Grounds
+// Only uses Venue Capacity (maxCap), Building Only uses Total Building
+// Capacity (totalBuildingCap), and Grounds and Building uses both added
+// together (see computeCosts()) — since an applicant on that path is using
+// both areas at once, its combined footprint is what the CEO's band fee is
+// meant to price. `slug` is just this same key with spaces stripped, used
+// to build each input's id on the Muni side's Form Elements page
+// (capFee_<slug>_<band>) — kept here too so both portals derive the exact
+// same ids from the exact same list rather than hand-duplicating strings.
+const ANNUAL_CAPACITY_CATEGORIES = [
+  { key: 'Grounds Only', slug: 'GroundsOnly' },
+  { key: 'Building Only', slug: 'BuildingOnly' },
+  { key: 'Grounds and Building', slug: 'GroundsandBuilding' }
+];
+// Band boundaries, per the pilot contact's own wording: "not exceeding 300",
+// "greater than 300 but less than 1000", "greater than 1000". The exact
+// figure 1000 itself falls in neither of the last two as literally worded,
+// so band2 is treated here as inclusive of 1000 (300 < capacity <= 1000) to
+// avoid an unhandled gap — flagged for the pilot contact to confirm.
+const ANNUAL_CAPACITY_BANDS = [
+  { key: 'band1', label: 'Up to 300 persons', max: 300 },
+  { key: 'band2', label: '301–1,000 persons', max: 1000 },
+  { key: 'band3', label: 'Over 1,000 persons', max: Infinity }
+];
+function defaultAnnualCapacityFees(){
+  const fees = {};
+  ANNUAL_CAPACITY_CATEGORIES.forEach(cat => { fees[cat.key] = { band1: 0, band2: 0, band3: 0 }; });
+  return fees;
+}
+// Given a Registration of Use category and its raw capacity number, returns
+// {bandKey, bandLabel} for whichever band that capacity falls into, or null
+// if the category isn't one of the three known ones.
+function poa_annualCapacityBand(category, capacity){
+  const band = ANNUAL_CAPACITY_BANDS.find(b => capacity <= b.max);
+  return band ? { bandKey: band.key, bandLabel: band.label } : null;
+}
+
 function defaultFormElements(){
   return {
     businessTypes: DEFAULT_ANNUAL_BUSINESS_TYPES.map(name => ({ name, requiredDocuments: ANNUAL_REQUIREMENTS.slice() })),
     eventTypes: Object.keys(EVENT_REQUIREMENTS).map(name => ({ name, requiredDocuments: EVENT_REQUIREMENTS[name].slice() })),
-    venueInspectionFee: VENUE_INSPECTION_FEE
+    venueInspectionFee: VENUE_INSPECTION_FEE,
+    annualCapacityFees: defaultAnnualCapacityFees()
   };
 }
 
@@ -15584,6 +15783,23 @@ async function loadMunicipalityFormElements(){
           // default rather than silently charging $0.
           if(typeof muniFormElements.venueInspectionFee !== 'number' || muniFormElements.venueInspectionFee < 0){
             muniFormElements.venueInspectionFee = VENUE_INSPECTION_FEE;
+          }
+          // Same fallback for the Annual capacity band fees — a record saved
+          // before this feature existed (or one missing a category/band the
+          // CEO never got to) falls back to $0 for whatever's missing rather
+          // than throwing when computeCosts() reads it.
+          if(!muniFormElements.annualCapacityFees || typeof muniFormElements.annualCapacityFees !== 'object'){
+            muniFormElements.annualCapacityFees = defaultAnnualCapacityFees();
+          } else {
+            ANNUAL_CAPACITY_CATEGORIES.forEach(cat => {
+              if(!muniFormElements.annualCapacityFees[cat.key] || typeof muniFormElements.annualCapacityFees[cat.key] !== 'object'){
+                muniFormElements.annualCapacityFees[cat.key] = { band1: 0, band2: 0, band3: 0 };
+              }
+              ANNUAL_CAPACITY_BANDS.forEach(b => {
+                const v = muniFormElements.annualCapacityFees[cat.key][b.key];
+                if(typeof v !== 'number' || v < 0) muniFormElements.annualCapacityFees[cat.key][b.key] = 0;
+              });
+            });
           }
         }
       }
@@ -16192,8 +16408,39 @@ function computeCosts(){
   // defaults to the same standard-inspection assumption).
   let venueFromDb;
   if(isAnnualLic){
-    venueLabel = 'Registration of Use / Venue Capacity fee — pending CEO configuration';
-    venueCostGross = 0;
+    // Set by this municipality's own CEO (Manage > Form Elements >
+    // "Annual License — Capacity Band Fees") — three Registration of Use
+    // categories, each with three capacity bands (see
+    // ANNUAL_CAPACITY_CATEGORIES/ANNUAL_CAPACITY_BANDS above). Which raw
+    // capacity figure gets compared against the bands depends on the
+    // category: Grounds Only reads Venue Capacity (maxCap), Building Only
+    // reads Total Building Capacity (totalBuildingCap), and Grounds and
+    // Building sums both (see poa_applyAnnualCapacityFields on the Step 3
+    // side for why only one/other/both of those inputs are ever visible and
+    // filled in for a given category).
+    const useOfVenueVal = poa_val('useOfVenue');
+    const fees = (muniFormElements && muniFormElements.annualCapacityFees) ? muniFormElements.annualCapacityFees : defaultAnnualCapacityFees();
+    let capacityForBand = null;
+    if(useOfVenueVal === 'Grounds Only'){
+      capacityForBand = parseInt(poa_val('maxCap'), 10) || 0;
+    } else if(useOfVenueVal === 'Building Only'){
+      capacityForBand = parseInt(poa_val('totalBuildingCap'), 10) || 0;
+    } else if(useOfVenueVal === 'Grounds and Building'){
+      capacityForBand = (parseInt(poa_val('maxCap'), 10) || 0) + (parseInt(poa_val('totalBuildingCap'), 10) || 0);
+    }
+    const categoryFees = useOfVenueVal ? fees[useOfVenueVal] : null;
+    if(categoryFees && capacityForBand !== null){
+      const band = poa_annualCapacityBand(useOfVenueVal, capacityForBand);
+      venueCostGross = band ? (categoryFees[band.bandKey] || 0) : 0;
+      venueLabel = band
+        ? `${useOfVenueVal} — capacity ${capacityForBand} (${band.bandLabel})`
+        : `${useOfVenueVal} — capacity ${capacityForBand}`;
+    } else {
+      // No Registration of Use selected yet, or its capacity field is still
+      // blank — nothing to price yet.
+      venueCostGross = 0;
+      venueLabel = 'Registration of Use / Venue Capacity fee — select a Registration of Use and enter its capacity to calculate';
+    }
     venueIsNew = false;
     venueFromDb = false;
   } else if(venueSearchVal && venueSearchVal.startsWith('db-')){
@@ -16318,8 +16565,21 @@ function renderCosts(){
     : 'Please review the costs associated with your application. Once you have submitted your application, you will be required to make payment using the application number. Print the payment advice and take along with you when making payment.';
   document.getElementById('poa_calcSummary').classList.toggle('hidden', !isAnnual);
   if(isAnnual){
-    document.getElementById('calcUseOfVenue').textContent = poa_val('useOfVenue') || '—';
-    document.getElementById('calcVenueCapacity').textContent = poa_val('maxCap') || '—';
+    // Which capacity figures show follows the same Grounds/Building split as
+    // Step 3 itself (see poa_applyAnnualCapacityFields) — whichever
+    // selections will actually guide the fee calculation once the CEO's
+    // rules are wired in.
+    const useOfVenueVal = poa_val('useOfVenue');
+    const parts = [`Registration of Use: <strong>${poa_escapeHtml(useOfVenueVal || '—')}</strong>`];
+    if(useOfVenueVal === 'Grounds Only' || useOfVenueVal === 'Grounds and Building'){
+      parts.push(`Venue Capacity: <strong>${poa_escapeHtml(poa_val('maxCap') || '—')}</strong>`);
+      parts.push(`Venue Max Parking Capacity: <strong>${poa_escapeHtml(poa_val('maxParking') || '—')}</strong>`);
+    }
+    if(useOfVenueVal === 'Building Only' || useOfVenueVal === 'Grounds and Building'){
+      parts.push(`Total Building Capacity: <strong>${poa_escapeHtml(poa_val('totalBuildingCap') || '—')}</strong>`);
+      parts.push(`Number of Buildings: <strong>${poa_escapeHtml(poa_val('numBuildings') || '—')}</strong>`);
+    }
+    document.getElementById('poa_calcSummaryText').innerHTML = parts.join(' &nbsp;·&nbsp; ');
   }
 
   const c = computeCosts();
@@ -16331,8 +16591,9 @@ function renderCosts(){
 
   if(isAnnual){
     // No Advertisement step and no venue-database/new-venue distinction on
-    // this path — see computeCosts()'s isAnnualLic branch — just the single
-    // placeholder line until the CEO's Annual fee rules exist.
+    // this path — see computeCosts()'s isAnnualLic branch, which looks up
+    // the CEO's configured Capacity Band Fee for the selected Registration
+    // of Use and computed capacity band.
     html += `<div class="cost-group-header">Business/Venue Fee</div>`;
     html += `<div class="cost-row"><span class="cost-label">${poa_escapeHtml(c.venueLabel)}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
   } else {
@@ -16443,13 +16704,25 @@ async function poa_goReview(){
 
   // Venue info — relabeled for Annual (see poa_applyVenueStepLicenseType,
   // which relabels the same fields on Step 3/Business Information itself).
+  const useOfVenueVal = poa_val('useOfVenue');
+  // Which capacity fields actually apply -- Annual splits by Registration of
+  // Use (see poa_applyAnnualCapacityFields); Special always shows the
+  // Grounds pair regardless of Use of venue, unchanged.
+  const showGroundsCap = !isAnnualRev || useOfVenueVal === 'Grounds Only' || useOfVenueVal === 'Grounds and Building';
+  const showBuildingCap = isAnnualRev && (useOfVenueVal === 'Building Only' || useOfVenueVal === 'Grounds and Building');
   const venue = [
     [isAnnualRev ? 'Business name' : 'Venue name', poa_val('poa_venueName') || 'N/A'],
-    ['Address', [poa_val('vAddr1'), poa_val('vAddr2')].filter(Boolean).join(' , ') || 'N/A'],
-    [isAnnualRev ? 'Venue capacity' : 'Max capacity', poa_val('maxCap') || 'N/A'],
-    ['Max parking capacity', poa_val('maxParking') || 'N/A'],
-    [isAnnualRev ? 'Registration of use' : 'Use of venue', poa_val('useOfVenue') || 'N/A'],
+    ['Address', [poa_val('vAddr1'), poa_val('vAddr2')].filter(Boolean).join(' , ') || 'N/A']
   ];
+  if(showGroundsCap){
+    venue.push([isAnnualRev ? 'Venue capacity' : 'Max capacity', poa_val('maxCap') || 'N/A']);
+    venue.push(['Max parking capacity', poa_val('maxParking') || 'N/A']);
+  }
+  if(showBuildingCap){
+    venue.push(['Total building capacity', poa_val('totalBuildingCap') || 'N/A']);
+    venue.push(['Number of Buildings', poa_val('numBuildings') || 'N/A']);
+  }
+  venue.push([isAnnualRev ? 'Registration of use' : 'Use of venue', useOfVenueVal || 'N/A']);
   let venueHtml = venue.map(rowHtml).join('');
   additionalParkingList.forEach(p=>{
     venueHtml += rowHtml([`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + poa_formatCurrency(p.cost) : ''}`]);
@@ -16459,22 +16732,22 @@ async function poa_goReview(){
   // Form Uploads — a Company applicant never had a Photo ID field (they get
   // Company Logo instead, see the applicantType toggle above), so which row
   // shows here follows the same isCompany check the rest of this function
-  // already computed, rather than always showing both. The flier label
-  // follows license type (Business Registration Document vs Event Flier,
-  // see poa_applyLicenseTypeFields), and Proof of Ownership is dropped
-  // entirely for Annual — it isn't collected on that path at all.
+  // already computed, rather than always showing both. Event Flier and
+  // Business Registration Document are separate uploads now (see
+  // specialOnlyDocsSection/bizRegSection in poa_applyLicenseTypeFields) — only
+  // the one applicable to the selected license type shows here, and Proof
+  // of Ownership is dropped entirely for Annual (not collected on that path).
   const idKind = isCompany ? 'logo' : 'photoId';
   const idLabel = isCompany ? 'Company Logo' : 'Photo ID';
   const idHasFile = isCompany
     ? fileHasValue('fileLogo')
     : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData);
-  const flierHasFile = fileHasValue('fileFlier');
-  const flierRevLabel = isAnnualRev ? 'Business Registration Document' : 'Event Flier';
-  let uploadsHtml = poa_uploadRowHtml(idLabel, idKind, idHasFile) +
-    poa_uploadRowHtml(flierRevLabel, 'flier', flierHasFile);
-  if(!isAnnualRev){
-    const ownershipHasFile = fileHasValue('fileOwnership');
-    uploadsHtml += poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', ownershipHasFile);
+  let uploadsHtml = poa_uploadRowHtml(idLabel, idKind, idHasFile);
+  if(isAnnualRev){
+    uploadsHtml += poa_uploadRowHtml('Business Registration Document', 'bizReg', fileHasValue('fileBizReg'));
+  } else {
+    uploadsHtml += poa_uploadRowHtml('Event Flier', 'flier', fileHasValue('fileFlier'));
+    uploadsHtml += poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', fileHasValue('fileOwnership'));
   }
   document.getElementById('poa_revUploads').innerHTML = uploadsHtml;
 
@@ -16549,6 +16822,7 @@ async function poa_previewUpload(kind){
     photoId: { title: 'Photo ID', inputId: 'filePhotoId' },
     logo: { title: 'Company Logo', inputId: 'fileLogo' },
     flier: { title: 'Event Flier', inputId: 'fileFlier' },
+    bizReg: { title: 'Business Registration Document', inputId: 'fileBizReg' },
     ownership: { title: 'Proof of Ownership/Authorization', inputId: 'fileOwnership' }
   };
   const cfg = CONFIG[kind];
@@ -16604,8 +16878,13 @@ async function buildApplicationRecord(appNumber){
   const documents = {
     photoId: isCompany ? null : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData),
     logo: isCompany ? fileHasValue('fileLogo') : null,
-    flier: fileHasValue('fileFlier'),
-    ownership: fileHasValue('fileOwnership')
+    // Event Flier (Special) and Business Registration Document (Annual) are
+    // separate uploads now (see specialOnlyDocsSection/bizRegSection) — each
+    // is null on the license-type path it doesn't apply to, same convention
+    // as photoId/logo above.
+    flier: licType === 'Special' ? fileHasValue('fileFlier') : null,
+    bizRegistration: licType === 'Annual' ? fileHasValue('fileBizReg') : null,
+    ownership: licType === 'Annual' ? null : fileHasValue('fileOwnership')
   };
 
   // Capture the Photo ID itself (not just whether one was uploaded) so it can
@@ -16635,6 +16914,20 @@ async function buildApplicationRecord(appNumber){
     if(flierFile){
       flierFileName = flierFile.name;
       flierFileData = await poa_readFileAsDataUrl(flierFile);
+    }
+  }
+
+  // Capture the Business Registration Document itself — same reasoning as
+  // the Event Flier above, its own separate upload for the Annual path (see
+  // specialOnlyDocsSection/bizRegSection in poa_applyLicenseTypeFields).
+  let bizRegFileName = '';
+  let bizRegFileData = null;
+  {
+    const bizRegInput = document.getElementById('fileBizReg');
+    const bizRegFile = bizRegInput && bizRegInput.files && bizRegInput.files[0];
+    if(bizRegFile){
+      bizRegFileName = bizRegFile.name;
+      bizRegFileData = await poa_readFileAsDataUrl(bizRegFile);
     }
   }
 
@@ -16720,6 +17013,10 @@ async function buildApplicationRecord(appNumber){
     // `applicationFlier:<appNumber>` key instead — see openApplicantFileModal
     // in the Municipal dashboard, which fetches it on demand when viewed.
     _flierFileDataPending: flierFileData,
+    // Same reasoning as the flier above — Annual's own separate upload, kept
+    // off the main record and stored under its own
+    // `applicationBizReg:<appNumber>` key instead.
+    _bizRegFileDataPending: bizRegFileData,
     // Same reasoning as the flier above: the photo ID can be a large base64
     // image (up to ~500KB raw / ~667KB base64) and was previously embedded
     // directly in applicant.photoIdFileData, which — combined with a
@@ -16799,7 +17096,8 @@ async function buildApplicationRecord(appNumber){
       applicationDate: document.getElementById('applicationDate').value,
       privateSecurity: privSec,
       securityRecords: privSec === 'Yes' ? securityRecords : [],
-      flierFileName
+      flierFileName: licType === 'Special' ? flierFileName : '',
+      bizRegFileName: licType === 'Annual' ? bizRegFileName : ''
     },
     advertisement: {
       hasAds: adDisplay === 'Yes',
@@ -16822,6 +17120,10 @@ async function buildApplicationRecord(appNumber){
         district: poa_val('district'),
         maxCap: poa_val('maxCap'),
         maxParking: poa_val('maxParking'),
+        // Annual/Building Only or Grounds and Building only -- see
+        // poa_applyAnnualCapacityFields. Empty strings on every other path.
+        totalBuildingCap: poa_val('totalBuildingCap'),
+        numBuildings: poa_val('numBuildings'),
         useOfVenue: poa_val('useOfVenue'),
         additionalParking: additionalParkingList.slice(),
         ownerName: dbVenue ? (dbVenue.ownerName || '') : '',
@@ -17026,6 +17328,8 @@ async function submitApp(){
     const record = await buildApplicationRecord(appNumber);
     const pendingFlierData = record._flierFileDataPending;
     delete record._flierFileDataPending;
+    const pendingBizRegData = record._bizRegFileDataPending;
+    delete record._bizRegFileDataPending;
     const pendingPhotoIdData = record._photoIdFileDataPending;
     delete record._photoIdFileDataPending;
     const pendingLogoData = record._logoFileDataPending;
@@ -17085,6 +17389,16 @@ async function submitApp(){
       try{
         await window.storage.set(`applicationFlier:${appNumber}`, JSON.stringify({ fileData: pendingFlierData }), true);
       } catch(flierErr){
+        // non-critical — ignore
+      }
+    }
+
+    if(pendingBizRegData){
+      // Best-effort — same reasoning as the flier above. Annual's own
+      // separate Business Registration Document upload.
+      try{
+        await window.storage.set(`applicationBizReg:${appNumber}`, JSON.stringify({ fileData: pendingBizRegData }), true);
+      } catch(bizRegErr){
         // non-critical — ignore
       }
     }
@@ -19943,6 +20257,27 @@ const FORM_ELEMENT_DOCUMENT_CATALOG = [
 // on portal isolation — so it's duplicated here rather than shared).
 const DEFAULT_VENUE_INSPECTION_FEE = 5000;
 
+// Mirrors the POA-side (applicant-facing) copy of these same three constants
+// exactly — portal scripts are isolated IIFEs, so this is a deliberate
+// duplication rather than a shared import. `slug` gives each category a
+// clean id fragment for the Form Elements HTML inputs below
+// (capFee_<slug>_<bandKey>).
+const ANNUAL_CAPACITY_CATEGORIES = [
+  { key: 'Grounds Only', slug: 'GroundsOnly' },
+  { key: 'Building Only', slug: 'BuildingOnly' },
+  { key: 'Grounds and Building', slug: 'GroundsandBuilding' }
+];
+const ANNUAL_CAPACITY_BANDS = [
+  { key: 'band1', label: 'Up to 300 persons', max: 300 },
+  { key: 'band2', label: '301–1,000 persons', max: 1000 },
+  { key: 'band3', label: 'Over 1,000 persons', max: Infinity }
+];
+function defaultAnnualCapacityFees(){
+  const fees = {};
+  ANNUAL_CAPACITY_CATEGORIES.forEach(cat => { fees[cat.key] = { band1: 0, band2: 0, band3: 0 }; });
+  return fees;
+}
+
 // The platform default — identical to what every municipality saw before
 // this feature existed. A municipality that hasn't customized its own Form
 // Elements yet (no `formElements:<muniId>` record saved) falls back to this,
@@ -19960,7 +20295,8 @@ function defaultFormElements(){
       { name: "Dead Yard", requiredDocuments: ["Police Approval (apply online)"] },
       { name: "Dance/Stage Shows", requiredDocuments: ["Ministry of Health Approval", "Fire Certification", "Police Approval (apply online)", "Liability Insurance", "Emergency Contingency Plan", "NSWMA"] }
     ],
-    venueInspectionFee: DEFAULT_VENUE_INSPECTION_FEE
+    venueInspectionFee: DEFAULT_VENUE_INSPECTION_FEE,
+    annualCapacityFees: defaultAnnualCapacityFees()
   };
 }
 
@@ -19985,6 +20321,24 @@ async function loadFormElementsConfig(){
         if(typeof formElementsConfig.venueInspectionFee !== 'number' || formElementsConfig.venueInspectionFee < 0){
           formElementsConfig.venueInspectionFee = DEFAULT_VENUE_INSPECTION_FEE;
         }
+        // A record saved before Annual Capacity Band Fees became
+        // configurable here won't carry this field yet (or may carry a
+        // partial/corrupt shape) — fall back to $0 per band/category rather
+        // than leaving it undefined, and repair any missing category/band
+        // individually so a partially-saved record doesn't lose the rest.
+        if(!formElementsConfig.annualCapacityFees || typeof formElementsConfig.annualCapacityFees !== 'object'){
+          formElementsConfig.annualCapacityFees = defaultAnnualCapacityFees();
+        } else {
+          ANNUAL_CAPACITY_CATEGORIES.forEach(cat => {
+            if(!formElementsConfig.annualCapacityFees[cat.key] || typeof formElementsConfig.annualCapacityFees[cat.key] !== 'object'){
+              formElementsConfig.annualCapacityFees[cat.key] = { band1: 0, band2: 0, band3: 0 };
+            }
+            ANNUAL_CAPACITY_BANDS.forEach(b => {
+              const v = formElementsConfig.annualCapacityFees[cat.key][b.key];
+              if(typeof v !== 'number' || v < 0) formElementsConfig.annualCapacityFees[cat.key][b.key] = 0;
+            });
+          });
+        }
       }
     }
   } catch(err){ /* keep defaults */ }
@@ -19996,6 +20350,19 @@ async function renderFormElements(){
   renderFormElementTable('event');
   const feeInput = document.getElementById('venueInspectionFeeInput');
   if(feeInput) feeInput.value = formElementsConfig.venueInspectionFee;
+  renderAnnualCapacityFeeInputs();
+}
+
+// Populates the 9 Annual License Capacity Band Fee inputs (3 registration-
+// of-use categories × 3 capacity bands) from formElementsConfig.
+function renderAnnualCapacityFeeInputs(){
+  if(!formElementsConfig || !formElementsConfig.annualCapacityFees) return;
+  ANNUAL_CAPACITY_CATEGORIES.forEach(cat => {
+    ANNUAL_CAPACITY_BANDS.forEach(band => {
+      const input = document.getElementById(`capFee_${cat.slug}_${band.key}`);
+      if(input) input.value = formElementsConfig.annualCapacityFees[cat.key][band.key];
+    });
+  });
 }
 
 // Set by this municipality's CEO — read at wizard time by the applicant-
@@ -20014,6 +20381,34 @@ async function saveVenueInspectionFee(){
   muni_showToast(`Venue Inspection Fee updated to ${muni_formatCurrency(formElementsConfig.venueInspectionFee)}.`);
 }
 window.saveVenueInspectionFee = saveVenueInspectionFee;
+
+// Set by this municipality's CEO — read at wizard time by the applicant-
+// facing script's own computeCosts() via muniFormElements.annualCapacityFees
+// (see loadMunicipalityFormElements() there). For an Annual license, the fee
+// charged depends on the applicant's Registration of Use selection (Grounds
+// Only / Building Only / Grounds and Building) and which capacity band their
+// entered capacity falls into — this saves all 9 category × band figures at
+// once.
+async function saveAnnualCapacityFees(){
+  const fees = {};
+  for(const cat of ANNUAL_CAPACITY_CATEGORIES){
+    fees[cat.key] = {};
+    for(const band of ANNUAL_CAPACITY_BANDS){
+      const input = document.getElementById(`capFee_${cat.slug}_${band.key}`);
+      const val = parseFloat(input ? input.value : NaN);
+      if(isNaN(val) || val < 0){
+        muni_showToast('Please enter a valid, non-negative fee for every capacity band.');
+        return;
+      }
+      fees[cat.key][band.key] = Math.round(val * 100) / 100;
+    }
+  }
+  if(!formElementsConfig) formElementsConfig = defaultFormElements();
+  formElementsConfig.annualCapacityFees = fees;
+  await persistFormElementsConfig();
+  muni_showToast('Annual License capacity band fees updated.');
+}
+window.saveAnnualCapacityFees = saveAnnualCapacityFees;
 
 function renderFormElementTable(kind){
   const body = document.getElementById(kind === 'business' ? 'formElementsBusinessBody' : 'formElementsEventBody');
@@ -20157,13 +20552,14 @@ async function removeFormElementType(kind, index){
 }
 
 async function resetFormElementsToDefault(){
-  if(!(await window.atdConfirm("Restore the platform default business types, event types, document requirements, and Venue Inspection Fee for this municipality? Any customizations you've made here will be lost."))) return;
+  if(!(await window.atdConfirm("Restore the platform default business types, event types, document requirements, Venue Inspection Fee, and Annual License Capacity Band Fees for this municipality? Any customizations you've made here will be lost."))) return;
   formElementsConfig = defaultFormElements();
   await persistFormElementsConfig();
   renderFormElementTable('business');
   renderFormElementTable('event');
   const feeInput = document.getElementById('venueInspectionFeeInput');
   if(feeInput) feeInput.value = formElementsConfig.venueInspectionFee;
+  renderAnnualCapacityFeeInputs();
   muni_showToast('Form elements reset to platform defaults.');
 }
 
@@ -22463,12 +22859,22 @@ function renderSubmissionColumn(a){
   html += `</div>`;
 
   // Venue Information — relabeled for Annual to match the applicant-facing
-  // wizard's own terminology (see poa_applyVenueStepLicenseType/poa_goReview).
+  // wizard's own terminology (see poa_applyVenueStepLicenseType/poa_goReview),
+  // and split by Registration of Use for Annual (Grounds vs Building fields
+  // -- see poa_applyAnnualCapacityFields).
+  const showGroundsCapMuni = !isAnnual || r.venue.useOfVenue === 'Grounds Only' || r.venue.useOfVenue === 'Grounds and Building';
+  const showBuildingCapMuni = isAnnual && (r.venue.useOfVenue === 'Building Only' || r.venue.useOfVenue === 'Grounds and Building');
   html += `<div class="panel"><div class="detail-section-title">Venue Information</div>`;
   html += detailRow(isAnnual ? 'Business name' : 'Venue name', r.venue.name);
   html += detailRow('Address', [r.venue.addr1, r.venue.addr2, r.venue.district].filter(Boolean).join(', '));
-  html += detailRow(isAnnual ? 'Venue capacity' : 'Max capacity', r.venue.maxCap);
-  html += detailRow('Max parking capacity', r.venue.maxParking);
+  if(showGroundsCapMuni){
+    html += detailRow(isAnnual ? 'Venue capacity' : 'Max capacity', r.venue.maxCap);
+    html += detailRow('Max parking capacity', r.venue.maxParking);
+  }
+  if(showBuildingCapMuni){
+    html += detailRow('Total building capacity', r.venue.totalBuildingCap);
+    html += detailRow('Number of Buildings', r.venue.numBuildings);
+  }
   html += detailRow(isAnnual ? 'Registration of use' : 'Use of venue', r.venue.useOfVenue);
   (r.venue.additionalParking || []).forEach(p=>{
     html += detailRow(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + muni_formatCurrency(p.cost) : ''}`);
@@ -22528,20 +22934,38 @@ function renderSubmissionColumn(a){
       </div>`;
   }
 
-  const flierUploaded = !!(r.documents && r.documents.flier);
-  const flierFileName = (r.amusement && r.amusement.flierFileName) || 'Uploaded file';
-  const flierDocLabel = isAnnual ? 'Business Registration Document' : 'Event Flier';
-  html += `
-    <div class="doc-review-row">
-      <div>
-        <div class="cell-primary">${flierDocLabel}</div>
-        <div class="cell-sub">${flierUploaded ? muni_escapeHtml(flierFileName) : 'Not yet uploaded'}</div>
-      </div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <span class="badge ${flierUploaded ? 'badge-blue' : 'badge-gray'}">${flierUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-        <button class="btn btn-sm" ${flierUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('flier')">View</button>
-      </div>
-    </div>`;
+  // Event Flier (Special) and Business Registration Document (Annual) are
+  // separate uploads (see specialOnlyDocsSection/bizRegSection on the
+  // applicant side) — only the one applicable to this application shows here.
+  if(isAnnual){
+    const bizRegUploaded = !!(r.documents && r.documents.bizRegistration);
+    const bizRegFileName = (r.amusement && r.amusement.bizRegFileName) || 'Uploaded file';
+    html += `
+      <div class="doc-review-row">
+        <div>
+          <div class="cell-primary">Business Registration Document</div>
+          <div class="cell-sub">${bizRegUploaded ? muni_escapeHtml(bizRegFileName) : 'Not yet uploaded'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge ${bizRegUploaded ? 'badge-blue' : 'badge-gray'}">${bizRegUploaded ? 'Submitted' : 'Not Uploaded'}</span>
+          <button class="btn btn-sm" ${bizRegUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('bizReg')">View</button>
+        </div>
+      </div>`;
+  } else {
+    const flierUploaded = !!(r.documents && r.documents.flier);
+    const flierFileName = (r.amusement && r.amusement.flierFileName) || 'Uploaded file';
+    html += `
+      <div class="doc-review-row">
+        <div>
+          <div class="cell-primary">Event Flier</div>
+          <div class="cell-sub">${flierUploaded ? muni_escapeHtml(flierFileName) : 'Not yet uploaded'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge ${flierUploaded ? 'badge-blue' : 'badge-gray'}">${flierUploaded ? 'Submitted' : 'Not Uploaded'}</span>
+          <button class="btn btn-sm" ${flierUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('flier')">View</button>
+        </div>
+      </div>`;
+  }
 
   if(isCompany){
     const logoUploaded = !!(r.documents && r.documents.logo);
@@ -23246,6 +23670,12 @@ async function openApplicantFileModal(kind){
     // key (not embedded in the application record — see buildApplicationRecord's
     // note on _flierFileDataPending), so it has to be fetched on demand.
     storageKey = `applicationFlier:${a.appNumber}`;
+  } else if(kind === 'bizReg'){
+    title = 'Business Registration Document';
+    fileName = (r.amusement && r.amusement.bizRegFileName) || '';
+    // Annual's own separate upload — same reasoning as Event Flier above,
+    // see buildApplicationRecord's note on _bizRegFileDataPending.
+    storageKey = `applicationBizReg:${a.appNumber}`;
   } else if(kind === 'logo'){
     title = 'Company Logo';
     fileName = (r.applicant && r.applicant.logoFileName) || '';
