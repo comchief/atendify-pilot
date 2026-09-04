@@ -4784,19 +4784,21 @@
   // which keep whatever validation they already had before this feature.
   // ATD_DEFAULT_FORM_FIELD_CONFIG intentionally reproduces today's real
   // behavior exactly: every POA field defaults to NOT required (POA enforces
-  // nothing today beyond the declaration), and every JCF field keeps the
-  // required/optional split it already has today (see the hardcoded
-  // `if(!value)` checks in continueFromStep1/2 and submitJcfApp). So an
-  // install that never opens the new "Required Fields" admin panel behaves
-  // identically to before this feature existed; only fields an admin
-  // actively toggles change behavior.
+  // nothing today beyond the declaration) EXCEPT fileFlier (Event Flier),
+  // which is required by default — see the "remove (Optional) from Event
+  // Flier" fix — and every JCF field keeps the required/optional split it
+  // already has today (see the hardcoded `if(!value)` checks in
+  // continueFromStep1/2 and submitJcfApp). So an install that never opens
+  // the new "Required Fields" admin panel behaves identically to before
+  // this feature existed (Event Flier aside); only fields an admin actively
+  // toggles change behavior from there.
   window.ATD_DEFAULT_FORM_FIELD_CONFIG = {
     poa: {
       fullName: false, companyName: false, filePhotoId: false, fileLogo: false,
       phone: false, home: false, email: false, trn: false, poa_dob: false, gender: false,
       addr1: false, addr2: false, apDistrict: false, parish: false,
       licenseType: false, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
-      privateSecurity: false, fileFlier: false,
+      privateSecurity: false, fileFlier: true,
       adDisplay: false,
       poa_venueName: false, vAddr1: false, vAddr2: false, district: false, maxCap: false, maxParking: false, useOfVenue: false, fileOwnership: false
     },
@@ -5903,7 +5905,7 @@
           <div class="record-list" id="securityList"></div>
         </div>
 
-        <div class="section-title">Event Flier <span class="optional">(Optional)</span></div>
+        <div class="section-title">Event Flier</div>
         <div class="upload-row" onclick="document.getElementById('fileFlier').click()">
           <div class="upload-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
@@ -5938,7 +5940,7 @@
         </div>
       </div>
       <div>
-        <div class="section-title">Will you be displaying items at or leading up to the event?</div>
+        <div class="section-title">Will you be displaying Advertisement at or leading up to the event?</div>
         <div class="yesno" style="margin-bottom:20px;">
           <label><input type="radio" name="adDisplay" value="Yes" id="adYes"> Yes</label>
           <label><input type="radio" name="adDisplay" value="No" id="adNo"> No</label>
@@ -22186,7 +22188,7 @@ function renderSubmissionColumn(a){
 
   // Advertisement Information
   html += `<div class="panel"><div class="detail-section-title">Advertisement Information</div>`;
-  html += detailRow('Displaying items at/leading up to event', r.advertisement.hasAds ? 'Yes' : 'No');
+  html += detailRow('Displaying Advertisement at/leading up to event', r.advertisement.hasAds ? 'Yes' : 'No');
   if(r.advertisement.hasAds && r.advertisement.items && r.advertisement.items.length){
     r.advertisement.items.forEach(item=>{
       html += detailRow(`${item.name} (x${item.qty})`, muni_formatCurrency(item.cost));
