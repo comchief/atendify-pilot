@@ -5971,7 +5971,7 @@
         <div class="col-desc">Enter all the details for the venue</div>
         <div class="info-banner" style="margin-top:20px; margin-bottom:0;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <span>Adding a venue will attract an inspection fee of $5,000. Please note that we will carry out an assessment of the venue before approval is given.</span>
+          <span>Adding a venue will attract an inspection fee of <span id="venueInspectionFeeNotice">$5,000</span>. Please note that we will carry out an assessment of the venue before approval is given.</span>
         </div>
       </div>
       <div>
@@ -7117,6 +7117,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Venue Inspection Fee</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Charged to an applicant who manually types in a venue not yet in your registered venues database — covers the initial inspection visit. This is a separate charge from any Venue Cost assessed later if the venue is accepted into your database (see Venues > Venues Pending Review) — both are billed in full. Only the CEO can change this.</p>
+        <div class="field-group" style="max-width:220px;">
+          <label for="venueInspectionFeeInput">Fee (JMD)</label>
+          <input type="number" id="venueInspectionFeeInput" min="0" step="0.01" placeholder="e.g. 5000">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="saveVenueInspectionFee()">Save fee</button>
+      </div>
+
+      <div class="panel">
         <div class="panel-head">
           <h2>Business Types <span style="font-weight:400; color:var(--text-muted); font-size:13px;">(Annual License)</span></h2>
           <button class="btn btn-primary btn-sm" onclick="openFormElementModal('business', null)">+ Add business type</button>
@@ -7146,7 +7156,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div class="panel">
         <div class="panel-head"><h2 style="font-size:18px;">Reset</h2></div>
-        <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">Restore the platform's default business types, event types, and document requirements for this municipality. Any customizations made here will be lost.</p>
+        <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">Restore the platform's default business types, event types, document requirements, and Venue Inspection Fee for this municipality. Any customizations made here will be lost.</p>
         <button class="btn btn-outline-danger btn-sm" onclick="resetFormElementsToDefault()">Reset to platform defaults</button>
       </div>
     </div>
@@ -14420,6 +14430,11 @@ document.querySelectorAll('.app-logo-img').forEach(img => { img.src = ATENDIFY_L
 // charged amount comes from selectedMunicipality.appFeeAnnual /
 // appFeeSpecial, chosen by license type in computeCosts() below.
 const APPLICATION_FEE = 2500;
+// Fallback only, same as APPLICATION_FEE above — used when a municipality
+// hasn't set its own Venue Inspection Fee yet (Manage > Form Elements, see
+// muniFormElements/loadMunicipalityFormElements() below) or when nothing's
+// selected yet. The CEO of each municipality can now set their own real
+// fee there instead of this being one fixed platform-wide amount.
 const VENUE_INSPECTION_FEE = 5000;
 
 function poa_formatCurrency(amount){
@@ -15381,7 +15396,8 @@ const DEFAULT_ANNUAL_BUSINESS_TYPES = ["Bar", "Restaurant", "Hotel", "Beach", "C
 function defaultFormElements(){
   return {
     businessTypes: DEFAULT_ANNUAL_BUSINESS_TYPES.map(name => ({ name, requiredDocuments: ANNUAL_REQUIREMENTS.slice() })),
-    eventTypes: Object.keys(EVENT_REQUIREMENTS).map(name => ({ name, requiredDocuments: EVENT_REQUIREMENTS[name].slice() }))
+    eventTypes: Object.keys(EVENT_REQUIREMENTS).map(name => ({ name, requiredDocuments: EVENT_REQUIREMENTS[name].slice() })),
+    venueInspectionFee: VENUE_INSPECTION_FEE
   };
 }
 
@@ -15402,7 +15418,15 @@ async function loadMunicipalityFormElements(){
       const result = await window.storage.get(`formElements:${selectedMunicipality.id}`, true);
       if(result && result.value){
         const saved = JSON.parse(result.value);
-        if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)) muniFormElements = saved;
+        if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)){
+          muniFormElements = saved;
+          // A record saved before Venue Inspection Fee became configurable
+          // here won't carry this field yet — fall back to the platform
+          // default rather than silently charging $0.
+          if(typeof muniFormElements.venueInspectionFee !== 'number' || muniFormElements.venueInspectionFee < 0){
+            muniFormElements.venueInspectionFee = VENUE_INSPECTION_FEE;
+          }
+        }
       }
     } catch(err){ /* keep defaults */ }
   }
@@ -15423,6 +15447,12 @@ function populateFormElementSelects(){
   eventSelect.innerHTML = '<option value="">Select an option</option>' +
     fe.eventTypes.map(t => `<option>${poa_escapeHtml(t.name)}</option>`).join('');
   if(fe.eventTypes.some(t => t.name === currentEvent)) eventSelect.value = currentEvent;
+
+  // Step 4's "Adding a venue will attract an inspection fee of..." notice —
+  // this municipality's own configured fee (Manage > Form Elements), not a
+  // fixed platform-wide amount.
+  const feeNotice = document.getElementById('venueInspectionFeeNotice');
+  if(feeNotice) feeNotice.textContent = poa_formatCurrency(typeof fe.venueInspectionFee === 'number' ? fe.venueInspectionFee : VENUE_INSPECTION_FEE);
 
   updateRequiredDocs();
 }
@@ -16006,7 +16036,11 @@ function computeCosts(){
     venueFromDb = true;
   } else if(venueNameVal){
     venueLabel = 'New venue — standard inspection fee';
-    venueCostGross = VENUE_INSPECTION_FEE;
+    // Set by this municipality's own CEO (Manage > Form Elements) — see
+    // loadMunicipalityFormElements() — rather than one fixed platform-wide
+    // amount; VENUE_INSPECTION_FEE is only the fallback for a municipality
+    // that hasn't set its own yet.
+    venueCostGross = (muniFormElements && typeof muniFormElements.venueInspectionFee === 'number') ? muniFormElements.venueInspectionFee : VENUE_INSPECTION_FEE;
     venueIsNew = true;
     venueFromDb = false;
   } else {
@@ -19677,6 +19711,13 @@ const FORM_ELEMENT_DOCUMENT_CATALOG = [
   "National Works Agency Approval"
 ];
 
+// Platform default for a municipality's own Venue Inspection Fee (see
+// saveVenueInspectionFee() below) — must match the applicant-facing
+// wizard's own fallback, VENUE_INSPECTION_FEE, in the POA portal's script
+// (a separate, scope-isolated copy — see supabase_schema.sql-adjacent notes
+// on portal isolation — so it's duplicated here rather than shared).
+const DEFAULT_VENUE_INSPECTION_FEE = 5000;
+
 // The platform default — identical to what every municipality saw before
 // this feature existed. A municipality that hasn't customized its own Form
 // Elements yet (no `formElements:<muniId>` record saved) falls back to this,
@@ -19693,7 +19734,8 @@ function defaultFormElements(){
       { name: "Fireworks", requiredDocuments: ["Ambulance", "Fire Certification", "Police Approval (apply online)", "Liability Insurance", "Emergency Contingency Plan"] },
       { name: "Dead Yard", requiredDocuments: ["Police Approval (apply online)"] },
       { name: "Dance/Stage Shows", requiredDocuments: ["Ministry of Health Approval", "Fire Certification", "Police Approval (apply online)", "Liability Insurance", "Emergency Contingency Plan", "NSWMA"] }
-    ]
+    ],
+    venueInspectionFee: DEFAULT_VENUE_INSPECTION_FEE
   };
 }
 
@@ -19710,7 +19752,15 @@ async function loadFormElementsConfig(){
     const result = await window.storage.get(`formElements:${currentUser.muniId}`, true);
     if(result && result.value){
       const saved = JSON.parse(result.value);
-      if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)) formElementsConfig = saved;
+      if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)){
+        formElementsConfig = saved;
+        // A record saved before Venue Inspection Fee became configurable
+        // here won't carry this field yet — fall back to the platform
+        // default rather than treating it as a deliberate $0 fee.
+        if(typeof formElementsConfig.venueInspectionFee !== 'number' || formElementsConfig.venueInspectionFee < 0){
+          formElementsConfig.venueInspectionFee = DEFAULT_VENUE_INSPECTION_FEE;
+        }
+      }
     }
   } catch(err){ /* keep defaults */ }
 }
@@ -19719,7 +19769,26 @@ async function renderFormElements(){
   await loadFormElementsConfig();
   renderFormElementTable('business');
   renderFormElementTable('event');
+  const feeInput = document.getElementById('venueInspectionFeeInput');
+  if(feeInput) feeInput.value = formElementsConfig.venueInspectionFee;
 }
+
+// Set by this municipality's CEO — read at wizard time by the applicant-
+// facing script's own computeCosts() via muniFormElements.venueInspectionFee
+// (see loadMunicipalityFormElements() there), replacing what used to be one
+// fixed, hardwired $5,000 fee for every municipality on the platform.
+async function saveVenueInspectionFee(){
+  const val = parseFloat(document.getElementById('venueInspectionFeeInput').value);
+  if(isNaN(val) || val < 0){
+    muni_showToast('Please enter a valid, non-negative fee.');
+    return;
+  }
+  if(!formElementsConfig) formElementsConfig = defaultFormElements();
+  formElementsConfig.venueInspectionFee = Math.round(val * 100) / 100;
+  await persistFormElementsConfig();
+  muni_showToast(`Venue Inspection Fee updated to ${muni_formatCurrency(formElementsConfig.venueInspectionFee)}.`);
+}
+window.saveVenueInspectionFee = saveVenueInspectionFee;
 
 function renderFormElementTable(kind){
   const body = document.getElementById(kind === 'business' ? 'formElementsBusinessBody' : 'formElementsEventBody');
@@ -19863,11 +19932,13 @@ async function removeFormElementType(kind, index){
 }
 
 async function resetFormElementsToDefault(){
-  if(!(await window.atdConfirm("Restore the platform default business types, event types, and document requirements for this municipality? Any customizations you've made here will be lost."))) return;
+  if(!(await window.atdConfirm("Restore the platform default business types, event types, document requirements, and Venue Inspection Fee for this municipality? Any customizations you've made here will be lost."))) return;
   formElementsConfig = defaultFormElements();
   await persistFormElementsConfig();
   renderFormElementTable('business');
   renderFormElementTable('event');
+  const feeInput = document.getElementById('venueInspectionFeeInput');
+  if(feeInput) feeInput.value = formElementsConfig.venueInspectionFee;
   muni_showToast('Form elements reset to platform defaults.');
 }
 
@@ -20210,7 +20281,7 @@ function openVenueAcceptModal(id){
   if(!v) return;
   acceptingVenueId = id;
   document.getElementById('venueAcceptModalSub').textContent =
-    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment — crediting the Venue Inspection Fee they already paid at submission, so they're never charged twice for the same venue.`;
+    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment, on top of the Venue Inspection Fee they already paid at submission.`;
   document.getElementById('venueAcceptCostInput').value = '';
   document.getElementById('venueAcceptModal').classList.remove('hidden');
 }
@@ -20239,33 +20310,25 @@ function closeVenueRejectModal(){
 // a manually-typed request, just raised automatically here instead. Shared
 // out of both call sites so the two never drift apart.
 //
-// Fix #46 — this used to bill the FULL assessed cost here, on top of the
-// flat $VENUE_INSPECTION_FEE "Venue Inspection Fee" (see computeCosts())
-// the applicant already paid as part of costs.total at submission time for
-// this manually-added venue. That double-charged every applicant whose
-// manually-entered venue got accepted into the database: e.g. Harbour City
-// Mall (a real St. James venue with an assessed Venue Cost of $40,000 —
-// confirmed live via Claude in Chrome against
-// https://www.atendifyapp.com/'s public venue picker) has to have been
-// manually typed rather than selected from the dropdown on POA-072026-07,
-// so the applicant was billed the $5,000 flat inspection fee at
-// submission, and would ALSO have been billed the full $40,000 again here
-// once the venue was accepted — $45,000 total for a venue a database
-// selection would have correctly charged $40,000 for. This credits the
-// inspection fee already paid against the newly-assessed cost and bills
-// only the difference (never bills a negative amount, and skips raising a
-// request at all once the inspection fee already covers the assessed
-// cost).
+// Fix #46 (now reversed — see the fix right below this comment) used to
+// credit the flat Venue Inspection Fee the applicant already paid at
+// submission against this newly-assessed Venue Cost, billing only the
+// difference. At the explicit request of Atendify's pilot contact, that
+// crediting is removed: the Venue Inspection Fee (covering the initial
+// inspection visit) and this Venue Cost (the venue's own ongoing assessed
+// cost, once it's added to the registry) are two separate charges, and
+// both are now billed in full — the applicant is billed the complete
+// assessed cost here regardless of what they already paid.
 async function chargeVenueCostToApplication(appNumber, venueName, cost){
   const a = applications.find(x => x.appNumber === appNumber);
   if(!a) return { additionalDue: cost, alreadyPaid: 0 };
   const alreadyPaid = (a.raw && a.raw.costs && typeof a.raw.costs.venueCost === 'number') ? a.raw.costs.venueCost : 0;
-  const additionalDue = Math.round(Math.max(0, cost - alreadyPaid) * 100) / 100;
+  const additionalDue = Math.round(cost * 100) / 100;
   if(additionalDue > 0){
     if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
     a.additionalPaymentRequests.push({
       amount: additionalDue,
-      reason: `Venue Cost — ${venueName} (assessed at ${muni_formatCurrency(cost)}; ${muni_formatCurrency(alreadyPaid)} inspection fee already paid is credited)`,
+      reason: `Venue Cost — ${venueName} (assessed at ${muni_formatCurrency(cost)})`,
       status: 'Pending',
       requestedBy: currentUser.name,
       requestedDate: new Date().toISOString().slice(0, 10),
@@ -20277,7 +20340,7 @@ async function chargeVenueCostToApplication(appNumber, venueName, cost){
     const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
     if(applicantEmail){
       window.atdNotifyApplicant(applicantEmail, 'additional_payment_requested',
-        `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(additionalDue)} (Venue Cost, after crediting the inspection fee you already paid) for ${a.appNumber}.`, a.appNumber);
+        `${myMunicipalityName()} added "${venueName}" to the venue database and requested an additional payment of ${muni_formatCurrency(additionalDue)} (Venue Cost) for ${a.appNumber}.`, a.appNumber);
     }
     if(activeAppId === a.id) renderAppDetail();
   }
@@ -20312,8 +20375,8 @@ async function submitAcceptPendingVenue(){
 
   const billedMsg = !v.sourceAppNumber ? ''
     : billing.additionalDue > 0
-      ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber} (the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid was credited).`
-      : ` The ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid on ${v.sourceAppNumber} covers this cost — no additional payment is due.`;
+      ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`
+      : ` No additional payment is due on ${v.sourceAppNumber}.`;
   muni_showToast(`${v.name} added to your venue database.${billedMsg}`);
   closeVenueAcceptModal();
   renderVenues();
