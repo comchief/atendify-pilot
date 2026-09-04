@@ -3098,7 +3098,7 @@
     applicationFeeReceipt: ['fileData'],
     applicationPaymentReceipt: ['fileData'],
     applicationAdditionalPaymentReceipt: ['fileData'],
-    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData']
+    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData', 'jamsFileData', 'jcapFileData']
   };
   var OFFLOAD_THRESHOLD_BYTES = 100 * 1024;
 
@@ -3177,6 +3177,31 @@
         }
       }
       out.regulatoryDocuments = regOut;
+    }
+    // JCF Required Documents (JAMMS/JCAP Approval — see renderMmJcfDocuments()
+    // in atendify.html) follow the exact same embed-fileData-inline shape as
+    // regulatoryDocuments above, just under their own top-level field so a
+    // Municipal officer's document review (which only ever reads
+    // regulatoryDocuments/regulatoryDocList) never sees them. Same offload
+    // treatment for the same reason: a real scanned approval letter can
+    // easily clear OFFLOAD_THRESHOLD_BYTES.
+    if (client && out.jcfDocuments && typeof out.jcfDocuments === 'object') {
+      var jcfOut = Object.assign({}, out.jcfDocuments);
+      var jcfDocNames = Object.keys(jcfOut);
+      for (var k = 0; k < jcfDocNames.length; k++) {
+        var jcfDocName = jcfDocNames[k];
+        var jcfDoc = jcfOut[jcfDocName];
+        if (jcfDoc && typeof jcfDoc.fileData === 'string' && jcfDoc.fileData.indexOf('data:') === 0 && jcfDoc.fileData.length > OFFLOAD_THRESHOLD_BYTES) {
+          var jcfDocField = 'jcfDocuments__' + jcfDocName.replace(/[^a-zA-Z0-9]+/g, '_');
+          var jcfDocPath = await storagePath(key, jcfDocField);
+          var jcfDocBlob = dataUrlToBlob(jcfDoc.fileData);
+          var jcfDocUp = await client.storage.from(BUCKET).upload(jcfDocPath, jcfDocBlob, { upsert: true, contentType: jcfDocBlob.type });
+          if (!jcfDocUp.error) {
+            jcfOut[jcfDocName] = Object.assign({}, jcfDoc, { fileData: { __storageRef: jcfDocPath, __mime: jcfDocBlob.type } });
+          }
+        }
+      }
+      out.jcfDocuments = jcfOut;
     }
     return out;
   }
@@ -4015,6 +4040,44 @@
       } catch (e) {
         window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', e);
         return false;
+      }
+    },
+
+    // Fix #49 — the read-side counterpart of saveTrackedApplication() above.
+    // openJcfForm() auto-carries the Photo ID, Event Flyer, and Proof of
+    // Ownership over from a POA application to the JCF form so the applicant
+    // doesn't have to re-upload them — but those three live under their own
+    // applicationPhotoId:/applicationFlier:/applicationOwnership: keys,
+    // which have no SELECT policy at all for a genuinely anonymous caller
+    // (see supabase_schema.sql's Family 4 comment). A signed-in poa account
+    // or staff member can read them directly via storage.get(); a pure guest
+    // never could, so the carry-over silently came back empty and they had
+    // to re-upload everything (see backend/fix49_guest_jcf_document_carryover.sql).
+    // Same SECURITY DEFINER pattern as atd_track_application: verifies the
+    // tracking code matches this application's own, server-side, before
+    // returning anything, so it's safe for anon — and works identically for
+    // a signed-in poa account (they always know their own record's tracking
+    // code too), so openJcfForm() can use this as its one and only path
+    // rather than branching on session state.
+    getTrackedApplicationFiles: async function (appNumber, trackingCode) {
+      if (!client) return null;
+      try {
+        var res = await atdWithClockSkewRetry(function () {
+          return client.rpc('atd_track_application_files', {
+            p_app_number: appNumber, p_tracking_code: trackingCode
+          });
+        });
+        if (res.error || !res.data) return null;
+        // The RPC returns each file-pointer row's raw stored value verbatim
+        // (whatever submitApp() originally wrote under
+        // applicationPhotoId:/applicationFlier:/applicationOwnership:), so
+        // any of the three that was large enough to have been offloaded to
+        // Storage (see offloadLargeFields) needs the same rehydration a
+        // normal storage.get() call would have applied.
+        return await rehydrateLargeFields(res.data);
+      } catch (e) {
+        window.atdShowDebugError('getTrackedApplicationFiles(' + appNumber + ')', e);
+        return null;
       }
     },
     // generateAppNumber() (below submitApp()) used to work out the next
@@ -6238,6 +6301,15 @@
           <div class="detail-section-title" id="mmDocsHeading" style="font-size:19px;">Required Documents</div>
           <p class="col-desc" style="margin-bottom:24px;">Upload the approvals/permits required for this event type. Images and PDFs are accepted.</p>
           <div class="mm-doc-grid" id="mmDocGrid"></div>
+
+          <!-- JCF Required Documents — JAMMS/JCAP Approval, required by the
+               Jamaica Constabulary Force for every applicant's event.
+               Uploaded here rather than on the JCF Noise Abatement form
+               itself, so it only has to be done once (see
+               renderMmJcfDocuments() / openJcfForm()'s carry-over). -->
+          <div class="detail-section-title" style="font-size:19px; margin-top:32px;">JCF Required Documents</div>
+          <p class="col-desc" style="margin-bottom:24px;">The Jamaica Constabulary Force requires proof of a JAMMS and a JCAP approval for your event. Upload them here — you won't need to upload them again on the JCF Noise Abatement Permit application.</p>
+          <div class="mm-doc-grid" id="mmJcfDocGrid"></div>
         </div>
 
         <!-- Permit view -->
@@ -12390,6 +12462,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRowAction('Photo ID', eo.photoIdFileName || 'Not uploaded', 'photoId', !!eo.photoIdFileName);
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName);
     html += jcfd_detailRowAction("Proof of Ownership/Authorization", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
+    // JAMMS/JCAP Approval — uploaded by the applicant on their linked POA
+    // application's Main Menu, not on this filing itself (see
+    // JCF_REQUIRED_DOC_LIST), so these only ever appear for a filing that
+    // actually has a linked POA application to have carried them from; a
+    // standalone JCF filing shows "Not uploaded" for both, same as any
+    // applicant who hasn't uploaded them yet.
+    const carriedDocs = rec.carriedJcfDocuments || {};
+    html += jcfd_detailRowAction('JAMMS Approval', carriedDocs.jamsFileName || 'Not uploaded', 'jams', !!carriedDocs.jamsFileName);
+    html += jcfd_detailRowAction('JCAP Approval', carriedDocs.jcapFileName || 'Not uploaded', 'jcap', !!carriedDocs.jcapFileName);
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -13617,7 +13698,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // for. One call here covers every document kind this modal handles.
     if(window.atdLogAudit && jcfdCurrentUser){
       const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
-        : kind === 'permissionLetter' ? "Proof of Ownership/Authorization" : kind === 'signature' ? 'Signature on File' : kind;
+        : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
+        : kind === 'jams' ? 'JAMMS Approval' : kind === 'jcap' ? 'JCAP Approval'
+        : kind === 'signature' ? 'Signature on File' : kind;
       await window.atdLogAudit({
         portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
         action: 'document.viewed',
@@ -13632,18 +13715,25 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_docModal').classList.remove('hidden');
 
     let dataUrl = '', fileName = '', title = '';
-    if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter'){
-      title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer' : "Venue Owner's Letter of Permission";
+    if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
+      title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
+        : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission"
+        : kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
       try{
         const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
         const files = (r && r.value) ? JSON.parse(r.value) : {};
-        dataUrl = kind === 'photoId' ? files.photoIdFileData : kind === 'flyer' ? files.flyerFileData : files.permissionLetterFileData;
+        dataUrl = kind === 'photoId' ? files.photoIdFileData
+          : kind === 'flyer' ? files.flyerFileData
+          : kind === 'permissionLetter' ? files.permissionLetterFileData
+          : kind === 'jams' ? files.jamsFileData : files.jcapFileData;
       } catch(e){ /* leave dataUrl empty */ }
       fileName = kind === 'photoId'
         ? ((rec.eventOverview && rec.eventOverview.photoIdFileName) || '')
         : kind === 'flyer'
         ? ((rec.briefings && rec.briefings.eventFlyerFileName) || '')
-        : ((rec.venueInfo && rec.venueInfo.permissionLetterFileName) || '');
+        : kind === 'permissionLetter'
+        ? ((rec.venueInfo && rec.venueInfo.permissionLetterFileName) || '')
+        : ((rec.carriedJcfDocuments && (kind === 'jams' ? rec.carriedJcfDocuments.jamsFileName : rec.carriedJcfDocuments.jcapFileName)) || '');
     } else if(kind === 'signature'){
       title = 'Signature on File';
       if(rec.signature && rec.signature.type === 'text'){
@@ -16340,6 +16430,20 @@ async function buildApplicationRecord(appNumber){
   });
   const requiredDocumentsSubmitted = regulatoryDocList.length === 0;
 
+  // JCF Required Documents (JAMMS/JCAP Approval) — a fixed pair, not
+  // admin-configured per business/event type like regulatoryDocList above.
+  // Uploaded post-submission from the Main Menu's Uploads view (see
+  // renderMmJcfDocuments()), same shape/lifecycle as regulatoryDocuments so
+  // it can reuse the same locked-after-submit / Rejected-can-reupload
+  // states — kept in its own separate field rather than folded into
+  // regulatoryDocuments so a Municipal officer's document review screen
+  // (which reads regulatoryDocuments/regulatoryDocList) doesn't pick these
+  // up: JAMMS/JCAP are JCF's requirement, not the municipality's.
+  const jcfDocuments = {};
+  JCF_REQUIRED_DOC_LIST.forEach(name => {
+    jcfDocuments[name] = { uploaded: false, fileName: '', fileData: null, uploadedDate: '', status: 'Not Uploaded', officerNote: '' };
+  });
+
   return {
     appNumber,
     // Kept off the main record on purpose: the event flier can be a large
@@ -16402,6 +16506,7 @@ async function buildApplicationRecord(appNumber){
     requiredDocumentsSubmitted,
     regulatoryDocList,
     regulatoryDocuments,
+    jcfDocuments,
     venueApproved: false,
     permitGenerated: false,
     permit: null,
@@ -16850,6 +16955,16 @@ let currentAppKey = null;
 // Mirrors POLICE_APPROVAL_DOC_NAME on the Municipal side — kept as a
 // separate constant since each app's <script> is its own isolated scope.
 const POA_POLICE_APPROVAL_DOC_NAME = 'Police Approval (apply online)';
+
+// New "JCF Required Documents" section on the Main Menu's Uploads view
+// (below the municipality's own "Required Documents") — the JCF now
+// requires every applicant to supply proof of a JAMMS and a JCAP approval
+// for their event, uploaded here rather than on the JCF form itself so an
+// applicant only has to do it once, same reasoning as the Photo ID/Flier/
+// Ownership carry-over into the JCF form (see openJcfForm()). Fixed at two
+// entries by design (unlike regulatoryDocList, this isn't admin-configured
+// per business/event type) — see renderMmJcfDocuments()/mmJcfDocFileChosen().
+const JCF_REQUIRED_DOC_LIST = ['JAMMS Approval', 'JCAP Approval'];
 
 // Cached (not attached to currentAppRecord, which mmRefreshRecord() replaces
 // wholesale on every refresh) linked-JCF-application data and municipality
@@ -17648,52 +17763,37 @@ async function submitAdditionalPaymentStage(idx){
 
 async function openJcfForm(){
   const r = currentAppRecord;
-  // The photo ID isn't embedded in currentAppRecord (see
-  // buildApplicationRecord's _photoIdFileDataPending note) — fetch it from
-  // its own storage key so it can still be auto-carried over to the JCF
-  // form, same as before. Best-effort: if this fails, the handoff still
-  // proceeds, the applicant just has to (re-)upload their photo ID there.
-  let photoIdFileData = null;
-  if(window.storage && r.appNumber){
+  // Photo ID / Event Flier / Proof of Ownership aren't embedded in
+  // currentAppRecord (see buildApplicationRecord's _photoIdFileDataPending
+  // note) — each lives under its own applicationPhotoId:/applicationFlier:/
+  // applicationOwnership: storage key instead, fetched here so they can
+  // still be auto-carried over to the JCF form.
+  //
+  // Fix #49 — this used to be three separate window.storage.get() calls,
+  // which only ever succeeded for a signed-in poa account or staff (the
+  // only roles with a SELECT policy on these file-pointer prefixes — see
+  // supabase_schema.sql's Family 4 comment). A genuinely anonymous guest,
+  // reached via Track Application, has no session and no matching policy,
+  // so all three reads silently failed under RLS every time, and the
+  // guest's photo ID/flyer/ownership document never carried over — they had
+  // to re-upload everything on the JCF form. One call to the tracking-code-
+  // verified RPC (backend/fix49_guest_jcf_document_carryover.sql) replaces
+  // all three: it works identically whether this is a guest or a signed-in
+  // poa account (both always know their own application's tracking code),
+  // the same principle mmPersist() already relies on for the write side.
+  // Best-effort either way: if this fails or nothing was ever uploaded, the
+  // handoff still proceeds and the applicant just uploads on the JCF form.
+  let photoIdFileData = null, flierFileData = null, ownershipFileData = null;
+  if(window.ATDBackend && window.ATDBackend.getTrackedApplicationFiles && r.appNumber && r.trackingCode){
     try{
-      const result = await window.storage.get(`applicationPhotoId:${r.appNumber}`, true);
-      if(result && result.value) photoIdFileData = JSON.parse(result.value).fileData || null;
+      const files = await window.ATDBackend.getTrackedApplicationFiles(r.appNumber, r.trackingCode);
+      if(files){
+        photoIdFileData = (files.photoId && files.photoId.fileData) || null;
+        flierFileData = (files.flier && files.flier.fileData) || null;
+        ownershipFileData = (files.ownership && files.ownership.fileData) || null;
+      }
     } catch(err){
-      // no separately-stored photo ID available for this application
-    }
-  }
-  // Same handoff for the Event Flier: it's stored under its own
-  // `applicationFlier:<appNumber>` key (see buildApplicationRecord's
-  // _flierFileDataPending note), not embedded in currentAppRecord, so it has
-  // to be fetched the same way as the photo ID above. The JCF form has its
-  // own required "Image of event flyer" upload — auto-carrying this over
-  // means the applicant doesn't have to re-upload the same flyer twice for
-  // one event. Best-effort, same as the photo ID: if this fails, the
-  // applicant just uploads the flyer again on the JCF form.
-  let flierFileData = null;
-  if(window.storage && r.appNumber){
-    try{
-      const result = await window.storage.get(`applicationFlier:${r.appNumber}`, true);
-      if(result && result.value) flierFileData = JSON.parse(result.value).fileData || null;
-    } catch(err){
-      // no separately-stored flier available for this application
-    }
-  }
-  // Same handoff for the Proof of Ownership/Authorization document: stored
-  // under its own `applicationOwnership:<appNumber>` key (see
-  // buildApplicationRecord's _ownershipFileDataPending note), not embedded
-  // in currentAppRecord. The JCF form's own upload for this same document
-  // used to be titled "Venue owner's letter of permission" — a different
-  // name for what is really the same document the POA application already
-  // asked for — which is why it was never auto-carried over before; now
-  // both forms use the same title and this fetch links them.
-  let ownershipFileData = null;
-  if(window.storage && r.appNumber){
-    try{
-      const result = await window.storage.get(`applicationOwnership:${r.appNumber}`, true);
-      if(result && result.value) ownershipFileData = JSON.parse(result.value).fileData || null;
-    } catch(err){
-      // no separately-stored ownership document available for this application
+      // no separately-stored files available for this application
     }
   }
   const payload = {
@@ -17729,7 +17829,17 @@ async function openJcfForm(){
     venueOwnerAddress: r.venue.ownerAddress || '',
     venueOwnerPhone: r.venue.ownerPhone || '',
     ownershipFileName: r.venue.ownershipFileName || '',
-    ownershipFileData
+    ownershipFileData,
+    // JAMMS/JCAP Approval — new "JCF Required Documents" section on the
+    // Main Menu's Uploads view (see renderMmJcfDocuments()). Unlike Photo
+    // ID/Flier/Ownership above, these live INSIDE currentAppRecord itself
+    // (r.jcfDocuments), not under their own separate storage key, so no
+    // extra fetch is needed here — whatever was uploaded is already present
+    // on r by the time this runs.
+    jamsFileName: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]].fileName) || '',
+    jamsFileData: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]].fileData) || null,
+    jcapFileName: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]].fileName) || '',
+    jcapFileData: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]].fileData) || null
   };
   // Everything lives in one document now, so hand the payload straight to
   // the JCF applicant shell in memory and switch hubs in the same window —
@@ -18084,6 +18194,12 @@ function renderMmDocuments(){
   const list = r.regulatoryDocList || [];
   if(!list.length){
     grid.innerHTML = `<p class="col-desc">No additional regulatory documents are required for this application.</p>`;
+    // Fix: this early return used to skip the JCF Required Documents
+    // section entirely (see renderMmJcfDocuments() below) whenever the
+    // municipality requires zero regulatory documents — a common case,
+    // not an edge case — silently hiding the JAMMS/JCAP upload section for
+    // exactly those applicants.
+    renderMmJcfDocuments();
     return;
   }
 
@@ -18149,7 +18265,77 @@ function renderMmDocuments(){
       </div>
     `;
   }).join('');
+
+  renderMmJcfDocuments();
 }
+
+// New "JCF Required Documents" section, below the municipality's own
+// Required Documents grid — JAMMS/JCAP Approval, required by the JCF for
+// every applicant's event (see JCF_REQUIRED_DOC_LIST). Deliberately its own
+// function/grid/storage field (r.jcfDocuments, not regulatoryDocuments) so
+// a Municipal officer's document review never picks these up — same
+// uploaded/locked/rejected states as renderMmDocuments() above, just
+// without the "Not applicable" escape hatch or the Police-Approval-style
+// special case, since neither applies here.
+function renderMmJcfDocuments(){
+  const r = currentAppRecord;
+  const grid = document.getElementById('mmJcfDocGrid');
+  if(!grid) return;
+
+  grid.innerHTML = JCF_REQUIRED_DOC_LIST.map((docName, i) => {
+    const doc = (r.jcfDocuments && r.jcfDocuments[docName]) || { uploaded: false, status: 'Not Uploaded' };
+    const status = doc.status || (doc.uploaded ? 'Submitted' : 'Not Uploaded');
+    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
+    const icon = status === 'Rejected'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+      : doc.uploaded
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>';
+    const statusText = { 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending JCF review (locked)', 'Approved': 'Approved by JCF (locked)', 'Rejected': 'Rejected by JCF — please re-upload' }[status] || status;
+    const canUpload = status === 'Not Uploaded' || status === 'Rejected';
+
+    return `
+      <div class="mm-doc-item">
+        <div class="mm-doc-upload ${stateClass}" ${canUpload ? `onclick="document.getElementById('mmJcfDocFile${i}').click()"` : 'style="cursor:default;"'}>
+          ${icon}
+        </div>
+        <div class="mm-doc-label">${poa_escapeHtml(docName)} *</div>
+        <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
+        ${status === 'Rejected' && doc.officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(doc.officerNote)}"</div>` : ''}
+        <input type="file" id="mmJcfDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmJcfDocFileChosen(${i}, ${JSON.stringify(docName)}, this)'>
+      </div>
+    `;
+  }).join('');
+}
+
+async function mmJcfDocFileChosen(index, docName, input){
+  if(!input.files || !input.files[0]) return;
+  const file = input.files[0];
+
+  const confirmed = await window.atdConfirm(`Upload "${file.name}" for ${docName}?\n\nOnce submitted, you won't be able to select a different file for this document unless a JCF officer rejects it.`);
+  if(!confirmed){
+    input.value = '';
+    return;
+  }
+
+  if(!currentAppRecord.jcfDocuments) currentAppRecord.jcfDocuments = {};
+
+  const fileData = await poa_readFileAsDataUrl(file);
+  currentAppRecord.jcfDocuments[docName] = {
+    uploaded: true,
+    fileName: file.name,
+    fileData,
+    uploadedDate: new Date().toISOString().slice(0,10),
+    status: 'Submitted',
+    officerNote: ''
+  };
+
+  input.value = '';
+  await mmPersist();
+  renderMmJcfDocuments();
+  poa_showToast(`${docName} uploaded and submitted.`);
+}
+window.mmJcfDocFileChosen = mmJcfDocFileChosen;
 
 function poa_readFileAsDataUrl(file){
   // Delegates to the shared resizer (see the <body>-top shim) so a large
@@ -27079,6 +27265,18 @@ function prefillFromPoa(){
     permissionLetterBoxEl.style.cursor = 'default';
   }
 
+  // JAMMS/JCAP Approval: no upload box in this wizard to fill in (see the
+  // note above their declaration) — just stash the carried-over file so
+  // submitJcfApp() can bundle it into jcfApplicationFiles.
+  if(poaData.jamsFileData){
+    jamsFileData = poaData.jamsFileData;
+    jamsFileName = poaData.jamsFileName || 'JAMMS Approval';
+  }
+  if(poaData.jcapFileData){
+    jcapFileData = poaData.jcapFileData;
+    jcapFileName = poaData.jcapFileName || 'JCAP Approval';
+  }
+
   if(poaData.securityRecords && poaData.securityRecords.length){
     const secYes = document.querySelector('input[name="securityArrangements"][value="Yes"]');
     if(secYes) secYes.checked = true;
@@ -27659,6 +27857,20 @@ function renderPermissionLetterPreview(){
 }
 window.permissionLetterFileChosen = permissionLetterFileChosen;
 
+// ==================== JAMMS/JCAP Approval (carried over from POA) ====================
+// Unlike Photo ID/Flyer/Permission Letter above, these have no upload box of
+// their own in this wizard — they're only ever collected on the linked POA
+// application's Main Menu (see JCF_REQUIRED_DOC_LIST/renderMmJcfDocuments()
+// in atendify.html) and carried over here by prefillFromPoa(), purely to be
+// bundled into jcfApplicationFiles at submission so a JCF officer reviewing
+// this filing can see them without the applicant uploading anything twice.
+// A standalone JCF filing (no linked POA application at all) simply has
+// neither — there's no Main Menu for it to have come from.
+let jamsFileName = '';
+let jamsFileData = null;
+let jcapFileName = '';
+let jcapFileData = null;
+
 // ==================== Signature: type / upload / draw ====================
 let sigMode = 'type';
 let sigUploadFileData = null;
@@ -28032,6 +28244,11 @@ async function submitJcfApp(){
       // above the storage.set() calls below.
       eventFlyerFileName: flyerFileName
     },
+    // JAMMS/JCAP Approval, carried over from the linked POA application's
+    // Main Menu (see JCF_REQUIRED_DOC_LIST) — file names only here, same
+    // reasoning as photoIdFileName/eventFlyerFileName above; the actual file
+    // data goes into jcfApplicationFiles below.
+    carriedJcfDocuments: { jamsFileName, jcapFileName },
     signature
   };
 
@@ -28045,9 +28262,9 @@ async function submitJcfApp(){
       // entirely — the exact bug that once broke POA application submission
       // (see buildApplicationRecord's _flierFileDataPending note). Stored
       // under their own key instead, best-effort.
-      if(photoIdFileData || flyerFileData || permissionLetterFileData){
+      if(photoIdFileData || flyerFileData || permissionLetterFileData || jamsFileData || jcapFileData){
         try{
-          await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify({ photoIdFileData, flyerFileData, permissionLetterFileData }), true);
+          await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify({ photoIdFileData, flyerFileData, permissionLetterFileData, jamsFileData, jcapFileData }), true);
         } catch(fileErr){
           // non-critical — the JCF application itself was submitted fine
         }
