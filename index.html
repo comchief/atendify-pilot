@@ -15750,6 +15750,32 @@ function poa_annualCapacityBand(category, capacity){
   return band ? { bandKey: band.key, bandLabel: band.label } : null;
 }
 
+// Computes the applicant's own total capacity figure for an Annual
+// license — same Grounds/Building/combined derivation computeCosts() uses
+// to price the CEO's Capacity Band Fee, pulled out here so
+// buildApplicationRecord() can reuse it (see EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME
+// below) without duplicating the useOfVenue branch a second time.
+function poa_annualApplicantCapacity(){
+  const useOfVenueVal = poa_val('useOfVenue');
+  if(useOfVenueVal === 'Grounds Only') return parseInt(poa_val('maxCap'), 10) || 0;
+  if(useOfVenueVal === 'Building Only') return parseInt(poa_val('totalBuildingCap'), 10) || 0;
+  if(useOfVenueVal === 'Grounds and Building') return (parseInt(poa_val('maxCap'), 10) || 0) + (parseInt(poa_val('totalBuildingCap'), 10) || 0);
+  return 0;
+}
+
+// Unlike "Fire Certification (if there will be open fire)" — a document
+// whose applicability the system has no way to know, so the applicant must
+// self-declare it Not Applicable post-submission (see poa_isConditionalDoc/
+// mmDocMarkNotApplicable) — whether "Emergency Contingency Plan (Hotels &
+// Venues with capacity over 500)" applies is an objective fact the system
+// already has: the exact capacity the applicant entered on the Business
+// Information step. So this is resolved automatically at submission time
+// (see buildApplicationRecord()'s regulatoryDocList filter below) rather
+// than left to a manual waiver — an applicant whose capacity doesn't
+// exceed 500 never sees this requirement at all.
+const EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME = 'Emergency Contingency Plan (Hotels & Venues with capacity over 500)';
+const EMERGENCY_CONTINGENCY_CAPACITY_THRESHOLD = 500;
+
 function defaultFormElements(){
   return {
     businessTypes: DEFAULT_ANNUAL_BUSINESS_TYPES.map(name => ({ name, requiredDocuments: ANNUAL_REQUIREMENTS.slice() })),
@@ -16420,14 +16446,7 @@ function computeCosts(){
     // filled in for a given category).
     const useOfVenueVal = poa_val('useOfVenue');
     const fees = (muniFormElements && muniFormElements.annualCapacityFees) ? muniFormElements.annualCapacityFees : defaultAnnualCapacityFees();
-    let capacityForBand = null;
-    if(useOfVenueVal === 'Grounds Only'){
-      capacityForBand = parseInt(poa_val('maxCap'), 10) || 0;
-    } else if(useOfVenueVal === 'Building Only'){
-      capacityForBand = parseInt(poa_val('totalBuildingCap'), 10) || 0;
-    } else if(useOfVenueVal === 'Grounds and Building'){
-      capacityForBand = (parseInt(poa_val('maxCap'), 10) || 0) + (parseInt(poa_val('totalBuildingCap'), 10) || 0);
-    }
+    const capacityForBand = useOfVenueVal ? poa_annualApplicantCapacity() : null;
     const categoryFees = useOfVenueVal ? fees[useOfVenueVal] : null;
     if(categoryFees && capacityForBand !== null){
       const band = poa_annualCapacityBand(useOfVenueVal, capacityForBand);
@@ -16973,6 +16992,14 @@ async function buildApplicationRecord(appNumber){
     const bt = poa_val('poa_businessType');
     const match = fe.businessTypes.find(t => t.name === bt);
     regulatoryDocList = match ? match.requiredDocuments.slice() : [];
+    // Emergency Contingency Plan only actually applies to Hotels & Venues
+    // whose entered capacity exceeds 500 — see EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME
+    // above. The system already has the applicant's real capacity figure
+    // from the Business Information step, so this is resolved automatically
+    // here rather than left as a manual "Not Applicable" waiver.
+    if(poa_annualApplicantCapacity() <= EMERGENCY_CONTINGENCY_CAPACITY_THRESHOLD){
+      regulatoryDocList = regulatoryDocList.filter(name => name !== EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME);
+    }
   } else if(licType === 'Special'){
     const et = poa_val('eventType');
     const match = fe.eventTypes.find(t => t.name === et);
