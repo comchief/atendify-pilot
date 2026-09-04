@@ -5655,7 +5655,7 @@
   <h1 class="page-title">Places of Amusement License Application</h1>
 
   <div id="poa_stepHeader">
-    <div class="step-label">Applying to <strong id="stepHeaderMuni">—</strong> · Step <span id="poa_stepNum">1</span> of 5 - <span class="current" id="poa_stepName">Applicant</span></div>
+    <div class="step-label">Applying to <strong id="stepHeaderMuni">—</strong> · Step <span id="poa_stepNum">1</span> of <span id="poa_stepTotal">5</span> - <span class="current" id="poa_stepName">Applicant</span></div>
     <div class="progress-track"><div class="progress-fill" id="poa_progressFill" style="width:20%"></div></div>
   </div>
 
@@ -5727,7 +5727,10 @@
                   <div class="upload-title">Company Logo</div>
                   <div class="upload-sub" id="logoLabel">Click to upload document</div>
                 </div>
-                <input type="file" id="fileLogo" accept="image/*" onchange="fileChosen(this,'logoLabel')">
+                <input type="file" id="fileLogo" accept="image/*" onchange="fileChosen(this,'logoLabel'); previewImage(this,'logoPreviewImg','logoPreviewWrap')">
+              </div>
+              <div id="logoPreviewWrap" class="hidden" style="margin-top:12px;">
+                <img id="logoPreviewImg" style="max-width:160px; max-height:160px; border-radius:8px; border:1px solid var(--border); display:block;">
               </div>
             </div>
           </div>
@@ -5842,7 +5845,7 @@
         </div>
 
         <div id="flierPreviewWrap" class="hidden" style="margin-top:24px;">
-          <div class="col-desc" style="margin-bottom:8px; font-weight:600; color:var(--text);">Event flier preview</div>
+          <div class="col-desc" id="flierPreviewLabel" style="margin-bottom:8px; font-weight:600; color:var(--text);">Event flier preview</div>
           <img id="flierPreviewImg" style="max-width:100%; border-radius:8px; border:1px solid var(--border); display:block;">
         </div>
       </div>
@@ -5891,27 +5894,38 @@
           </div>
         </div>
 
-        <div class="section-title">Private security</div>
-        <div class="yesno" style="margin-bottom:20px;">
-          <label><input type="radio" name="privateSecurity" value="Yes" id="secYes"> Yes</label>
-          <label><input type="radio" name="privateSecurity" value="No" id="secNo"> No</label>
-        </div>
-
-        <div id="securitySection" class="hidden" style="margin-bottom:28px;">
-          <div class="section-header-row">
-            <div class="col-desc" style="margin:0;">Manage security records below</div>
-            <button class="btn" type="button" onclick="openSecurityModal()">Add new</button>
+        <!-- Private security only applies to a Special Event filing -- an
+             Annual (ongoing business) license has no single event to guard,
+             so this whole section is hidden for Annual (see the license
+             type toggle listener below) rather than admin-configurable. -->
+        <div id="privateSecuritySection">
+          <div class="section-title">Private security</div>
+          <div class="yesno" style="margin-bottom:20px;">
+            <label><input type="radio" name="privateSecurity" value="Yes" id="secYes"> Yes</label>
+            <label><input type="radio" name="privateSecurity" value="No" id="secNo"> No</label>
           </div>
-          <div class="record-list" id="securityList"></div>
+
+          <div id="securitySection" class="hidden" style="margin-bottom:28px;">
+            <div class="section-header-row">
+              <div class="col-desc" style="margin:0;">Manage security records below</div>
+              <button class="btn" type="button" onclick="openSecurityModal()">Add new</button>
+            </div>
+            <div class="record-list" id="securityList"></div>
+          </div>
         </div>
 
-        <div class="section-title">Event Flier</div>
+        <!-- Same upload for both paths (id="fileFlier") -- only the label
+             changes: "Business Registration Document" for Annual, "Event
+             Flier" for Special (see the license type toggle listener
+             below), since an ongoing business license needs proof the
+             business itself is registered, not an event flier. -->
+        <div class="section-title" id="flierSectionTitle">Event Flier</div>
         <div class="upload-row" onclick="document.getElementById('fileFlier').click()">
           <div class="upload-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
           </div>
           <div>
-            <div class="upload-title">Event Flier</div>
+            <div class="upload-title" id="flierUploadTitle">Event Flier</div>
             <div class="upload-sub" id="flierLabel">Click to upload document</div>
           </div>
           <input type="file" id="fileFlier" accept="image/*,.pdf" onchange="fileChosen(this,'flierLabel'); previewImage(this,'flierPreviewImg','flierPreviewWrap')">
@@ -5919,7 +5933,7 @@
 
         <div class="btn-row">
           <button class="btn" onclick="poa_goStep(1)">Prev</button>
-          <button class="btn btn-primary" id="poa_nextBtn2" onclick="poa_goStepSaving(3)">Next</button>
+          <button class="btn btn-primary" id="poa_nextBtn2" onclick="poa_goStepSaving(poa_isAnnualSelected() ? 4 : 3)">Next</button>
         </div>
       </div>
     </div>
@@ -5963,42 +5977,54 @@
     </div>
   </section>
 
-  <!-- STEP 4: VENUE -->
+  <!-- STEP 4 (Special Event numbering) / STEP 3 (Annual numbering): VENUE
+       for Special Event, or BUSINESS INFORMATION for Annual — same section,
+       same underlying fields/ids either way, but Annual hides the venue-
+       database search, Proof of Ownership upload, and the manual-entry
+       toggle (an Annual business's own premises is always entered
+       directly), and relabels a couple of fields (see
+       poa_applyLicenseTypeFields / poa_applyVenueStepLicenseType). -->
   <section id="poa_step4" class="step hidden">
     <div class="grid">
       <div>
-        <div class="col-title">Venue Information</div>
-        <div class="col-desc">Enter all the details for the venue</div>
-        <div class="info-banner" style="margin-top:20px; margin-bottom:0;">
+        <div class="col-title" id="venueStepTitle">Venue Information</div>
+        <div class="col-desc" id="venueStepDesc">Enter all the details for the venue</div>
+        <div class="info-banner" id="venueInspectionFeeBanner" style="margin-top:20px; margin-bottom:0;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           <span>Adding a venue will attract an inspection fee of <span id="venueInspectionFeeNotice">$5,000</span>. Please note that we will carry out an assessment of the venue before approval is given.</span>
         </div>
       </div>
       <div>
-        <div class="section-title">Search Venue</div>
-        <div class="col-desc" style="margin-bottom:10px;">Add data from a venue in our database</div>
+        <!-- Search-a-registered-venue is a Special Event concept (venues
+             for hire) -- an Annual business operates at its own known
+             premises, so this whole block is hidden for Annual and the
+             manual fields below are shown directly instead. -->
+        <div id="venueDatabaseSearchSection">
+          <div class="section-title">Search Venue</div>
+          <div class="col-desc" style="margin-bottom:10px;">Add data from a venue in our database</div>
+          <div class="field-group">
+            <select id="venueSearch">
+              <option value="">Select an option</option>
+            </select>
+          </div>
+
+          <div id="venueUnavailableNotice" class="hidden" style="background:var(--red-tint,#fdecea); color:var(--red); border-radius:8px; padding:12px 14px; font-size:13.5px; margin-bottom:16px; display:flex; gap:9px; align-items:flex-start;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="venueUnavailableText"></span>
+          </div>
+
+          <div id="dbVenueCardWrap" class="hidden" style="margin-bottom:16px;">
+            <div class="section-title" style="font-size:14px;">Registered venue</div>
+            <div id="dbVenueCard"></div>
+          </div>
+        </div>
+
+        <!-- Use of venue applies either way — picked from the database or
+             entered manually — so it lives outside manualVenueFields and
+             stays visible regardless of path. Relabeled "Registration of
+             Use" for Annual (id unchanged: useOfVenue). -->
         <div class="field-group">
-          <select id="venueSearch">
-            <option value="">Select an option</option>
-          </select>
-        </div>
-
-        <div id="venueUnavailableNotice" class="hidden" style="background:var(--red-tint,#fdecea); color:var(--red); border-radius:8px; padding:12px 14px; font-size:13.5px; margin-bottom:16px; display:flex; gap:9px; align-items:flex-start;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0; margin-top:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <span id="venueUnavailableText"></span>
-        </div>
-
-        <div id="dbVenueCardWrap" class="hidden" style="margin-bottom:16px;">
-          <div class="section-title" style="font-size:14px;">Registered venue</div>
-          <div id="dbVenueCard"></div>
-        </div>
-
-        <!-- Use of venue + Documents apply to a venue either way — picked
-             from the municipality's own database, or entered manually below
-             — so these two live outside manualVenueFields and stay visible
-             regardless of which path the applicant takes. -->
-        <div class="field-group">
-          <label for="useOfVenue">Use of venue</label>
+          <label for="useOfVenue" id="useOfVenueLabel">Use of venue</label>
           <select id="useOfVenue">
             <option value="">Select an option</option>
             <option>Grounds Only</option>
@@ -6007,19 +6033,24 @@
           </select>
         </div>
 
-        <div class="section-title">Documents <span class="optional">(Optional)</span></div>
-        <div class="upload-row" onclick="document.getElementById('fileOwnership').click()">
-          <div class="upload-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        <!-- Proof of Ownership/Authorization is a Special-Event-only
+             requirement (verifying the applicant may use a hired venue) --
+             dropped entirely for Annual. -->
+        <div id="ownershipDocsSection">
+          <div class="section-title">Documents <span class="optional">(Optional)</span></div>
+          <div class="upload-row" onclick="document.getElementById('fileOwnership').click()">
+            <div class="upload-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+            </div>
+            <div>
+              <div class="upload-title">Proof of ownership/authorization</div>
+              <div class="upload-sub" id="ownershipLabel">Click to upload document</div>
+            </div>
+            <input type="file" id="fileOwnership" onchange="fileChosen(this,'ownershipLabel')">
           </div>
-          <div>
-            <div class="upload-title">Proof of ownership/authorization</div>
-            <div class="upload-sub" id="ownershipLabel">Click to upload document</div>
-          </div>
-          <input type="file" id="fileOwnership" onchange="fileChosen(this,'ownershipLabel')">
-        </div>
 
-        <div class="divider"></div>
+          <div class="divider"></div>
+        </div>
 
         <div id="manualVenueToggleWrap">
           <div class="section-title">Add Venue Information</div>
@@ -6030,7 +6061,7 @@
 
         <div id="manualVenueFields" class="hidden">
           <div class="field-group">
-            <label for="poa_venueName">Name of the venue</label>
+            <label for="poa_venueName" id="venueNameLabel">Name of the venue</label>
             <input type="text" id="poa_venueName">
           </div>
 
@@ -6052,7 +6083,7 @@
 
           <div class="field-group field-row">
             <div>
-              <label for="maxCap">Venue max capacity</label>
+              <label for="maxCap" id="maxCapLabel">Venue max capacity</label>
               <input type="number" id="maxCap" min="0">
             </div>
             <div>
@@ -6078,19 +6109,32 @@
         </div>
 
         <div class="btn-row">
-          <button class="btn" onclick="poa_goStep(3)">Prev</button>
+          <button class="btn" id="poa_prevBtn4" onclick="poa_goStep(poa_isAnnualSelected() ? 2 : 3)">Prev</button>
           <button class="btn btn-primary" id="poa_nextBtn4" onclick="poa_goStepSaving(5)">Next</button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- STEP 5: APPLICATION COSTS -->
+  <!-- STEP 5: APPLICATION COSTS for Special Event / CALCULATION for Annual
+       — same section either way; renderCosts() (called every time this step
+       is shown) sets step5Title/step5Desc and the poa_calcSummary banner
+       for Annual, since the Registration of Use/Venue Capacity values it
+       reads live on the previous step and can change right up until this
+       one is reached. -->
   <section id="step5" class="step hidden">
     <div class="grid">
       <div>
-        <div class="col-title">Application Costs</div>
-        <div class="col-desc">Please review the costs associated with your application. Once you have submitted your application, you will be required to make payment using the application number. Print the payment advice and take along with you when making payment.</div>
+        <div class="col-title" id="step5Title">Application Costs</div>
+        <div class="col-desc" id="step5Desc">Please review the costs associated with your application. Once you have submitted your application, you will be required to make payment using the application number. Print the payment advice and take along with you when making payment.</div>
+        <!-- Annual only: the Registration of Use / Venue Capacity selections
+             made on Step 3 (Business Information) that will guide the fee
+             calculation, surfaced here per the pilot contact's explicit
+             instruction ("those selection will guide the fee calculation"). -->
+        <div id="poa_calcSummary" class="hidden info-banner" style="margin-top:20px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>Registration of Use: <strong id="calcUseOfVenue">—</strong> &nbsp;·&nbsp; Venue Capacity: <strong id="calcVenueCapacity">—</strong></span>
+        </div>
       </div>
       <div>
         <div class="section-title">Have a promo code?</div>
@@ -6341,6 +6385,10 @@
     <div class="field-group">
       <label for="directorPhone">Phone</label>
       <input type="tel" id="directorPhone" placeholder="Director's phone number">
+    </div>
+    <div class="field-group">
+      <label for="directorTrn">Taxpayer Registration Number (TRN)</label>
+      <input type="text" id="directorTrn" placeholder="Director's TRN">
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeDirectorModal()">Cancel</button>
@@ -15038,6 +15086,16 @@ function poa_fieldHasValue(f){
 // step (1-4), or null if the step passes given the already-loaded
 // platform:formFieldConfig object `cfg` (see window.atdLoadFormFieldConfig).
 function poa_findMissingRequiredField(stepNum, cfg){
+  // Company Directors: always mandatory, not admin-toggleable (same
+  // treatment as the declaration checkbox/signature elsewhere) — a Company
+  // applicant must list at least one director. Checked here directly
+  // rather than via POA_FIELD_CHECKS/poa_fieldHasValue since it's an
+  // array-backed repeating list (companyDirectors), not a single input
+  // those generic checks can read.
+  if(stepNum === 1){
+    const isCompany = document.querySelector('input[name="applicantType"]:checked')?.value === 'Company';
+    if(isCompany && companyDirectors.length === 0) return 'Company Directors (at least one director must be added)';
+  }
   const checks = POA_FIELD_CHECKS[stepNum] || [];
   for(const f of checks){
     if(!cfg.poa[f.key]) continue; // not marked required by the admin
@@ -15060,7 +15118,16 @@ function poa_findMissingRequiredField(stepNum, cfg){
       : f.kind === 'file' ? document.getElementById(f.id)?.parentElement
       : document.getElementById(f.id);
     if(!poa_fieldIsVisible(visEl)) continue; // hidden/disabled right now — not applicable
-    if(!poa_fieldHasValue(f)) return f.label;
+    if(!poa_fieldHasValue(f)){
+      // fileFlier's on-screen label depends on license type (see
+      // poa_applyLicenseTypeFields) -- match it here so the "Please
+      // complete ... " message says the same thing the applicant sees.
+      if(f.key === 'fileFlier'){
+        const isAnnual = document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual';
+        return isAnnual ? 'Business Registration Document' : 'Event Flier';
+      }
+      return f.label;
+    }
   }
   return null;
 }
@@ -15071,11 +15138,20 @@ function poa_findMissingRequiredField(stepNum, cfg){
 // merged into the same click instead of a second control. A guest just
 // advances, same as the old poa_goStep(n) always did. Now also runs the
 // required-field check (see POA_FIELD_CHECKS above) for the step being left
-// (n-1) before allowing the advance — every "Next" button passes the step
-// it's heading TO as `n`, one past the step it's currently on.
+// before allowing the advance.
+//
+// Validates `currentStep` (the step actually on screen right now), NOT
+// `n - 1`. Those used to always be the same number, since every "Next"
+// button passed the step it's heading TO as `n`, one past the step it was
+// currently on -- but that assumption breaks for the Annual license path,
+// which skips Step 3 (Advertisement) entirely: Annual's Step 2 "Next"
+// passes n=4, and n-1 (3) would wrongly validate the skipped Advertisement
+// step instead of the Amusement step actually being left. `currentStep` is
+// only ever updated inside poa_goStep(), so at this point (before the
+// transition) it still correctly names the step being left, Annual or not.
 async function poa_goStepSaving(n){
   const fieldCfg = await window.atdLoadFormFieldConfig();
-  const missing = poa_findMissingRequiredField(n - 1, fieldCfg);
+  const missing = poa_findMissingRequiredField(currentStep, fieldCfg);
   if(missing){
     poa_showToast(`Please complete "${missing}" before continuing.`);
     return;
@@ -15145,15 +15221,42 @@ document.querySelectorAll('input[name="applicantType"]').forEach(input=>{
   });
 });
 
+// True when the applicant has picked the Annual license path -- drives
+// every Annual-vs-Special branch below (step skipping, progress display,
+// the Step 4/Business-Information relabeling in
+// poa_applyVenueStepLicenseType, etc).
+function poa_isAnnualSelected(){
+  return document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual';
+}
+window.poa_isAnnualSelected = poa_isAnnualSelected;
+
+// The wizard's real step numbers (matching the `steps`/POA_FIELD_CHECKS
+// arrays, 1-indexed) never change -- Special still uses all five (1-5),
+// Annual skips Step 3 (Advertisement) entirely and repurposes Step 5 as
+// "Calculation" (see poa_applyLicenseTypeFields/poa_applyVenueStepLicenseType
+// for the Step 2/4 content swap and the Step 5 Calculation content swap).
+// This is the "effective sequence" the applicant actually walks through,
+// used only for the Step X of Y / progress-bar display below -- it never
+// changes which real step numbers poa_goStep()/poa_goStepSaving() navigate
+// between.
+const ANNUAL_STEP_SEQUENCE = [1,2,4,5];
+const ANNUAL_STEP_NAMES = ["Applicant","Amusement","Business Information","Calculation"];
+
 function poa_goStep(n){
   document.getElementById('poa_stepReview').classList.add('hidden');
   document.getElementById('poa_stepHeader').classList.remove('hidden');
   steps.forEach((id,i)=>{
     document.getElementById(id).classList.toggle('hidden', i !== (n-1));
   });
-  document.getElementById('poa_stepNum').textContent = n;
-  document.getElementById('poa_stepName').textContent = stepNames[n-1];
-  document.getElementById('poa_progressFill').style.width = (n/5*100)+'%';
+  const isAnnual = poa_isAnnualSelected();
+  const effSteps = isAnnual ? ANNUAL_STEP_SEQUENCE : [1,2,3,4,5];
+  const effNames = isAnnual ? ANNUAL_STEP_NAMES : stepNames;
+  const effIndex = effSteps.indexOf(n);
+  const displayNum = effIndex === -1 ? n : effIndex + 1; // real step -> its position in the sequence actually shown to this applicant
+  document.getElementById('poa_stepNum').textContent = displayNum;
+  document.getElementById('poa_stepName').textContent = effNames[displayNum-1] || stepNames[n-1];
+  document.getElementById('poa_stepTotal').textContent = effSteps.length;
+  document.getElementById('poa_progressFill').style.width = (displayNum/effSteps.length*100)+'%';
   currentStep = n;
   if(n === 3) loadMunicipalityAdItems();
   if(n === 4) loadMunicipalityVenues();
@@ -15307,7 +15410,7 @@ function attachEmailValidation(id){
   });
 }
 
-['trn'].forEach(poa_attachTrnFormatter);
+['trn','directorTrn'].forEach(poa_attachTrnFormatter);
 ['phone','home','directorPhone','securityPhone'].forEach(poa_attachPhoneFormatter);
 ['email'].forEach(attachEmailValidation);
 
@@ -15356,16 +15459,72 @@ eventDateInput.addEventListener('change', ()=>{
 });
 
 // License type toggle
-document.getElementById('licSpecial').addEventListener('change', ()=>{
-  document.getElementById('specialFields').classList.remove('hidden');
-  document.getElementById('annualFields').classList.add('hidden');
+// Private security only applies to Special Event (a one-off event needing
+// crowd control); an Annual (ongoing business) license has no single event
+// to secure, so that whole section is hidden for Annual rather than
+// admin-configurable. The shared upload (id="fileFlier") is relabeled
+// "Business Registration Document" for Annual vs "Event Flier" for
+// Special -- an ongoing business needs proof the business itself is
+// registered, not a flier for an event that doesn't exist on this path.
+function poa_applyLicenseTypeFields(isAnnual){
+  document.getElementById('specialFields').classList.toggle('hidden', isAnnual);
+  document.getElementById('annualFields').classList.toggle('hidden', !isAnnual);
+  document.getElementById('privateSecuritySection').classList.toggle('hidden', isAnnual);
+  if(isAnnual){
+    // No private security question on this path -- clear any answer/records
+    // left over from switching back and forth so a stale "Yes" + records
+    // never silently survives into a submitted Annual application.
+    document.querySelectorAll('input[name="privateSecurity"]').forEach(el => el.checked = false);
+    document.getElementById('securitySection').classList.add('hidden');
+  }
+  const flierLabel = isAnnual ? 'Business Registration Document' : 'Event Flier';
+  document.getElementById('flierSectionTitle').textContent = flierLabel;
+  document.getElementById('flierUploadTitle').textContent = flierLabel;
+  document.getElementById('flierPreviewLabel').textContent = flierLabel + ' preview';
+  poa_applyVenueStepLicenseType(isAnnual);
   updateRequiredDocs();
-});
-document.getElementById('licAnnual').addEventListener('change', ()=>{
-  document.getElementById('specialFields').classList.add('hidden');
-  document.getElementById('annualFields').classList.remove('hidden');
-  updateRequiredDocs();
-});
+}
+document.getElementById('licSpecial').addEventListener('change', ()=> poa_applyLicenseTypeFields(false));
+document.getElementById('licAnnual').addEventListener('change', ()=> poa_applyLicenseTypeFields(true));
+
+// Step 4 (Venue for Special / Business Information for Annual) -- same
+// underlying section and field ids either way (see the STEP 4 comment
+// above the poa_step4 markup), toggled together with the Step 2 fields
+// above so switching the license-type radio anywhere immediately keeps
+// both steps in sync. Annual drops the venue-database search and the
+// Proof of Ownership upload (an ongoing business isn't hiring someone
+// else's venue) and skips the "Manually add venue details" toggle -- its
+// own address/capacity fields are simply always on screen -- while
+// keeping Max Parking/Additional Parking per the pilot contact's explicit
+// answer to keep those for Annual.
+function poa_applyVenueStepLicenseType(isAnnual){
+  document.getElementById('venueStepTitle').textContent = isAnnual ? 'Business Information' : 'Venue Information';
+  document.getElementById('venueStepDesc').textContent = isAnnual
+    ? "Enter your business's address, registration of use, and venue capacity"
+    : 'Enter all the details for the venue';
+  document.getElementById('venueInspectionFeeBanner').classList.toggle('hidden', isAnnual);
+  document.getElementById('venueDatabaseSearchSection').classList.toggle('hidden', isAnnual);
+  document.getElementById('ownershipDocsSection').classList.toggle('hidden', isAnnual);
+  document.getElementById('manualVenueToggleWrap').classList.toggle('hidden', isAnnual);
+  document.getElementById('useOfVenueLabel').textContent = isAnnual ? 'Registration of use' : 'Use of venue';
+  document.getElementById('venueNameLabel').textContent = isAnnual ? 'Name of the business' : 'Name of the venue';
+  document.getElementById('maxCapLabel').textContent = isAnnual ? 'Venue capacity' : 'Venue max capacity';
+  if(isAnnual){
+    // Always-on manual entry -- no database, no toggle link.
+    document.getElementById('manualVenueFields').classList.remove('hidden');
+    // A stale database/saved-venue selection from a prior Special session
+    // (switching license type back and forth) has no meaning on this path --
+    // clear it so computeCosts()/buildApplicationRecord() never see a
+    // leftover 'db-...' venueSearch value once Annual is selected.
+    document.getElementById('venueSearch').value = '';
+    renderDbVenueCard(null);
+  } else {
+    // Restore Special's normal collapsed-by-default manual-entry section --
+    // it reopens itself via "Manually add venue details" or a venue-database
+    // selection, same as always.
+    document.getElementById('manualVenueFields').classList.add('hidden');
+  }
+}
 
 // --- Required documents (from Yearly Amusement Requirements) ---
 const ANNUAL_REQUIREMENTS = [
@@ -15511,6 +15670,7 @@ function openDirectorModal(){
   document.getElementById('directorName').value = '';
   document.getElementById('directorTitle').value = '';
   document.getElementById('directorPhone').value = '';
+  document.getElementById('directorTrn').value = '';
   document.getElementById('directorModal').classList.remove('hidden');
 }
 function closeDirectorModal(){
@@ -15522,7 +15682,8 @@ function createDirector(){
   companyDirectors.push({
     name,
     title: poa_val('directorTitle'),
-    phone: poa_val('directorPhone')
+    phone: poa_val('directorPhone'),
+    trn: poa_val('directorTrn')
   });
   renderDirectors();
   closeDirectorModal();
@@ -15538,7 +15699,7 @@ function renderDirectors(){
     <div class="record-row">
       <div>
         <div class="record-main">${poa_escapeHtml(d.name)}</div>
-        <div class="record-sub">${poa_escapeHtml(d.title || 'N/A')}${d.phone ? ' · ' + poa_escapeHtml(d.phone) : ''}</div>
+        <div class="record-sub">${poa_escapeHtml(d.title || 'N/A')}${d.phone ? ' · ' + poa_escapeHtml(d.phone) : ''}${d.trn ? ' · TRN ' + poa_escapeHtml(d.trn) : ''}</div>
       </div>
       <button class="record-remove" onclick="removeDirector(${i})">Remove</button>
     </div>
@@ -16009,6 +16170,16 @@ document.getElementById('venueSearch').addEventListener('change', function(){
 function poa_val(id){ return document.getElementById(id).value.trim(); }
 
 function computeCosts(){
+  // The Annual license path has no venue-database search, no "new venue"
+  // inspection fee, and no Advertisement step at all -- its own fee rules
+  // (keyed off the Registration of Use / Venue Capacity selections made on
+  // its Step 3, "Business Information") haven't been defined yet ("Once
+  // this is built I will give the rules for calculation that will be set
+  // by the CEO" — explicit, deferred). Until then this reports a clearly
+  // labeled $0 placeholder rather than reusing any of the Special Event
+  // venue-cost logic below, which doesn't apply to Annual at all.
+  const isAnnualLic = document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual';
+
   const venueSearchVal = poa_val('venueSearch');
   const venueNameVal = poa_val('poa_venueName');
   let venueLabel, venueCostGross, venueIsNew;
@@ -16020,7 +16191,12 @@ function computeCosts(){
   // Inspection Fee" for a manually-added one (or nothing selected yet, which
   // defaults to the same standard-inspection assumption).
   let venueFromDb;
-  if(venueSearchVal && venueSearchVal.startsWith('db-')){
+  if(isAnnualLic){
+    venueLabel = 'Registration of Use / Venue Capacity fee — pending CEO configuration';
+    venueCostGross = 0;
+    venueIsNew = false;
+    venueFromDb = false;
+  } else if(venueSearchVal && venueSearchVal.startsWith('db-')){
     // A venue selected from the municipality's own database already has an
     // assessed, venue-specific fee on file (set by the municipality when the
     // venue was registered) — charge that instead of the flat new-venue
@@ -16050,14 +16226,22 @@ function computeCosts(){
     venueFromDb = false;
   }
 
+  // Annual has no Advertisement step at all (poa_step3 is never shown on
+  // that path -- see poa_goStepSaving's step-skipping), so there's nothing
+  // to total here. Guarding explicitly (rather than relying on the hidden
+  // .ad-qty inputs simply never having been touched) also protects against
+  // a stale quantity left over from switching license types back and forth
+  // before submitting.
   const adItems = [];
-  document.querySelectorAll('.ad-qty').forEach(inp=>{
-    const qty = parseInt(inp.value, 10) || 0;
-    if(qty > 0){
-      const price = parseFloat(inp.dataset.price) || 0;
-      adItems.push({ name: inp.dataset.type, qty, cost: qty * price });
-    }
-  });
+  if(!isAnnualLic){
+    document.querySelectorAll('.ad-qty').forEach(inp=>{
+      const qty = parseInt(inp.value, 10) || 0;
+      if(qty > 0){
+        const price = parseFloat(inp.dataset.price) || 0;
+        adItems.push({ name: inp.dataset.type, qty, cost: qty * price });
+      }
+    });
+  }
   const adTotalGross = adItems.reduce((sum, i) => sum + i.cost, 0);
 
   // The application fee itself is set per municipality, per license type —
@@ -16066,7 +16250,7 @@ function computeCosts(){
   // municipality. Falls back to the flat APPLICATION_FEE default only if no
   // municipality is selected yet, or the selected one hasn't configured its
   // own fee.
-  const licType = document.querySelector('input[name="licenseType"]:checked')?.value;
+  const licType = isAnnualLic ? 'Annual' : document.querySelector('input[name="licenseType"]:checked')?.value;
   let applicationFee = APPLICATION_FEE;
   if(selectedMunicipality){
     if(licType === 'Annual' && selectedMunicipality.appFeeAnnual != null){
@@ -16113,6 +16297,7 @@ function computeCosts(){
 
   return {
     applicationFee,
+    isAnnual: isAnnualLic,
     venueLabel, venueCost, venueCostGross, venueIsNew, venueFromDb,
     adItems, adTotal, adTotalGross, total,
     promoApplied: !!appliedPromotion,
@@ -16125,6 +16310,18 @@ function computeCosts(){
 }
 
 function renderCosts(){
+  const isAnnual = poa_isAnnualSelected();
+
+  document.getElementById('step5Title').textContent = isAnnual ? 'Calculation' : 'Application Costs';
+  document.getElementById('step5Desc').textContent = isAnnual
+    ? 'Your license fee is calculated from the Registration of Use and Venue Capacity you selected on the previous step.'
+    : 'Please review the costs associated with your application. Once you have submitted your application, you will be required to make payment using the application number. Print the payment advice and take along with you when making payment.';
+  document.getElementById('poa_calcSummary').classList.toggle('hidden', !isAnnual);
+  if(isAnnual){
+    document.getElementById('calcUseOfVenue').textContent = poa_val('useOfVenue') || '—';
+    document.getElementById('calcVenueCapacity').textContent = poa_val('maxCap') || '—';
+  }
+
   const c = computeCosts();
   const rows = document.getElementById('costRows');
   let html = '';
@@ -16132,20 +16329,28 @@ function renderCosts(){
   html += `<div class="cost-group-header">Application Fee</div>`;
   html += `<div class="cost-row"><span class="cost-label">Places of Amusement License — application fee</span><span class="cost-amount">${poa_formatCurrency(c.applicationFee)}</span></div>`;
 
-  html += `<div class="cost-group-header">Venue Cost</div>`;
-  // A registered venue (picked from the municipality's own database) already
-  // has an assessed fee on file — no new inspection needed, so this reads as
-  // "Permit Fee (Venue)". A manually-added venue (or nothing selected yet)
-  // still needs the standard inspection, so it stays "Venue Inspection Fee".
-  html += `<div class="cost-row"><span class="cost-label">${c.venueFromDb ? 'Permit Fee (Venue)' : 'Venue Inspection Fee'}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
-
-  html += `<div class="cost-group-header">Advertisement Costs</div>`;
-  if(c.adItems.length){
-    c.adItems.forEach(item=>{
-      html += `<div class="cost-row"><span class="cost-label">${poa_escapeHtml(item.name)} (x${item.qty})</span><span class="cost-amount">${poa_formatCurrency(item.cost)}</span></div>`;
-    });
+  if(isAnnual){
+    // No Advertisement step and no venue-database/new-venue distinction on
+    // this path — see computeCosts()'s isAnnualLic branch — just the single
+    // placeholder line until the CEO's Annual fee rules exist.
+    html += `<div class="cost-group-header">Business/Venue Fee</div>`;
+    html += `<div class="cost-row"><span class="cost-label">${poa_escapeHtml(c.venueLabel)}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
   } else {
-    html += `<div class="cost-row"><span class="cost-label" style="color:var(--text-muted); font-weight:400;">No advertisements selected</span><span class="cost-amount">${poa_formatCurrency(0)}</span></div>`;
+    html += `<div class="cost-group-header">Venue Cost</div>`;
+    // A registered venue (picked from the municipality's own database) already
+    // has an assessed fee on file — no new inspection needed, so this reads as
+    // "Permit Fee (Venue)". A manually-added venue (or nothing selected yet)
+    // still needs the standard inspection, so it stays "Venue Inspection Fee".
+    html += `<div class="cost-row"><span class="cost-label">${c.venueFromDb ? 'Permit Fee (Venue)' : 'Venue Inspection Fee'}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
+
+    html += `<div class="cost-group-header">Advertisement Costs</div>`;
+    if(c.adItems.length){
+      c.adItems.forEach(item=>{
+        html += `<div class="cost-row"><span class="cost-label">${poa_escapeHtml(item.name)} (x${item.qty})</span><span class="cost-amount">${poa_formatCurrency(item.cost)}</span></div>`;
+      });
+    } else {
+      html += `<div class="cost-row"><span class="cost-label" style="color:var(--text-muted); font-weight:400;">No advertisements selected</span><span class="cost-amount">${poa_formatCurrency(0)}</span></div>`;
+    }
   }
 
   if(c.promoApplied && c.promoDiscountAmount > 0){
@@ -16182,7 +16387,7 @@ async function poa_goReview(){
   let basicHtml = basic.map(rowHtml).join('');
   if(isCompany){
     basicHtml += companyDirectors.length
-      ? companyDirectors.map(d => rowHtml(['Director', [d.name, d.title, d.phone].filter(Boolean).join(' · ')])).join('')
+      ? companyDirectors.map(d => rowHtml(['Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · ')])).join('')
       : rowHtml(['Company Directors', 'None added']);
   }
   document.getElementById('revBasic').innerHTML = basicHtml;
@@ -16212,29 +16417,38 @@ async function poa_goReview(){
   }
   document.getElementById('revAmusement').innerHTML = amusementHtml;
 
-  // Advertisement info
-  const adDisplay = document.querySelector('input[name="adDisplay"]:checked')?.value;
+  // Advertisement info — Annual has no Advertisement step at all (see
+  // poa_goStepSaving's step-skipping), so this reads as not applicable
+  // rather than "No Advertisements added" (which would misleadingly imply
+  // the applicant was asked and declined).
+  const isAnnualRev = licType === 'Annual';
   let adHtml = '';
-  if(adDisplay === 'Yes'){
-    const qtys = document.querySelectorAll('.ad-qty');
-    const items = [];
-    qtys.forEach(inp=>{
-      const q = parseInt(inp.value,10) || 0;
-      if(q > 0) items.push([inp.dataset.type, String(q)]);
-    });
-    adHtml = items.length ? items.map(rowHtml).join('') : '<div class="review-empty">No Advertisements added</div>';
+  if(isAnnualRev){
+    adHtml = '<div class="review-empty">Not applicable — Annual license</div>';
   } else {
-    adHtml = '<div class="review-empty">No Advertisements added</div>';
+    const adDisplay = document.querySelector('input[name="adDisplay"]:checked')?.value;
+    if(adDisplay === 'Yes'){
+      const qtys = document.querySelectorAll('.ad-qty');
+      const items = [];
+      qtys.forEach(inp=>{
+        const q = parseInt(inp.value,10) || 0;
+        if(q > 0) items.push([inp.dataset.type, String(q)]);
+      });
+      adHtml = items.length ? items.map(rowHtml).join('') : '<div class="review-empty">No Advertisements added</div>';
+    } else {
+      adHtml = '<div class="review-empty">No Advertisements added</div>';
+    }
   }
   document.getElementById('revAd').innerHTML = adHtml;
 
-  // Venue info
+  // Venue info — relabeled for Annual (see poa_applyVenueStepLicenseType,
+  // which relabels the same fields on Step 3/Business Information itself).
   const venue = [
-    ['Venue name', poa_val('poa_venueName') || 'N/A'],
+    [isAnnualRev ? 'Business name' : 'Venue name', poa_val('poa_venueName') || 'N/A'],
     ['Address', [poa_val('vAddr1'), poa_val('vAddr2')].filter(Boolean).join(' , ') || 'N/A'],
-    ['Max capacity', poa_val('maxCap') || 'N/A'],
+    [isAnnualRev ? 'Venue capacity' : 'Max capacity', poa_val('maxCap') || 'N/A'],
     ['Max parking capacity', poa_val('maxParking') || 'N/A'],
-    ['Use of venue', poa_val('useOfVenue') || 'N/A'],
+    [isAnnualRev ? 'Registration of use' : 'Use of venue', poa_val('useOfVenue') || 'N/A'],
   ];
   let venueHtml = venue.map(rowHtml).join('');
   additionalParkingList.forEach(p=>{
@@ -16245,29 +16459,40 @@ async function poa_goReview(){
   // Form Uploads — a Company applicant never had a Photo ID field (they get
   // Company Logo instead, see the applicantType toggle above), so which row
   // shows here follows the same isCompany check the rest of this function
-  // already computed, rather than always showing both.
+  // already computed, rather than always showing both. The flier label
+  // follows license type (Business Registration Document vs Event Flier,
+  // see poa_applyLicenseTypeFields), and Proof of Ownership is dropped
+  // entirely for Annual — it isn't collected on that path at all.
   const idKind = isCompany ? 'logo' : 'photoId';
   const idLabel = isCompany ? 'Company Logo' : 'Photo ID';
   const idHasFile = isCompany
     ? fileHasValue('fileLogo')
     : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData);
   const flierHasFile = fileHasValue('fileFlier');
-  const ownershipHasFile = fileHasValue('fileOwnership');
-  document.getElementById('poa_revUploads').innerHTML =
-    poa_uploadRowHtml(idLabel, idKind, idHasFile) +
-    poa_uploadRowHtml('Event Flier', 'flier', flierHasFile) +
-    poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', ownershipHasFile);
+  const flierRevLabel = isAnnualRev ? 'Business Registration Document' : 'Event Flier';
+  let uploadsHtml = poa_uploadRowHtml(idLabel, idKind, idHasFile) +
+    poa_uploadRowHtml(flierRevLabel, 'flier', flierHasFile);
+  if(!isAnnualRev){
+    const ownershipHasFile = fileHasValue('fileOwnership');
+    uploadsHtml += poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', ownershipHasFile);
+  }
+  document.getElementById('poa_revUploads').innerHTML = uploadsHtml;
 
-  // Costs
+  // Costs — mirrors renderCosts()'s own Annual/Special split (Business/
+  // Venue Fee placeholder + no advertisement line for Annual).
   const c = computeCosts();
   let costsHtml = rowHtml(['Application fee', poa_formatCurrency(c.applicationFee)]);
-  costsHtml += rowHtml(['Venue cost', poa_formatCurrency(c.venueCost)]);
-  if(c.adItems.length){
-    c.adItems.forEach(item=>{
-      costsHtml += rowHtml([`Advertisement — ${item.name} (x${item.qty})`, poa_formatCurrency(item.cost)]);
-    });
+  if(isAnnualRev){
+    costsHtml += rowHtml(['Business/Venue fee', poa_formatCurrency(c.venueCostGross)]);
   } else {
-    costsHtml += rowHtml(['Advertisement costs', 'No advertisements selected']);
+    costsHtml += rowHtml(['Venue cost', poa_formatCurrency(c.venueCost)]);
+    if(c.adItems.length){
+      c.adItems.forEach(item=>{
+        costsHtml += rowHtml([`Advertisement — ${item.name} (x${item.qty})`, poa_formatCurrency(item.cost)]);
+      });
+    } else {
+      costsHtml += rowHtml(['Advertisement costs', 'No advertisements selected']);
+    }
   }
   costsHtml += rowHtml(['Total', poa_formatCurrency(c.total)]);
   document.getElementById('revCosts').innerHTML = costsHtml;
@@ -22214,7 +22439,7 @@ function renderSubmissionColumn(a){
   if(isCompany){
     if(r.applicant.directors && r.applicant.directors.length){
       r.applicant.directors.forEach(d => {
-        html += detailRow('Director', [d.name, d.title, d.phone].filter(Boolean).join(' · '));
+        html += detailRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '));
       });
     } else {
       html += detailRow('Company Directors', 'None on file');
@@ -22237,37 +22462,49 @@ function renderSubmissionColumn(a){
   }
   html += `</div>`;
 
-  // Venue Information
+  // Venue Information — relabeled for Annual to match the applicant-facing
+  // wizard's own terminology (see poa_applyVenueStepLicenseType/poa_goReview).
   html += `<div class="panel"><div class="detail-section-title">Venue Information</div>`;
-  html += detailRow('Venue name', r.venue.name);
+  html += detailRow(isAnnual ? 'Business name' : 'Venue name', r.venue.name);
   html += detailRow('Address', [r.venue.addr1, r.venue.addr2, r.venue.district].filter(Boolean).join(', '));
-  html += detailRow('Max capacity', r.venue.maxCap);
+  html += detailRow(isAnnual ? 'Venue capacity' : 'Max capacity', r.venue.maxCap);
   html += detailRow('Max parking capacity', r.venue.maxParking);
-  html += detailRow('Use of venue', r.venue.useOfVenue);
+  html += detailRow(isAnnual ? 'Registration of use' : 'Use of venue', r.venue.useOfVenue);
   (r.venue.additionalParking || []).forEach(p=>{
     html += detailRow(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + muni_formatCurrency(p.cost) : ''}`);
   });
   html += `</div>`;
 
-  // Advertisement Information
+  // Advertisement Information — Annual never has an Advertisement step at
+  // all (see the applicant-side poa_goStepSaving step-skipping), so "No" here
+  // would misleadingly read as a choice the applicant made.
   html += `<div class="panel"><div class="detail-section-title">Advertisement Information</div>`;
-  html += detailRow('Displaying Advertisement at/leading up to event', r.advertisement.hasAds ? 'Yes' : 'No');
-  if(r.advertisement.hasAds && r.advertisement.items && r.advertisement.items.length){
-    r.advertisement.items.forEach(item=>{
-      html += detailRow(`${item.name} (x${item.qty})`, muni_formatCurrency(item.cost));
-    });
+  if(isAnnual){
+    html += detailRow('Advertisement', 'Not applicable — Annual license');
+  } else {
+    html += detailRow('Displaying Advertisement at/leading up to event', r.advertisement.hasAds ? 'Yes' : 'No');
+    if(r.advertisement.hasAds && r.advertisement.items && r.advertisement.items.length){
+      r.advertisement.items.forEach(item=>{
+        html += detailRow(`${item.name} (x${item.qty})`, muni_formatCurrency(item.cost));
+      });
+    }
   }
   html += `</div>`;
 
-  // Private Security Information
-  html += `<div class="panel"><div class="detail-section-title">Private Security Information</div>`;
-  html += detailRow('Private security', r.amusement.privateSecurity || 'No');
-  if(r.amusement.privateSecurity === 'Yes' && r.amusement.securityRecords && r.amusement.securityRecords.length){
-    r.amusement.securityRecords.forEach(s=>{
-      html += detailRow(s.company, [s.guards ? `${s.guards} guard(s)` : '', s.phone].filter(Boolean).join(' · '));
-    });
+  // Private Security Information — Special Event only (see the
+  // privateSecuritySection toggle in the applicant wizard); Annual never
+  // asks the question, so the whole panel is skipped rather than showing a
+  // default "No" that implies it was asked and declined.
+  if(!isAnnual){
+    html += `<div class="panel"><div class="detail-section-title">Private Security Information</div>`;
+    html += detailRow('Private security', r.amusement.privateSecurity || 'No');
+    if(r.amusement.privateSecurity === 'Yes' && r.amusement.securityRecords && r.amusement.securityRecords.length){
+      r.amusement.securityRecords.forEach(s=>{
+        html += detailRow(s.company, [s.guards ? `${s.guards} guard(s)` : '', s.phone].filter(Boolean).join(' · '));
+      });
+    }
+    html += `</div>`;
   }
-  html += `</div>`;
 
   // Uploaded Documents
   const docList = r.regulatoryDocList || [];
@@ -22293,10 +22530,11 @@ function renderSubmissionColumn(a){
 
   const flierUploaded = !!(r.documents && r.documents.flier);
   const flierFileName = (r.amusement && r.amusement.flierFileName) || 'Uploaded file';
+  const flierDocLabel = isAnnual ? 'Business Registration Document' : 'Event Flier';
   html += `
     <div class="doc-review-row">
       <div>
-        <div class="cell-primary">Event Flier</div>
+        <div class="cell-primary">${flierDocLabel}</div>
         <div class="cell-sub">${flierUploaded ? muni_escapeHtml(flierFileName) : 'Not yet uploaded'}</div>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
@@ -22321,19 +22559,24 @@ function renderSubmissionColumn(a){
       </div>`;
   }
 
-  const ownershipUploaded = !!(r.documents && r.documents.ownership);
-  const ownershipFileName = (r.venue && r.venue.ownershipFileName) || 'Uploaded file';
-  html += `
-    <div class="doc-review-row">
-      <div>
-        <div class="cell-primary">Proof of Ownership/Authorization</div>
-        <div class="cell-sub">${ownershipUploaded ? muni_escapeHtml(ownershipFileName) : 'Not yet uploaded'}</div>
-      </div>
-      <div style="display:flex; align-items:center; gap:10px;">
-        <span class="badge ${ownershipUploaded ? 'badge-blue' : 'badge-gray'}">${ownershipUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-        <button class="btn btn-sm" ${ownershipUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('ownership')">View</button>
-      </div>
-    </div>`;
+  // Not collected on the Annual path at all (dropped per the pilot
+  // contact's explicit instruction — an ongoing business doesn't need to
+  // prove authorization to use someone else's venue for a single event).
+  if(!isAnnual){
+    const ownershipUploaded = !!(r.documents && r.documents.ownership);
+    const ownershipFileName = (r.venue && r.venue.ownershipFileName) || 'Uploaded file';
+    html += `
+      <div class="doc-review-row">
+        <div>
+          <div class="cell-primary">Proof of Ownership/Authorization</div>
+          <div class="cell-sub">${ownershipUploaded ? muni_escapeHtml(ownershipFileName) : 'Not yet uploaded'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge ${ownershipUploaded ? 'badge-blue' : 'badge-gray'}">${ownershipUploaded ? 'Submitted' : 'Not Uploaded'}</span>
+          <button class="btn btn-sm" ${ownershipUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('ownership')">View</button>
+        </div>
+      </div>`;
+  }
 
   if(!docList.length){
     html += `<p class="col-desc" style="margin:8px 0 0;">No additional regulatory documents are required for this application.</p>`;
@@ -22417,18 +22660,25 @@ function renderSubmissionColumn(a){
   // at a glance, which one they're looking at — see a.venueIsNew below for
   // the venue database's own review status, which is where that venue's
   // real cost gets billed separately once accepted.
-  html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost));
-  if(a.venueIsNew){
-    const registryLabel = a.venueRegistryStatus === 'accepted'
-      ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
-      : a.venueRegistryStatus === 'rejected'
-        ? `Rejected${a.venueRegistryRejectReason ? ' — ' + muni_escapeHtml(a.venueRegistryRejectReason) : ''}`
-        : (hasPerm('manageVenues')
-          ? 'Pending review — see Venues Pending Review on the Venues page'
-          : 'Pending review by a staff member who can manage the venue database');
-    html += detailRow('Venue database status', registryLabel);
+  if(isAnnual){
+    // No venue-database concept on this path (see computeCosts()'s
+    // isAnnualLic branch on the applicant side) -- just the single
+    // placeholder line until the CEO's Annual fee rules exist.
+    html += detailRow(r.costs.venueLabel || 'Business/Venue Fee', muni_formatCurrency(r.costs.venueCost));
+  } else {
+    html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost));
+    if(a.venueIsNew){
+      const registryLabel = a.venueRegistryStatus === 'accepted'
+        ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
+        : a.venueRegistryStatus === 'rejected'
+          ? `Rejected${a.venueRegistryRejectReason ? ' — ' + muni_escapeHtml(a.venueRegistryRejectReason) : ''}`
+          : (hasPerm('manageVenues')
+            ? 'Pending review — see Venues Pending Review on the Venues page'
+            : 'Pending review by a staff member who can manage the venue database');
+      html += detailRow('Venue database status', registryLabel);
+    }
+    html += detailRow('Advertisement total', muni_formatCurrency(r.costs.adTotal));
   }
-  html += detailRow('Advertisement total', muni_formatCurrency(r.costs.adTotal));
   html += `<div class="detail-row" style="border-top:1px solid var(--border-color); margin-top:2px; padding-top:10px;"><div class="dr-label"><strong>Payable to ${muni_escapeHtml(myMunicipalityName())}</strong></div><div class="dr-value"><strong>${muni_formatCurrency(municipalAmount)}</strong>${municipalFeeTag}</div></div>`;
   html += detailRow('Total (incl. Atendify fee)', muni_formatCurrency(r.costs.total));
   html += `</div>`;
