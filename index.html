@@ -16897,8 +16897,16 @@ async function poa_goReview(){
     amusement.push(['Type of event', poa_val('eventType') || 'N/A']);
     amusement.push(['Patrons', poa_val('patrons') || 'N/A']);
   }
-  const privSec = document.querySelector('input[name="privateSecurity"]:checked')?.value;
-  amusement.push(['Private security', privSec || 'N/A']);
+  // Private security only applies to a Special Event (see
+  // privateSecuritySection's default-hidden markup) — Annual never asks the
+  // question at all, so the row is skipped entirely rather than showing a
+  // default "N/A" that implies it was asked and left blank. Mirrors the
+  // Municipal officer's own application detail view, which applies the same
+  // isAnnual guard around its "Private Security Information" panel.
+  const privSec = licType === 'Special' ? document.querySelector('input[name="privateSecurity"]:checked')?.value : null;
+  if(licType === 'Special'){
+    amusement.push(['Private security', privSec || 'N/A']);
+  }
   let amusementHtml = amusement.map(rowHtml).join('');
   if(privSec === 'Yes'){
     amusementHtml += securityRecords.length
@@ -18765,8 +18773,17 @@ function renderMmSummary(){
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Application Costs</div>`;
   html += `<div class="review-row"><div class="rr-label">Application fee</div><div class="rr-value">${poa_formatCurrency(r.costs.applicationFee)}${r.applicationFeePaid ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>' : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>'}</div></div>`;
-  html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost));
-  html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
+  // Annual has no Advertisement step at all (see poa_goStepSaving's
+  // step-skipping) and bills a single Business/Venue fee line instead of a
+  // separate venue cost — mirrors the Municipal officer's own application
+  // detail view, which applies this same isAnnual split around these two
+  // lines.
+  if(isAnnual){
+    html += mmDetailRow(r.costs.venueLabel || 'Business/Venue Fee', poa_formatCurrency(r.costs.venueCost));
+  } else {
+    html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost));
+    html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
+  }
   // Municipal portion (everything except the Atendify application fee) gets
   // its own Paid/Unpaid tag too, same treatment as the Atendify fee above —
   // driven by r.paymentVerified, the same flag the municipal officer's own
@@ -18909,8 +18926,11 @@ async function printPaymentAdvice(previewRecord){
 
       <div class="doc-breakdown-title">Payment Breakdown</div>
       <div class="doc-breakdown-row" style="color:#666;"><span>Service Fee (paid online to Atendify — not due at cashier):</span><span>${poa_formatCurrency(r.costs.applicationFee)}</span></div>
-      <div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
-      <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>
+      ${isAnnual
+        ? `<div class="doc-breakdown-row"><span>${poa_escapeHtml(r.costs.venueLabel || 'Business/Venue Fee')}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>`
+        : `<div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
+      <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>`
+      }
       <div class="doc-breakdown-row total"><span>TOTAL DUE AT ${poa_escapeHtml((r.municipalityName || 'MUNICIPAL CORPORATION').toUpperCase())}:</span><span>${poa_formatCurrency(r.costs.total - (r.costs.applicationFee || 0))}</span></div>
     </div>
   `;
