@@ -3121,7 +3121,11 @@
     applicationFeeReceipt: ['fileData'],
     applicationPaymentReceipt: ['fileData'],
     applicationAdditionalPaymentReceipt: ['fileData'],
-    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData', 'jamsFileData', 'jcapFileData']
+    // noiseNoticeFileData added for the Annual JCF wizard's Community Impact
+    // section (Section 4's "existing Noise Abatement Notices/conditions"
+    // upload) — same flat top-level shape as the five fields already here,
+    // so it needs no special handling beyond being named in this list.
+    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData', 'jamsFileData', 'jcapFileData', 'noiseNoticeFileData']
   };
   var OFFLOAD_THRESHOLD_BYTES = 100 * 1024;
 
@@ -3225,6 +3229,31 @@
         }
       }
       out.jcfDocuments = jcfOut;
+    }
+    // Annual JCF wizard's Section 5 (Other Licenses & Approvals) uploads —
+    // up to six files (trade/liquor/fire/health/jamms/jacap), each nested
+    // under jcfApplicationFiles.otherLicenseFiles.<key>.fileData, the same
+    // "nested-by-name" shape as regulatoryDocuments/jcfDocuments above (as
+    // opposed to a flat FILE_FIELDS_BY_PREFIX field) since the set of keys
+    // is fixed but each one's fileData can individually clear
+    // OFFLOAD_THRESHOLD_BYTES.
+    if (client && out.otherLicenseFiles && typeof out.otherLicenseFiles === 'object') {
+      var olOut = Object.assign({}, out.otherLicenseFiles);
+      var olKeys = Object.keys(olOut);
+      for (var m = 0; m < olKeys.length; m++) {
+        var olKey = olKeys[m];
+        var olDoc = olOut[olKey];
+        if (olDoc && typeof olDoc.fileData === 'string' && olDoc.fileData.indexOf('data:') === 0 && olDoc.fileData.length > OFFLOAD_THRESHOLD_BYTES) {
+          var olField = 'otherLicenseFiles__' + olKey.replace(/[^a-zA-Z0-9]+/g, '_');
+          var olPath = await storagePath(key, olField);
+          var olBlob = dataUrlToBlob(olDoc.fileData);
+          var olUp = await client.storage.from(BUCKET).upload(olPath, olBlob, { upsert: true, contentType: olBlob.type });
+          if (!olUp.error) {
+            olOut[olKey] = Object.assign({}, olDoc, { fileData: { __storageRef: olPath, __mime: olBlob.type } });
+          }
+        }
+      }
+      out.otherLicenseFiles = olOut;
     }
     return out;
   }
@@ -9429,6 +9458,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <hr class="divider">
 
+        <!-- Wrapped in #jcf_djSoundBlock so the Annual JCF wizard's own
+             Entertainment Activities section (jcfAnnual_step3) can relocate
+             this exact block into itself wholesale (see
+             jcfAnnual_mountDjSoundForms) — reusing openDjForm/saveDj/
+             openSoundForm/saveSound and the shared djs/soundSystems arrays
+             verbatim rather than duplicating this markup and its functions,
+             per the explicit instruction to reuse this component as-is. The
+             wrapping id itself doesn't change anything about how this block
+             behaves inside the Special Event flow. -->
+        <div id="jcf_djSoundBlock">
         <div class="ent-buttons-row">
           <button class="btn btn-gold" type="button" onclick="openDjForm()">+ Add DJ</button>
           <button class="btn btn-gold" type="button" onclick="openSoundForm()">+ Add Sound System</button>
@@ -9551,6 +9590,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             </div>
           </div>
         </div>
+        </div><!-- /#jcf_djSoundBlock -->
 
         <div class="btn-row">
           <button class="btn" onclick="jcf_goStep(2)">← Back</button>
@@ -9682,6 +9722,402 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <button class="btn btn-primary" id="jcf_submitBtn" onclick="submitJcfApp()">Submit application</button>
     </div>
   </section>
+
+  <!-- ==================== ANNUAL JCF NOISE ABATEMENT WIZARD ====================
+       Used instead of jcf_step1..4/jcf_stepReview above whenever the linked
+       POA application is an Annual license (poaData.licenseType === 'Annual'
+       — see startWizard()'s own gate). Every id/class here is prefixed
+       jcfAnnual_ so it can never collide with the Special Event flow's own
+       ids even though only one of the two flows is ever visible at once.
+       Reuses the Special Event flow's DJ/Sound System components (openDjForm/
+       saveDj/openSoundForm/saveSound and the shared djs/soundSystems arrays)
+       verbatim, and its briefing videos/declaration/signature capture/
+       confirmPage success screen with duplicated ids per this file's own
+       per-scope-helper convention. -->
+  <div id="jcfAnnual_applicationFlow" class="hidden">
+  <h1 class="page-title">Annual JCF Noise Abatement Permit Application</h1>
+
+  <div id="jcfAnnual_stepHeader">
+    <div class="step-label">Step <span id="jcfAnnual_stepNum">1</span> of 7 - <span class="current" id="jcfAnnual_stepName">Applicant Information</span></div>
+    <div class="progress-track"><div class="progress-fill" id="jcfAnnual_progressFill" style="width:14.28%"></div></div>
+  </div>
+
+  <!-- SECTION 1: APPLICANT INFORMATION -->
+  <section id="jcfAnnual_step1" class="step">
+    <div class="grid">
+      <div>
+        <div class="col-title">Applicant Information</div>
+        <div class="col-desc">Applicant Information is automatically synced from your submitted Places of Amusement Application. If you believe there is an error please contact your Local Municipal Corporation.</div>
+        <div class="col-desc">Licence Period: <strong id="jcfAnnual_licencePeriodLabel">—</strong></div>
+      </div>
+      <div>
+        <div class="section-title">Application Type</div>
+        <div class="radio-cards-row">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_applicationType" value="New" checked disabled><div class="rc-title">New</div></label>
+        </div>
+
+        <hr class="divider">
+
+        <div class="section-title">Applicant Type</div>
+        <div id="jcfAnnual_applicantTypeFromPoaTag" class="from-poa-tag">✓ From your Places of Amusement application</div>
+        <div id="jcfAnnual_applicantInfoBody" style="margin-top:8px;"></div>
+
+        <div class="btn-row"><button class="btn btn-primary" onclick="jcfAnnual_continueFromStep1()">Continue →</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 2: PREMISES INFORMATION -->
+  <section id="jcfAnnual_step2" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Premises Information</div>
+        <div class="col-desc">Business details below are pulled from your Places of Amusement application.</div>
+      </div>
+      <div>
+        <div id="jcfAnnual_premisesFromPoaTag" class="from-poa-tag">✓ From your Places of Amusement application</div>
+        <div class="field-group">
+          <label>Type of Business</label>
+          <div class="readback-row" id="jcfAnnual_businessTypeDisplay">—</div>
+        </div>
+        <div class="field-group">
+          <label>Registration of Use</label>
+          <div class="readback-row" id="jcfAnnual_registrationOfUseDisplay">—</div>
+        </div>
+        <div class="field-group">
+          <label>Name of Business</label>
+          <div class="readback-row" id="jcfAnnual_businessNameDisplay">—</div>
+        </div>
+        <div class="field-group">
+          <label>Business Address</label>
+          <div class="readback-row" id="jcfAnnual_businessAddressDisplay">—</div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="field-group">
+          <label for="jcfAnnual_ownershipStatus">Ownership Status <span class="required-mark">*</span></label>
+          <select id="jcfAnnual_ownershipStatus" aria-required="true">
+            <option value="">Select an option</option>
+            <option>Owned</option>
+            <option>Leased</option>
+            <option>Rented</option>
+            <option>Managed on behalf of owner</option>
+            <option>Other</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label>Registered Property Owner</label>
+          <div id="jcfAnnual_propertyOwnerSummary" class="readback-row">Not provided.</div>
+          <button class="btn" type="button" style="margin-top:8px;" onclick="jcfAnnual_openPropertyOwnerModal()">+ Add Property Owner Details</button>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(1)">← Back</button>
+          <button class="btn btn-primary" onclick="jcfAnnual_continueFromStep2()">Continue →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3: ENTERTAINMENT ACTIVITIES -->
+  <section id="jcfAnnual_step3" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Entertainment Activities</div>
+        <div class="col-desc">Outline the entertainment activities that routinely occur at the property/business this licence is being sought for.</div>
+      </div>
+      <div>
+        <div class="section-title">Select the applicable entertainment activities that routinely occur at your location <span class="required-mark">*</span></div>
+        <div id="jcfAnnual_activitiesWrap"></div>
+        <div class="field-group hidden" id="jcfAnnual_activityOtherWrap">
+          <label for="jcfAnnual_activityOtherText">Please specify</label>
+          <input type="text" id="jcfAnnual_activityOtherText">
+        </div>
+
+        <div class="field-group">
+          <label for="jcfAnnual_frequency">How frequently is amplified/live entertainment provided? <span class="required-mark">*</span></label>
+          <select id="jcfAnnual_frequency" aria-required="true">
+            <option value="">Select an option</option>
+            <option>Daily</option>
+            <option>Weekly</option>
+            <option>Weekends Only</option>
+            <option>Monthly</option>
+            <option>Occasionally</option>
+          </select>
+        </div>
+
+        <div class="section-title">Do you engage a Primary DJ or Sound System for activities at your location?</div>
+        <div class="radio-cards-row">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_hasDjSound" value="Yes" onchange="jcfAnnual_toggleDjSoundWrap()"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_hasDjSound" value="No" onchange="jcfAnnual_toggleDjSoundWrap()"><div class="rc-title">No</div></label>
+        </div>
+
+        <!-- #jcf_djSoundBlock (the Special Event flow's own "+ Add DJ"/"+ Add
+             Sound System" buttons, DJ/Sound System card lists, and add/edit
+             forms) is relocated bodily into this wrap the first time this
+             section is shown — see jcfAnnual_mountDjSoundForms — reusing
+             openDjForm/saveDj/openSoundForm/saveSound and the shared djs/
+             soundSystems arrays verbatim rather than duplicating any of it. -->
+        <div id="jcfAnnual_djSoundWrap" class="hidden"></div>
+
+        <div class="section-title">Will this location be rented to promoters for the hosting of events?</div>
+        <div class="radio-cards-row">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_rentToPromoters" value="Yes" onchange="jcfAnnual_renderPremisesIdNotice()"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_rentToPromoters" value="No" onchange="jcfAnnual_renderPremisesIdNotice()"><div class="rc-title">No</div></label>
+        </div>
+        <div id="jcfAnnual_premisesIdPanel" class="hidden info-banner good" style="margin-top:10px;"></div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(2)">← Back</button>
+          <button class="btn btn-primary" onclick="jcfAnnual_continueFromStep3()">Continue →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 4: COMMUNITY IMPACT -->
+  <section id="jcfAnnual_step4" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Community Impact</div>
+        <div class="col-desc">The Noise Abatement Act specifically restricts permission for specified equipment in the vicinity of hospitals, nursing homes, hotels, guest houses and infirmaries. Please indicate if any of the following are less than 100 meters from the source of the noise-producing system.</div>
+      </div>
+      <div>
+        <div class="section-title">What is located near the premises?</div>
+        <div id="jcfAnnual_nearbyWrap"></div>
+
+        <div class="section-title">Are there residential premises within the immediate vicinity? <span class="required-mark">*</span></div>
+        <div class="radio-cards-row tri">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_residentialVicinity" value="Yes"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_residentialVicinity" value="No"><div class="rc-title">No</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_residentialVicinity" value="Unknown"><div class="rc-title">Unknown</div></label>
+        </div>
+
+        <div class="section-title">Has the premises received noise complaints within the past 12 months? <span class="required-mark">*</span></div>
+        <div class="radio-cards-row">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_noiseComplaints12mo" value="Yes" onchange="jcfAnnual_toggleComplaintsWrap()"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_noiseComplaints12mo" value="No" onchange="jcfAnnual_toggleComplaintsWrap()"><div class="rc-title">No</div></label>
+        </div>
+        <div id="jcfAnnual_complaintsWrap" class="hidden">
+          <div class="field-group">
+            <label for="jcfAnnual_complaintsCount">Number of complaints</label>
+            <input type="number" id="jcfAnnual_complaintsCount" min="0">
+          </div>
+          <div class="section-title">Source of complaints</div>
+          <div id="jcfAnnual_complaintSourcesWrap"></div>
+        </div>
+
+        <div class="section-title">Are there any existing Noise Abatement Notices or conditions affecting the premises? <span class="required-mark">*</span></div>
+        <div class="radio-cards-row">
+          <label class="radio-card"><input type="radio" name="jcfAnnual_existingNotices" value="Yes" onchange="jcfAnnual_toggleNoiseNoticeUpload()"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="jcfAnnual_existingNotices" value="No" onchange="jcfAnnual_toggleNoiseNoticeUpload()"><div class="rc-title">No</div></label>
+        </div>
+        <div id="jcfAnnual_noiseNoticeUploadWrap" class="hidden">
+          <div class="id-flyer-box-title">Documentation <span class="required-mark">*</span></div>
+          <div class="flyer-upload-box" id="jcfAnnual_noiseNoticeBox" onclick="document.getElementById('jcfAnnual_noiseNoticeFile').click()">
+            <div id="jcfAnnual_noiseNoticePreviewWrap">
+              <div class="fu-icon">⤒</div>
+              <div class="fu-label">Upload documentation</div>
+            </div>
+            <input type="file" id="jcfAnnual_noiseNoticeFile" accept="image/*,.pdf" style="display:none;" aria-required="true" onchange="jcfAnnual_noiseNoticeFileChosen(this)">
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(3)">← Back</button>
+          <button class="btn btn-primary" onclick="jcfAnnual_continueFromStep4()">Continue →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 5: OTHER LICENSES & APPROVALS -->
+  <section id="jcfAnnual_step5" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Other Licenses &amp; Approvals</div>
+        <div class="col-desc">Check all that currently apply to this premises.</div>
+      </div>
+      <div>
+        <label class="checkbox-row">
+          <input type="checkbox" id="jcfAnnual_otherLic_poa" checked disabled>
+          Municipal Places of Amusement Licence — auto-tracked from this application
+        </label>
+        <div class="readback-row" id="jcfAnnual_poaLicenceTrackRow" style="margin:4px 0 14px 26px;">—</div>
+
+        <div id="jcfAnnual_otherLicensesWrap"></div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(4)">← Back</button>
+          <button class="btn btn-primary" onclick="jcfAnnual_continueFromStep5()">Continue →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 6: APPLICATION REVIEW & DECLARATION -->
+  <!-- SECTION 6: NOISE ABATEMENT ACT — EBRIEFING (its own step, separate from
+       Application Review & Declaration below, per the human's own revision
+       of the original design spec, which had folded it into that step). -->
+  <section id="jcfAnnual_step6" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Noise Abatement Act — eBriefing</div>
+        <div class="col-desc">Watch the briefing below before continuing.</div>
+      </div>
+      <div>
+        <div class="section-title">Noise Abatement Act — eBriefing</div>
+        <div class="video-embed">
+          <div class="video-embed-head">
+            <img src="" alt="" class="app-logo-img">
+            <div>
+              <div class="video-embed-title">JCF Noise Abatement Act Briefing</div>
+              <div class="video-embed-sub">Jamaica Constabulary Force</div>
+            </div>
+          </div>
+          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_noise"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
+        </div>
+        <label class="watch-receipt">
+          <input type="checkbox" id="jcfAnnual_watchNoise">
+          <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
+        </label>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(5)">← Back</button>
+          <button class="btn btn-primary" onclick="jcfAnnual_continueFromStep6()">Continue →</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 7: APPLICATION REVIEW & DECLARATION -->
+  <section id="jcfAnnual_step7" class="step hidden">
+    <div class="grid">
+      <div>
+        <div class="col-title">Application Review &amp; Declaration</div>
+        <div class="col-desc">Watch each briefing below, review everything you've entered, then sign and submit.</div>
+      </div>
+      <div>
+        <div class="section-title">Playing of Loud Speakers — eBriefing</div>
+        <div class="video-embed">
+          <div class="video-embed-head">
+            <img src="" alt="" class="app-logo-img">
+            <div>
+              <div class="video-embed-title">JCF Enforcement Briefing on Loudspeaker Use</div>
+              <div class="video-embed-sub">Jamaica Constabulary Force</div>
+            </div>
+          </div>
+          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_loudspeakers"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
+        </div>
+        <label class="watch-receipt">
+          <input type="checkbox" id="jcfAnnual_watchLoudspeakers">
+          <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
+        </label>
+
+        <div class="section-title">Charges for Breaches — eBriefing</div>
+        <div class="video-embed">
+          <div class="video-embed-head">
+            <img src="" alt="" class="app-logo-img">
+            <div>
+              <div class="video-embed-title">JCF Charges and Penalties Briefing</div>
+              <div class="video-embed-sub">Jamaica Constabulary Force</div>
+            </div>
+          </div>
+          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_charges"></div>
+          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
+        </div>
+        <label class="watch-receipt">
+          <input type="checkbox" id="jcfAnnual_watchCharges">
+          <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
+        </label>
+
+        <hr class="divider">
+
+        <div class="review-section-title">Applicant Information</div>
+        <div id="jcfAnnual_revApplicant"></div>
+        <div class="review-section-title">Premises Information</div>
+        <div id="jcfAnnual_revPremises"></div>
+        <div class="review-section-title">Entertainment Activities</div>
+        <div id="jcfAnnual_revEntertainment"></div>
+        <div class="review-section-title">Community Impact</div>
+        <div id="jcfAnnual_revCommunity"></div>
+        <div class="review-section-title">Other Licenses &amp; Approvals</div>
+        <div id="jcfAnnual_revOtherLicenses"></div>
+
+        <hr class="divider">
+
+        <div class="section-title">Declaration</div>
+        <label class="consent-checkbox-row" for="jcfAnnual_declarationCheck">
+          <input type="checkbox" id="jcfAnnual_declarationCheck">
+          <span id="jcfAnnual_declarationText"></span>
+        </label>
+
+        <div class="field-group">
+          <label>Signature</label>
+          <div class="sig-tabs">
+            <button type="button" class="sig-tab active" id="jcfAnnual_sigTabType" onclick="jcfAnnual_switchSigMode('type')">Type</button>
+            <button type="button" class="sig-tab" id="jcfAnnual_sigTabUpload" onclick="jcfAnnual_switchSigMode('upload')">Upload</button>
+            <button type="button" class="sig-tab" id="jcfAnnual_sigTabDraw" onclick="jcfAnnual_switchSigMode('draw')">Draw</button>
+          </div>
+          <div class="sig-pane active" id="jcfAnnual_sigPaneType">
+            <textarea id="jcfAnnual_signatureText" placeholder="Type your full name to sign"></textarea>
+          </div>
+          <div class="sig-pane" id="jcfAnnual_sigPaneUpload">
+            <div class="flyer-upload-box" id="jcfAnnual_sigUploadBox" onclick="document.getElementById('jcfAnnual_sigUploadFile').click()">
+              <div id="jcfAnnual_sigUploadPreviewWrap">
+                <div class="fu-icon">⤒</div>
+                <div class="fu-label">Upload a signature image</div>
+              </div>
+              <input type="file" id="jcfAnnual_sigUploadFile" accept="image/*" style="display:none;" onchange="jcfAnnual_sigUploadFileChosen(this)">
+            </div>
+          </div>
+          <div class="sig-pane" id="jcfAnnual_sigPaneDraw">
+            <div class="sig-canvas-wrap">
+              <canvas id="jcfAnnual_sigCanvas"></canvas>
+            </div>
+            <div class="btn-row" style="margin-top:10px; justify-content:flex-start;">
+              <button type="button" class="btn" onclick="jcfAnnual_clearSigCanvas()">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="jcfAnnual_submitError" class="info-banner warn hidden"></div>
+
+        <div class="btn-row">
+          <button class="btn" onclick="jcfAnnual_goStep(6)">← Back</button>
+          <button class="btn btn-primary" id="jcfAnnual_submitBtn" onclick="jcfAnnual_submitApp()">Submit application</button>
+        </div>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <!-- Registered Property Owner popup modal (Section 2) -->
+  <div class="modal-overlay hidden" id="jcfAnnual_propertyOwnerModal">
+    <div class="modal-box">
+      <h3>Registered Property Owner</h3>
+      <div class="field-group">
+        <label for="jcfAnnual_propOwnerName">Name</label>
+        <input type="text" id="jcfAnnual_propOwnerName">
+      </div>
+      <div class="field-group">
+        <label for="jcfAnnual_propOwnerPhone">Phone</label>
+        <input type="tel" id="jcfAnnual_propOwnerPhone">
+      </div>
+      <div class="field-group">
+        <label for="jcfAnnual_propOwnerEmail">Email</label>
+        <input type="email" id="jcfAnnual_propOwnerEmail">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="jcfAnnual_closePropertyOwnerModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="jcfAnnual_savePropertyOwner()">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- CONFIRMATION -->
   <section id="confirmPage" class="hidden">
@@ -10447,8 +10883,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 <div class="modal-overlay hidden" id="jcfd_approveModal">
   <div class="modal-box">
     <h3>Approve &amp; issue permit</h3>
-    <p class="modal-sub">Set when this event ends. This prints on the permit as the expiration date and the event end time.</p>
-    <div class="field-row">
+    <p class="modal-sub" id="jcfd_approveModalSub">Set when this event ends. This prints on the permit as the expiration date and the event end time.</p>
+    <!-- An Annual JCF permit's validity is the same fixed government fiscal
+         year (April 1 - March 31) as the Annual POA permit — not tied to an
+         event end time — so this note replaces the date/time inputs below
+         rather than asking the approving officer for a value the permit
+         template never uses. See jcfd_openApproveModal/jcfd_confirmApprove's
+         own formVariant branch. -->
+    <div class="info-banner good hidden" id="jcfd_approveAnnualNote"></div>
+    <div class="field-row" id="jcfd_approveExpiryFieldsWrap">
       <div class="field-group">
         <label for="jcfd_approveExpiryDate">Expiration date</label>
         <input type="date" id="jcfd_approveExpiryDate">
@@ -11197,13 +11640,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // through their linked POA Main Menu or through Account History (this is
   // the only path for a standalone JCF application, filed with no linked
   // POA case).
+  // Same key set/labels as the JCF applicant scope's own
+  // JCFANNUAL_OTHER_LICENSE_LABELS/JCFD_OTHER_LICENSE_LABELS — duplicated
+  // here per this file's per-scope-helper convention since this is a
+  // different IIFE.
+  var ACCT_JCF_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
+
   async function acct_showJcfSummary(key){
     try{
       const r = await window.storage.get(key, true);
       const rec = JSON.parse(r.value);
       const container = document.getElementById('acct_view-history');
-      const eo = rec.eventOverview || {};
-      const vi = rec.venueInfo || {};
 
       let outcome = 'Pending JCF review';
       if(rec.status === 'Rejected') outcome = rec.finalDecision || 'Rejected by JCF';
@@ -11225,29 +11672,108 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         '</div>';
 
       html += '<div style="margin-top:26px;">';
-      html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>' +
-        acctDetailRow('Type of event', eo.eventType) +
-        acctDetailRow('Date of event', eo.dateOfEvent) +
-        acctDetailRow('Promoter', eo.promoterName) +
-        acctDetailRow('Date of birth', eo.dateOfBirth) +
-        acctDetailRow('Age of promoter', eo.ageOfPromoter) +
-        acctDetailRow('Promoter phone', eo.phoneNumber) +
-        acctDetailRow('Promoter TRN', eo.trn) +
-        acctDetailRow('Expected patrons', eo.patronsExpected) +
-        '</div>';
-      html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>' +
-        acctDetailRow('Venue name', vi.venueName) +
-        acctDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', ')) +
-        acctDetailRow("Venue's owner", vi.venueOwner) +
-        acctDetailRow('Owner contact', vi.ownerContact) +
-        '</div>';
-      html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Entertainment Details</div>' +
-        acctDetailRow('DJs', (rec.djs || []).map(function(d){ return d.name; }).join(', ') || 'None listed') +
-        acctDetailRow('Sound Systems', (rec.soundSystems || []).map(function(s){ return s.name; }).join(', ') || 'None listed') +
-        '</div>';
-      html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Decision</div>' +
-        acctDetailRow('Outcome', outcome) +
-        '</div>';
+
+      if(rec.formVariant === 'Annual'){
+        // Mirrors the JCF Officer Portal's own jcfd_renderAnnualSubmissionColumn
+        // and the POA Main Menu's own renderMmNoise() Annual branch — same
+        // nested shape, rendered read-only with this portal's acctDetailRow().
+        const ai = rec.applicantInfo || {}, pi = rec.premisesInfo || {}, ent = rec.entertainment || {}, ci = rec.communityImpact || {}, ol = rec.otherLicenses || {};
+        const isCompany = ai.applicantType === 'Company';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Applicant Information</div>' +
+          acctDetailRow('Licence period', rec.fiscalYearLabel) +
+          acctDetailRow('Application type', ai.applicationType) +
+          acctDetailRow('Applicant type', ai.applicantType) +
+          acctDetailRow(isCompany ? 'Company name' : 'Full name', ai.name) +
+          acctDetailRow('Phone', ai.phone) +
+          acctDetailRow('TRN', ai.trn) +
+          acctDetailRow('Address', [ai.addr1, ai.addr2, ai.district, ai.parish].filter(Boolean).join(', '));
+        if(isCompany){
+          html += (ai.directors && ai.directors.length)
+            ? ai.directors.map(function(d){ return acctDetailRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · ')); }).join('')
+            : acctDetailRow('Company Directors', 'None on file');
+        }
+        html += '</div>';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Premises Information</div>' +
+          acctDetailRow('Type of business', pi.businessType) +
+          acctDetailRow('Registration of use', pi.registrationOfUse) +
+          acctDetailRow('Name of business', pi.businessName) +
+          acctDetailRow('Business address', pi.businessAddress) +
+          acctDetailRow('Ownership status', pi.ownershipStatus) +
+          acctDetailRow('Registered property owner', (pi.propertyOwner && (pi.propertyOwner.name || pi.propertyOwner.phone || pi.propertyOwner.email))
+            ? [pi.propertyOwner.name, pi.propertyOwner.phone, pi.propertyOwner.email].filter(Boolean).join(' · ')
+            : 'Not provided') +
+          '</div>';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Entertainment Activities</div>' +
+          acctDetailRow('Activities', (ent.activities || []).concat(ent.otherActivityText ? ['Other: ' + ent.otherActivityText] : []).join(', ') || 'None selected') +
+          acctDetailRow('Frequency of amplified/live entertainment', ent.frequency) +
+          acctDetailRow('Engages a Primary DJ or Sound System', ent.hasDjOrSound) +
+          acctDetailRow('DJs', (rec.djs || []).map(function(d){ return d.name; }).join(', ') || 'None listed') +
+          acctDetailRow('Sound Systems', (rec.soundSystems || []).map(function(s){ return s.name; }).join(', ') || 'None listed') +
+          acctDetailRow('Venue rented to promoters for events', ent.rentToPromoters);
+        if(ent.rentToPromoters === 'Yes'){
+          html += acctDetailRow('Premises ID', ent.premisesId || 'Will be assigned once your Places of Amusement application registers this venue');
+        }
+        html += '</div>';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Community Impact</div>' +
+          acctDetailRow('Nearby', (ci.nearby || []).join(', ') || 'None selected') +
+          acctDetailRow('Residential premises within immediate vicinity', ci.residentialVicinity) +
+          acctDetailRow('Noise complaints in past 12 months', ci.noiseComplaints12mo);
+        if(ci.noiseComplaints12mo === 'Yes'){
+          html += acctDetailRow('Number of complaints', ci.complaintsCount) +
+            acctDetailRow('Source of complaints', (ci.complaintSources || []).join(', ') || 'N/A');
+        }
+        html += acctDetailRow('Existing Noise Abatement Notices/conditions', ci.existingNotices);
+        if(ci.existingNotices === 'Yes'){
+          html += acctDetailRow('Documentation', ci.noiseNoticeFileName || 'Not uploaded');
+        }
+        html += '</div>';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Other Licenses &amp; Approvals</div>';
+        if(ol.poa && ol.poa.checked){
+          html += acctDetailRow('Municipal Places of Amusement Licence', 'Auto-tracked — Application ' + (ol.poa.licenceNumber || rec.poaAppNumber || 'N/A'));
+        }
+        Object.keys(ACCT_JCF_OTHER_LICENSE_LABELS).forEach(function(licKey){
+          const item = ol[licKey];
+          if(!item || !item.checked) return;
+          html += acctDetailRow(ACCT_JCF_OTHER_LICENSE_LABELS[licKey], 'Licence # ' + (item.licenceNumber || 'N/A') + ' · Expires ' + (item.expiryDate || 'N/A') + ' · ' + (item.fileName || 'Not uploaded'));
+        });
+        html += '</div>';
+
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Decision</div>' +
+          acctDetailRow('Outcome', outcome) +
+          '</div>';
+      } else {
+        const eo = rec.eventOverview || {};
+        const vi = rec.venueInfo || {};
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>' +
+          acctDetailRow('Type of event', eo.eventType) +
+          acctDetailRow('Date of event', eo.dateOfEvent) +
+          acctDetailRow('Promoter', eo.promoterName) +
+          acctDetailRow('Date of birth', eo.dateOfBirth) +
+          acctDetailRow('Age of promoter', eo.ageOfPromoter) +
+          acctDetailRow('Promoter phone', eo.phoneNumber) +
+          acctDetailRow('Promoter TRN', eo.trn) +
+          acctDetailRow('Expected patrons', eo.patronsExpected) +
+          '</div>';
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>' +
+          acctDetailRow('Venue name', vi.venueName) +
+          acctDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', ')) +
+          acctDetailRow("Venue's owner", vi.venueOwner) +
+          acctDetailRow('Owner contact', vi.ownerContact) +
+          '</div>';
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Entertainment Details</div>' +
+          acctDetailRow('DJs', (rec.djs || []).map(function(d){ return d.name; }).join(', ') || 'None listed') +
+          acctDetailRow('Sound Systems', (rec.soundSystems || []).map(function(s){ return s.name; }).join(', ') || 'None listed') +
+          '</div>';
+        html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Decision</div>' +
+          acctDetailRow('Outcome', outcome) +
+          '</div>';
+      }
+
       html += '</div>';
 
       html += '<div class="btn-row" style="justify-content:flex-start; margin-top:20px;"><button class="btn" onclick="acct_goView(\'history\')">&larr; Back to History</button></div>';
@@ -11801,6 +12327,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   const JCFD_ROLE_CHIEF = 'Police Chief';
   const JCFD_ROLE_SUPERVISOR = 'Police Supervisor';
   const JCFD_ROLE_OFFICER = 'Police Officer/Station';
+
+  // Section 5 (Other Licenses & Approvals) of the Annual JCF wizard — the
+  // fixed set of licenses/approvals an applicant can check other than the
+  // Municipal Places of Amusement Licence itself (which auto-tracks the
+  // linked POA application instead of taking an upload — see
+  // jcfAnnual_step5 in the applicant scope). Keyed the same way on both
+  // sides so a stored otherLicenseFiles.<key> always has a label to show
+  // here.
+  const JCFD_OTHER_LICENSE_LABELS = {
+    trade: 'Trade Licence', liquor: 'Liquor Licence', fire: 'Fire Certificate',
+    health: 'Health approval', jamms: 'JAMMS', jacap: 'JACAP'
+  };
 
   // Was hardcoded, in-memory-only demo data — lost on every reload, never
   // shared across devices, and the reason a newly created JCF division
@@ -12605,6 +13143,41 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(value == null || value === '' ? '—' : String(value))}</div></div>`;
   }
 
+  // "Show to the officers on the back end all the permits connected to that
+  // venue" — this portal's own twin of muni_venuePermitsPanelHtml
+  // (Municipal Officer portal). Unlike that side, the JCF Officer portal
+  // never loads the full Places of Amusement `application:` list into
+  // memory, so this reads storage directly rather than filtering an
+  // already-loaded array — acceptable for a pilot-scale venue list, and
+  // only ever run once per detail-view render. Returns '' when this filing
+  // was never tied to a registered venue (no premisesVenueId on the
+  // record — see jcfAnnual_submitApp()/submitJcfApp()), or no other issued
+  // permits share it.
+  async function jcfd_venuePermitsPanelHtml(premisesVenueId, excludeAppNumber){
+    if(!premisesVenueId || !window.storage) return '';
+    const linked = [];
+    try{
+      const list = await window.storage.list('application:', true);
+      for(const key of ((list && list.keys) || [])){
+        try{
+          const r = await window.storage.get(key, true);
+          if(!r || !r.value) continue;
+          const poaRec = JSON.parse(r.value);
+          if(poaRec.venueRegistryVenueId === premisesVenueId && poaRec.appNumber !== excludeAppNumber && poaRec.permitGenerated && poaRec.permit){
+            linked.push(poaRec);
+          }
+        } catch(innerErr){ /* skip an unreadable record rather than fail the whole panel */ }
+      }
+    } catch(err){ return ''; }
+    if(!linked.length) return '';
+    let html = `<div class="panel"><div class="detail-section-title">Other Permits at This Venue (Premises ID: ${acctEscapeHtml(premisesVenueId)})</div>`;
+    linked.forEach(poaRec => {
+      html += jcfd_detailRow(`Permit ${poaRec.permit.number} — ${(poaRec.applicant && poaRec.applicant.name) || 'Unknown applicant'}`, `${poaRec.permit.validity || 'N/A'}${poaRec.status ? ' · ' + poaRec.status : ''}`);
+    });
+    html += `</div>`;
+    return html;
+  }
+
   const JCFD_STATUS_FLOW = ['Submitted', 'Under Review', 'Approved'];
 
   function jcfd_renderStatusStepper(rec){
@@ -12638,6 +13211,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // read-only .panel sections (same .detail-section-title/.detail-row style)
   // covering everything the applicant submitted.
   function jcfd_renderSubmissionColumn(rec){
+    // Annual filings (rec.formVariant === 'Annual') store an entirely
+    // different set of nested objects (applicantInfo/premisesInfo/
+    // entertainment/communityImpact/otherLicenses — see jcfAnnual_submitApp
+    // in the applicant scope) rather than the Special Event wizard's own
+    // eventOverview/venueInfo shape this function otherwise assumes below —
+    // dispatch to the Annual-shaped renderer instead of reading fields that
+    // simply don't exist on an Annual record.
+    if(rec.formVariant === 'Annual'){
+      jcfd_renderAnnualSubmissionColumn(rec);
+      return;
+    }
     const col = document.getElementById('jcfd_submissionColumn');
     const eo = rec.eventOverview || {}, vi = rec.venueInfo || {}, briefings = rec.briefings || {};
 
@@ -12728,6 +13312,102 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     col.innerHTML = html;
   }
 
+  // Annual variant of jcfd_renderSubmissionColumn — reads the
+  // applicantInfo/premisesInfo/entertainment/communityImpact/otherLicenses
+  // shape jcfAnnual_submitApp() (applicant scope) actually writes, mirroring
+  // that shape's own six sections one-for-one rather than reusing the
+  // Special Event layout above with a bunch of isAnnual conditionals sprinkled
+  // through it — the two filings don't share enough fields for that to read
+  // any cleaner.
+  function jcfd_renderAnnualSubmissionColumn(rec){
+    const col = document.getElementById('jcfd_submissionColumn');
+    const ai = rec.applicantInfo || {}, pi = rec.premisesInfo || {}, ent = rec.entertainment || {}, ci = rec.communityImpact || {}, ol = rec.otherLicenses || {};
+    const isCompany = ai.applicantType === 'Company';
+
+    let html = `<div class="panel"><div class="detail-section-title">Applicant Information</div>`;
+    html += jcfd_detailRow('Licence period', rec.fiscalYearLabel);
+    html += jcfd_detailRow('Application type', ai.applicationType);
+    html += jcfd_detailRow('Applicant type', ai.applicantType);
+    html += jcfd_detailRow(isCompany ? 'Company name' : 'Full name', ai.name);
+    html += jcfd_detailRow('Phone', ai.phone);
+    html += jcfd_detailRow('TRN', ai.trn);
+    html += jcfd_detailRow('Address', [ai.addr1, ai.addr2, ai.district, ai.parish].filter(Boolean).join(', '));
+    if(isCompany){
+      if((ai.directors || []).length){
+        ai.directors.forEach(d => html += jcfd_detailRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · ')));
+      } else {
+        html += jcfd_detailRow('Company Directors', 'None on file');
+      }
+    }
+    html += `</div>`;
+
+    html += `<div class="panel"><div class="detail-section-title">Premises Information</div>`;
+    html += jcfd_detailRow('Type of business', pi.businessType);
+    html += jcfd_detailRow('Registration of use', pi.registrationOfUse);
+    html += jcfd_detailRow('Name of business', pi.businessName);
+    html += jcfd_detailRow('Business address', pi.businessAddress);
+    html += jcfd_detailRow('Ownership status', pi.ownershipStatus);
+    if(pi.propertyOwner && (pi.propertyOwner.name || pi.propertyOwner.phone || pi.propertyOwner.email)){
+      html += jcfd_detailRow('Registered property owner', [pi.propertyOwner.name, pi.propertyOwner.phone, pi.propertyOwner.email].filter(Boolean).join(' · '));
+    } else {
+      html += jcfd_detailRow('Registered property owner', 'Not provided');
+    }
+    html += `</div>`;
+
+    html += `<div class="panel"><div class="detail-section-title">Entertainment Activities</div>`;
+    html += jcfd_detailRow('Activities', (ent.activities || []).concat(ent.otherActivityText ? [`Other: ${ent.otherActivityText}`] : []).join(', ') || 'None selected');
+    html += jcfd_detailRow('Frequency of amplified/live entertainment', ent.frequency);
+    html += jcfd_detailRow('Engages a Primary DJ or Sound System', ent.hasDjOrSound);
+    if((rec.djs || []).length){
+      rec.djs.forEach(d => html += jcfd_detailRow(`DJ — ${d.name}${d.alias ? ' "' + d.alias + '"' : ''}`, [d.trn ? 'TRN: ' + d.trn : '', d.contact].filter(Boolean).join(' · ')));
+    }
+    if((rec.soundSystems || []).length){
+      rec.soundSystems.forEach(s => html += jcfd_detailRow(`Sound System — ${s.name}`, [s.trn ? 'TRN: ' + s.trn : '', s.ownerName ? 'Owner: ' + s.ownerName : '', s.contact].filter(Boolean).join(' · ')));
+    }
+    html += jcfd_detailRow('Venue rented to promoters for events', ent.rentToPromoters);
+    if(ent.rentToPromoters === 'Yes'){
+      html += jcfd_detailRow('Premises ID', ent.premisesId
+        ? ent.premisesId
+        : 'Will be assigned once the linked Places of Amusement application registers this venue');
+    }
+    html += `</div>`;
+
+    html += `<div class="panel"><div class="detail-section-title">Community Impact</div>`;
+    html += jcfd_detailRow('Nearby', (ci.nearby || []).join(', ') || 'None selected');
+    html += jcfd_detailRow('Residential premises within immediate vicinity', ci.residentialVicinity);
+    html += jcfd_detailRow('Noise complaints in past 12 months', ci.noiseComplaints12mo);
+    if(ci.noiseComplaints12mo === 'Yes'){
+      html += jcfd_detailRow('Number of complaints', ci.complaintsCount);
+      html += jcfd_detailRow('Source of complaints', (ci.complaintSources || []).join(', ') || 'N/A');
+    }
+    html += jcfd_detailRow('Existing Noise Abatement Notices/conditions', ci.existingNotices);
+    if(ci.existingNotices === 'Yes'){
+      html += jcfd_detailRowAction('Documentation', ci.noiseNoticeFileName || 'Not uploaded', 'noiseNotice', !!ci.noiseNoticeFileName);
+    }
+    html += `</div>`;
+
+    html += `<div class="panel"><div class="detail-section-title">Other Licenses &amp; Approvals</div>`;
+    if(ol.poa && ol.poa.checked){
+      html += jcfd_detailRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || rec.poaAppNumber || 'N/A'}`);
+    }
+    Object.keys(JCFD_OTHER_LICENSE_LABELS).forEach(key => {
+      const item = ol[key];
+      if(!item || !item.checked) return;
+      html += jcfd_detailRow(JCFD_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'}`);
+      html += jcfd_detailRowAction(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName || 'Not uploaded', 'otherLicense_' + key, !!item.fileName);
+    });
+    if(!(ol.poa && ol.poa.checked) && !Object.keys(JCFD_OTHER_LICENSE_LABELS).some(k => ol[k] && ol[k].checked)){
+      html += jcfd_detailRow('Licenses/approvals on file', 'None declared');
+    }
+    html += `</div>`;
+
+    html += `<div class="panel"><div class="detail-section-title">Declaration</div>`;
+    html += jcfd_detailRow('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No');
+    html += `</div>`;
+
+    col.innerHTML = html;
+  }
+
   // Same as jcfd_detailRow() but with a "View" button in the value cell that
   // opens jcfd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
   function jcfd_detailRowAction(label, valueText, kind, hasFile){
@@ -12770,6 +13450,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_renderStatusStepper(rec);
 
     jcfd_renderSubmissionColumn(rec);
+    if(rec.premisesVenueId){
+      const venuePanelHtml = await jcfd_venuePermitsPanelHtml(rec.premisesVenueId, rec.jcfAppNumber);
+      const submissionColEl = document.getElementById('jcfd_submissionColumn');
+      if(venuePanelHtml && submissionColEl) submissionColEl.insertAdjacentHTML('beforeend', venuePanelHtml);
+    }
 
     // Keep the JCF Watch List and the division's official signature fresh
     // before building the Watch List / Issued Permit cards and the hidden
@@ -13966,6 +14651,40 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_docModal').classList.remove('hidden');
 
     let dataUrl = '', fileName = '', title = '';
+    // Annual variant's own two file-carrying kinds — Community Impact's
+    // noise-notice upload (a single flat field, same shape as
+    // photoId/flyer/etc. above) and Other Licenses & Approvals' up-to-six
+    // per-license uploads (kind arrives as 'otherLicense_<key>', matching
+    // jcfd_renderAnnualSubmissionColumn's own button wiring below).
+    if(kind === 'noiseNotice' || kind.indexOf('otherLicense_') === 0){
+      const olKey = kind.indexOf('otherLicense_') === 0 ? kind.slice('otherLicense_'.length) : null;
+      title = kind === 'noiseNotice' ? 'Noise Abatement Notice/Conditions Documentation' : (JCFD_OTHER_LICENSE_LABELS[olKey] || olKey);
+      try{
+        const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+        const files = (r && r.value) ? JSON.parse(r.value) : {};
+        if(kind === 'noiseNotice'){
+          dataUrl = files.noiseNoticeFileData;
+        } else {
+          const olFile = files.otherLicenseFiles && files.otherLicenseFiles[olKey];
+          dataUrl = olFile ? olFile.fileData : '';
+          fileName = olFile ? (olFile.fileName || '') : '';
+        }
+      } catch(e){ /* leave dataUrl empty */ }
+      if(kind === 'noiseNotice'){
+        fileName = (rec.communityImpact && rec.communityImpact.noiseNoticeFileName) || '';
+      }
+      titleEl.textContent = title;
+      subEl.textContent = fileName || '';
+      if(!dataUrl){
+        box.innerHTML = '<div class="doc-preview-placeholder">Not uploaded.</div>';
+        return;
+      }
+      const olMime = jcfd_guessMime(dataUrl);
+      box.innerHTML = olMime === 'application/pdf'
+        ? `<iframe src="${dataUrl}" style="width:100%; height:60vh; border:none;"></iframe>`
+        : `<img src="${dataUrl}" alt="${acctEscapeHtml(title)}" style="max-width:100%; border-radius:8px;">`;
+      return;
+    }
     if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
       title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
         : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission"
@@ -14486,9 +15205,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_showToast('Cannot approve — the Official Use Checklist has not been fully completed yet.');
       return;
     }
-    const eo = rec.eventOverview || {};
-    document.getElementById('jcfd_approveExpiryDate').value = eo.dateOfEvent || '';
-    document.getElementById('jcfd_approveExpiryTime').value = '02:00';
+    // Annual permits are valid for a fixed government fiscal year, not an
+    // event end time — hide the date/time inputs entirely and show the
+    // fiscal year this approval would issue instead of asking the officer
+    // for a value the Annual permit template (jcfd_buildAnnualPermitDocHtml)
+    // never reads.
+    const isAnnualApprove = rec.formVariant === 'Annual';
+    document.getElementById('jcfd_approveExpiryFieldsWrap').classList.toggle('hidden', isAnnualApprove);
+    const annualNoteEl = document.getElementById('jcfd_approveAnnualNote');
+    document.getElementById('jcfd_approveModalSub').classList.toggle('hidden', isAnnualApprove);
+    annualNoteEl.classList.toggle('hidden', !isAnnualApprove);
+    if(isAnnualApprove){
+      annualNoteEl.textContent = `This is an Annual Noise Abatement Permit — it will be valid for the fiscal year ${jcfd_fiscalYearLabel(new Date().toISOString().slice(0,10))}, same as the linked Annual Places of Amusement permit.`;
+    } else {
+      const eo = rec.eventOverview || {};
+      document.getElementById('jcfd_approveExpiryDate').value = eo.dateOfEvent || '';
+      document.getElementById('jcfd_approveExpiryTime').value = '02:00';
+    }
     document.getElementById('jcfd_approveModal').classList.remove('hidden');
   }
   window.jcfd_openApproveModal = jcfd_openApproveModal;
@@ -14497,9 +15230,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jcfd_closeApproveModal = jcfd_closeApproveModal;
 
   async function jcfd_confirmApprove(){
+    const recForVariantCheck = await jcfd_getActiveApp();
+    const isAnnualApprove = !!(recForVariantCheck && recForVariantCheck.formVariant === 'Annual');
     const expiryDate = document.getElementById('jcfd_approveExpiryDate').value;
     const expiryTime = document.getElementById('jcfd_approveExpiryTime').value;
-    if(!expiryDate || !expiryTime){
+    if(!isAnnualApprove && (!expiryDate || !expiryTime)){
       jcfd_showToast('Please provide both the expiration date and time.');
       return;
     }
@@ -14510,6 +15245,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     const eo = rec.eventOverview || {};
+    const ai = rec.applicantInfo || {};
 
     rec.status = 'Approved';
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
@@ -14520,7 +15256,29 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const numericPart = String(rec.jcfAppNumber || '').replace(/\D/g, '').slice(-5).padStart(5, '0');
     const number = `${permitYear}-${numericPart}-JCF-${jcfdCurrentBranch.id}`;
 
-    rec.permit = {
+    // Annual permits skip the officer-entered expiry date/time entirely —
+    // see jcfd_openApproveModal's own note — and instead expire on the
+    // fixed government fiscal year end (jcfd_fiscalYearEndIso), exactly
+    // like the linked Annual POA permit (muni_fiscalYearEndIso).
+    const annualExpiresIso = jcfd_fiscalYearEndIso(issuedDate);
+
+    rec.permit = isAnnualApprove ? {
+      number,
+      permitTypeLabel: 'ANNUAL',
+      issuedDate,
+      permitYear: new Date(annualExpiresIso + 'T00:00:00').getFullYear(),
+      expiresDate: annualExpiresIso,
+      validity: jcfd_fiscalYearLabel(issuedDate),
+      expectedPatrons: 'N/A',
+      issuedTo: ai.name || 'N/A',
+      applicantAddress: [ai.addr1, ai.addr2, ai.district, ai.parish].filter(Boolean).join(', ') || 'N/A',
+      businessName: (rec.premisesInfo && rec.premisesInfo.businessName) || '',
+      businessAddress: (rec.premisesInfo && rec.premisesInfo.businessAddress) || '',
+      registrationOfUse: (rec.premisesInfo && rec.premisesInfo.registrationOfUse) || '',
+      divisionName: (jcfdCurrentBranch.parish || '') + ' Divisional Headquarters',
+      parish: jcfdCurrentBranch.parish || '',
+      qrData: window.atdVerifyUrl((jcfdActiveAppKey || '').replace('jcfApplication:', ''))
+    } : {
       number,
       permitTypeLabel: eo.eventType === 'Public' ? 'PUBLIC EVENT' : 'PRIVATE EVENT',
       issuedDate,
@@ -14568,12 +15326,92 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
+  // Fixed government fiscal year (April 1 - March 31) an Annual JCF Noise
+  // Abatement Permit is valid for — same rule as the Annual POA permit (see
+  // muni_fiscalYearEndIso's own note, Municipal Officer scope, for the full
+  // rationale), duplicated here per this file's per-scope-helper convention.
+  // Used by jcfd_confirmApprove's formVariant === 'Annual' branch instead of
+  // the officer-entered expiry date/time the Special Event flow uses.
+  function jcfd_fiscalYearStartIso(referenceIso){
+    const d = new Date(referenceIso + 'T00:00:00');
+    if(isNaN(d.getTime())) return referenceIso;
+    const startYear = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+    return `${startYear}-04-01`;
+  }
+  function jcfd_fiscalYearEndIso(referenceIso){
+    const d = new Date(referenceIso + 'T00:00:00');
+    if(isNaN(d.getTime())) return referenceIso;
+    const endYear = d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+    return `${endYear}-03-31`;
+  }
+  function jcfd_fiscalYearLabel(referenceIso){
+    const startYear = jcfd_fiscalYearStartIso(referenceIso).slice(0, 4);
+    const endYear = jcfd_fiscalYearEndIso(referenceIso).slice(0, 4);
+    return `April 1, ${startYear} – March 31, ${endYear}`;
+  }
+
+  // Annual JCF Noise Abatement Permit template — dispatched to from
+  // jcfd_buildPermitDocHtml below the same way muni_buildPermitDocHtml/
+  // poa_buildPermitDocHtml dispatch to their own Annual POA permit template
+  // off permitTypeLabel === 'ANNUAL' (see those functions' own comments for
+  // the full rationale). Shows the fixed fiscal-year validity period
+  // (jcfd_confirmApprove's own Annual branch sets p.validity) rather than a
+  // single event date/end time, since an Annual permit was never issued for
+  // one event in the first place.
+  function jcfd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl){
+    qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
+    const divisionName = p.divisionName || 'Divisional Headquarters';
+    return `
+      <div class="permit-doc permit-doc-annual">
+        <div class="permit-doc-top">
+          <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
+          <div class="permit-doc-muniblock">
+            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
+            <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
+            <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
+          </div>
+          <div class="permit-doc-qr">
+            <div class="qr-box" id="${qrTargetId}"></div>
+            <div class="qr-scan-label">SCAN ME</div>
+          </div>
+        </div>
+        <div class="permit-doc-title-box">ANNUAL NOISE ABATEMENT PERMIT</div>
+        <div class="permit-doc-annual-meta">
+          <div>Permit No.: <strong>${acctEscapeHtml(p.number)}</strong></div>
+          <div>Permit Year: <strong>${acctEscapeHtml(String(p.permitYear))}</strong></div>
+        </div>
+
+        <p class="permit-doc-body">This Permit is hereby granted by the ${acctEscapeHtml(p.parish || '')} Division of the Jamaica Constabulary, to: <strong>${acctEscapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${acctEscapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>, for the use of <strong>${acctEscapeHtml(p.registrationOfUse || 'N/A')}</strong> at <strong>${acctEscapeHtml((p.businessName || 'N/A').toUpperCase())}</strong>, located at <strong>${acctEscapeHtml(p.businessAddress || 'N/A')}</strong>.</p>
+
+        <p class="permit-doc-body">Valid for the fiscal year: <strong>${acctEscapeHtml(p.validity || jcfd_fiscalYearLabel(p.issuedDate))}</strong>.</p>
+
+        <p class="permit-doc-body">Please be advised that permission is granted providing that the under mentioned instructions are complied with:</p>
+        <ol style="margin:10px 0 14px 22px; padding:0; font-size:12px; line-height:1.6;">
+          <li>No sound or microphone shall be operated so that it is audiable beyond one hundred (100) meters.</li>
+          <li>No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.</li>
+          <li>No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.</li>
+          <li>Be further advised that the owner of the premises, equipment and operator of the device are also liable to prosecution if these provisions of the Noise Abatement Act is breached.</li>
+        </ol>
+
+        <p class="permit-doc-body">This Permit may be revoked if any of the above conditions are breached. Please be advised that prosecution will be instituted if the Laws are not conformed with.</p>
+
+        <div class="permit-doc-signature">
+          ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
+        </div>
+        <div class="permit-doc-cfo"><strong>Snr. Superintendent of Police</strong><br><strong>i/c ${acctEscapeHtml(p.parish || '')} Division</strong></div>
+
+        <div class="permit-doc-efile">e-File</div>
+      </div>
+    `;
+  }
+
   // `qrTargetId` (optional, defaults to the id every real call site already
   // relies on) — parameterized the same way poa_buildPermitDocHtml already
   // is, so Admin's document-preview feature (see admin_previewDocument) can
   // render into its own preview modal without an id collision against a
   // real jcfdPermitPrintArea render elsewhere in the same page.
   function jcfd_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl){
+    if(p && p.permitTypeLabel === 'ANNUAL') return jcfd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl);
     qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
     const eventClause = p.eventName
@@ -18733,7 +19571,26 @@ async function openJcfForm(){
     jamsFileName: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]].fileName) || '',
     jamsFileData: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[0]].fileData) || null,
     jcapFileName: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]].fileName) || '',
-    jcapFileData: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]].fileData) || null
+    jcapFileData: (r.jcfDocuments && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]] && r.jcfDocuments[JCF_REQUIRED_DOC_LIST[1]].fileData) || null,
+    // Added for the Annual JCF Noise Abatement wizard (jcfAnnual_*), which
+    // branches entirely off licenseType — plus everything it needs to
+    // prefill Sections 1/2/3 straight from the linked Annual POA record
+    // rather than asking the applicant to retype it. The Special Event
+    // wizard (jcf_step1..4) never reads any of these, so adding them here
+    // is safe for every existing JCF filing.
+    licenseType: r.amusement.licenseType || '',
+    applicantType: r.applicant.type || '',
+    directors: r.applicant.directors || [],
+    businessType: r.amusement.businessType || '',
+    registrationOfUse: r.venue.useOfVenue || '',
+    // Venue-registry fields (see buildApplicationRecord's own venueRegistry*
+    // comment) — reused as-is for the Annual wizard's "Premises ID" display
+    // instead of standing up a second registry just for JCF. See
+    // jcfAnnual_premisesIdPanelHtml for how venueIsNew/venueRegistryStatus/
+    // venueRegistryVenueId combine into what the applicant is shown.
+    venueIsNew: !!(r.costs && r.costs.venueIsNew),
+    venueRegistryStatus: r.venueRegistryStatus || '',
+    venueRegistryVenueId: r.venueRegistryVenueId || ''
   };
   // Everything lives in one document now, so hand the payload straight to
   // the JCF applicant shell in memory and switch hubs in the same window —
@@ -18854,6 +19711,12 @@ function renderMmSummary(){
 // Abatement application instead of the POA license itself. Shows the
 // "start it" prompt until a JCF application has actually been submitted,
 // then swaps to a read-only summary of what was submitted.
+// Same key set/labels as the JCF applicant scope's own
+// JCFANNUAL_OTHER_LICENSE_LABELS and the JCF Officer Portal's own
+// JCFD_OTHER_LICENSE_LABELS — duplicated here per this file's per-scope-
+// helper convention since this is a different IIFE.
+const MM_JCF_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
+
 function renderMmNoise(){
   const notStarted = document.getElementById('mmNoiseNotStarted');
   const submitted = document.getElementById('mmNoiseSubmitted');
@@ -18877,11 +19740,97 @@ function renderMmNoise(){
   document.getElementById('mmNoiseSubmissionDate').textContent = jcfApp.submittedDate || '—';
   document.getElementById('mmNoiseLinkedPoa').textContent = jcfApp.poaAppNumber || '—';
 
+  const body = document.getElementById('mmNoiseSummaryBody');
+  let html = '';
+
+  if(jcfApp.formVariant === 'Annual'){
+    // Mirrors the JCF Officer Portal's own jcfd_renderAnnualSubmissionColumn
+    // — same nested shape (applicantInfo/premisesInfo/entertainment/
+    // communityImpact/otherLicenses), just rendered read-only with this
+    // portal's own mmDetailRow() instead of that portal's jcfd_detailRow().
+    const ai = jcfApp.applicantInfo || {}, pi = jcfApp.premisesInfo || {}, ent = jcfApp.entertainment || {}, ci = jcfApp.communityImpact || {}, ol = jcfApp.otherLicenses || {};
+    const isCompany = ai.applicantType === 'Company';
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Applicant Information</div>`;
+    html += mmDetailRow('Licence period', jcfApp.fiscalYearLabel);
+    html += mmDetailRow('Application type', ai.applicationType);
+    html += mmDetailRow('Applicant type', ai.applicantType);
+    html += mmDetailRow(isCompany ? 'Company name' : 'Full name', ai.name);
+    html += mmDetailRow('Phone', ai.phone);
+    html += mmDetailRow('TRN', ai.trn);
+    html += mmDetailRow('Address', [ai.addr1, ai.addr2, ai.district, ai.parish].filter(Boolean).join(', '));
+    if(isCompany){
+      html += (ai.directors && ai.directors.length)
+        ? ai.directors.map(d => mmDetailRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '))).join('')
+        : mmDetailRow('Company Directors', 'None on file');
+    }
+    html += `</div>`;
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Premises Information</div>`;
+    html += mmDetailRow('Type of business', pi.businessType);
+    html += mmDetailRow('Registration of use', pi.registrationOfUse);
+    html += mmDetailRow('Name of business', pi.businessName);
+    html += mmDetailRow('Business address', pi.businessAddress);
+    html += mmDetailRow('Ownership status', pi.ownershipStatus);
+    html += mmDetailRow('Registered property owner', (pi.propertyOwner && (pi.propertyOwner.name || pi.propertyOwner.phone || pi.propertyOwner.email))
+      ? [pi.propertyOwner.name, pi.propertyOwner.phone, pi.propertyOwner.email].filter(Boolean).join(' · ')
+      : 'Not provided');
+    html += `</div>`;
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Entertainment Activities</div>`;
+    html += mmDetailRow('Activities', (ent.activities || []).concat(ent.otherActivityText ? [`Other: ${ent.otherActivityText}`] : []).join(', ') || 'None selected');
+    html += mmDetailRow('Frequency of amplified/live entertainment', ent.frequency);
+    html += mmDetailRow('Engages a Primary DJ or Sound System', ent.hasDjOrSound);
+    html += mmDetailRow('DJs', (jcfApp.djs || []).map(d => d.name).join(', ') || 'None listed');
+    html += mmDetailRow('Sound Systems', (jcfApp.soundSystems || []).map(s => s.name).join(', ') || 'None listed');
+    html += mmDetailRow('Venue rented to promoters for events', ent.rentToPromoters);
+    if(ent.rentToPromoters === 'Yes'){
+      html += mmDetailRow('Premises ID', ent.premisesId || 'Will be assigned once your Places of Amusement application registers this venue');
+    }
+    html += `</div>`;
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Community Impact</div>`;
+    html += mmDetailRow('Nearby', (ci.nearby || []).join(', ') || 'None selected');
+    html += mmDetailRow('Residential premises within immediate vicinity', ci.residentialVicinity);
+    html += mmDetailRow('Noise complaints in past 12 months', ci.noiseComplaints12mo);
+    if(ci.noiseComplaints12mo === 'Yes'){
+      html += mmDetailRow('Number of complaints', ci.complaintsCount);
+      html += mmDetailRow('Source of complaints', (ci.complaintSources || []).join(', ') || 'N/A');
+    }
+    html += mmDetailRow('Existing Noise Abatement Notices/conditions', ci.existingNotices);
+    if(ci.existingNotices === 'Yes'){
+      html += mmDetailRow('Documentation', ci.noiseNoticeFileName || 'Not uploaded');
+    }
+    html += `</div>`;
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Other Licenses &amp; Approvals</div>`;
+    if(ol.poa && ol.poa.checked){
+      html += mmDetailRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || jcfApp.poaAppNumber || 'N/A'}`);
+    }
+    Object.keys(MM_JCF_OTHER_LICENSE_LABELS).forEach(key => {
+      const item = ol[key];
+      if(!item || !item.checked) return;
+      html += mmDetailRow(MM_JCF_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'} · ${item.fileName || 'Not uploaded'}`);
+    });
+    html += `</div>`;
+
+    html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Decision</div>`;
+    if(jcfApp.status === 'Rejected'){
+      html += mmDetailRow('Outcome', jcfApp.finalDecision || 'Rejected by JCF');
+    } else if(jcfApp.permitGenerated){
+      html += mmDetailRow('Outcome', 'Approved — permit issued');
+    } else {
+      html += mmDetailRow('Outcome', 'Pending JCF review');
+    }
+    html += `</div>`;
+
+    body.innerHTML = html;
+    return;
+  }
+
   const eo = jcfApp.eventOverview || {};
   const vi = jcfApp.venueInfo || {};
-  const body = document.getElementById('mmNoiseSummaryBody');
 
-  let html = '';
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>`;
   html += mmDetailRow('Type of event', eo.eventType);
   html += mmDetailRow('Date of event', eo.dateOfEvent);
@@ -19384,6 +20333,32 @@ function poa_formatShortDate(isoDate){
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
+// Fixed government fiscal year (April 1 - March 31) that the Annual Places
+// of Amusement permit is valid for — see muni_fiscalYearEndIso's own note
+// (muni scope) for the full rationale behind why this replaced a rolling
+// one-year-from-approval calculation. Duplicated here (not shared across
+// IIFEs) per this file's per-scope-helper convention, so poa_buildAnnual
+// PermitDocHtml can print the same fiscal-year framing the Municipal
+// officer portal computed, from the same p.issuedDate (the CEO's approval
+// date) already on the permit record.
+function poa_fiscalYearStartIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const startYear = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${startYear}-04-01`;
+}
+function poa_fiscalYearEndIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const endYear = d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return `${endYear}-03-31`;
+}
+function poa_fiscalYearLabel(referenceIso){
+  const startYear = poa_fiscalYearStartIso(referenceIso).slice(0, 4);
+  const endYear = poa_fiscalYearEndIso(referenceIso).slice(0, 4);
+  return `April 1, ${startYear} – March 31, ${endYear}`;
+}
+
 // The Annual Amusement Licence — Third Schedule, Regulation 4 — is a
 // distinct, government-supplied template (see the uploaded reference PDF),
 // not just a relabeled version of the generic "AMUSEMENT LICENSE" grid
@@ -19428,7 +20403,7 @@ function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataU
       in the Parish of ${poa_escapeHtml(parishName || 'N/A')}, for the following type of amusement, namely:
       <strong>${poa_escapeHtml(p.amusementType || 'N/A')}</strong>.</p>
 
-      <p class="permit-doc-body">From <strong>${poa_escapeHtml(poa_formatShortDate(p.issuedDate))}</strong> to the <strong>${poa_escapeHtml(poa_formatShortDate(p.expiresDate))}</strong>.</p>
+      <p class="permit-doc-body">Valid for the fiscal year: <strong>${poa_escapeHtml(poa_fiscalYearLabel(p.issuedDate))}</strong>.</p>
 
       <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
       <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
@@ -23364,6 +24339,30 @@ function detailRow(label, value){
   return `<div class="detail-row"><div class="dr-label">${muni_escapeHtml(label)}</div><div class="dr-value">${muni_escapeHtml(value == null || value === '' ? '—' : String(value))}</div></div>`;
 }
 
+// "Show to the officers on the back end all the permits connected to that
+// venue" — the human's own explicit ask behind the venue-registry Premises
+// ID (see buildApplicationRecord's venueRegistryVenueId comment, and
+// jcfd_venuePermitsPanelHtml's own twin in the JCF Officer portal for the
+// same idea surfaced there). Scans the already-loaded `applications` array
+// for every OTHER application that shares this one's venueRegistryVenueId
+// and already has an issued permit, rather than standing up a second,
+// parallel venue-permit registry just for this. Returns '' (nothing
+// rendered) when this application was never tied to a registered venue, or
+// no other issued permits share it — deliberately minimal, this is a
+// secondary nicety, not its own workflow.
+function muni_venuePermitsPanelHtml(a){
+  if(!a.venueRegistryVenueId) return '';
+  const linked = applications.filter(other =>
+    other.venueRegistryVenueId === a.venueRegistryVenueId && other.appNumber !== a.appNumber && other.permitGenerated && other.permit);
+  if(!linked.length) return '';
+  let html = `<div class="panel"><div class="detail-section-title">Other Permits at This Venue (Premises ID: ${muni_escapeHtml(a.venueRegistryVenueId)})</div>`;
+  linked.forEach(other => {
+    html += detailRow(`Permit ${other.permit.number} — ${other.applicant}`, `${other.permit.validity || 'N/A'}${other.status ? ' · ' + other.status : ''}`);
+  });
+  html += `</div>`;
+  return html;
+}
+
 function renderSubmissionColumn(a){
   const r = a.raw;
   const col = document.getElementById('submissionColumn');
@@ -23436,6 +24435,7 @@ function renderSubmissionColumn(a){
     html += detailRow(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + muni_formatCurrency(p.cost) : ''}`);
   });
   html += `</div>`;
+  html += muni_venuePermitsPanelHtml(a);
 
   // Advertisement Information — Annual never has an Advertisement step at
   // all (see the applicant-side poa_goStepSaving step-skipping), so "No" here
@@ -24153,7 +25153,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl){
       in the Parish of ${muni_escapeHtml(parishName || 'N/A')}, for the following type of amusement, namely:
       <strong>${muni_escapeHtml(p.amusementType || 'N/A')}</strong>.</p>
 
-      <p class="permit-doc-body">From <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.issuedDate))}</strong> to the <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.expiresDate))}</strong>.</p>
+      <p class="permit-doc-body">Valid for the fiscal year: <strong>${muni_escapeHtml(muni_fiscalYearLabel(p.issuedDate))}</strong>.</p>
 
       <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
       <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
@@ -24866,6 +25866,9 @@ function muni_formatShortDate(isoDate){
 // approval date normalizes to 1 March the following (non-leap) year — the
 // same rollover JS's own Date arithmetic gives for "add a year", and
 // consistent with how banks/government systems here already handle it.
+// No longer used for the Annual POA permit's own expiration (see
+// muni_fiscalYearEndIso below) — left in place in case anything else still
+// wants a rolling one-year-from-date calculation.
 function addOneYearIso(isoDate){
   const d = new Date(isoDate + 'T00:00:00');
   if(isNaN(d.getTime())) return isoDate;
@@ -24873,15 +25876,50 @@ function addOneYearIso(isoDate){
   return d.toISOString().slice(0,10);
 }
 
+// The Annual Places of Amusement permit's validity period is a FIXED
+// government fiscal year (April 1 - March 31), not a rolling one-year
+// window from whatever date the CEO happens to approve it (that was the
+// original, product-corrected-away implementation — see addOneYearIso's own
+// note above). A referenceIso in April-December falls inside the fiscal
+// year that started April 1 of that same calendar year; a referenceIso in
+// January-March falls inside the fiscal year that started April 1 of the
+// PRECEDING calendar year (i.e. it's near that fiscal year's close-out, not
+// the start of a new one). Duplicated into poa_ and jcf_ scope per this
+// file's per-scope-helper convention — see poa_fiscalYearEndIso /
+// jcf_fiscalYearEndIso.
+function muni_fiscalYearStartIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const startYear = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${startYear}-04-01`;
+}
+function muni_fiscalYearEndIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const endYear = d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return `${endYear}-03-31`;
+}
+// "April 1, YYYY - March 31, YYYY" — the exact framing the Annual permit
+// document and Main Menu / verification "Validity" line show, in place of
+// the old "one year from approval" phrasing.
+function muni_fiscalYearLabel(referenceIso){
+  const startYear = muni_fiscalYearStartIso(referenceIso).slice(0, 4);
+  const endYear = muni_fiscalYearEndIso(referenceIso).slice(0, 4);
+  return `April 1, ${startYear} – March 31, ${endYear}`;
+}
+
 function generatePermit(a){
   const r = a.raw;
   const isAnnual = r && r.amusement && r.amusement.licenseType === 'Annual';
   const today = new Date().toISOString().slice(0,10);
   const permitYear = new Date().getFullYear();
-  // Annual expires exactly one year after the date it's approved (not a
-  // fixed fiscal year-end) — every Annual permit therefore has its own
-  // expiration date depending on when the CEO actually signs off.
-  const expiresIso = isAnnual ? addOneYearIso(today) : (r && r.amusement && r.amusement.eventDate) || today;
+  // Annual expires on the March 31 that closes out the fixed government
+  // fiscal year (April 1 - March 31) the approval date falls in — see
+  // muni_fiscalYearEndIso above. Every Annual permit approved within the
+  // same fiscal year therefore expires on the SAME date, unlike the old
+  // addOneYearIso behavior where each permit's expiration drifted with
+  // whenever the CEO happened to sign off.
+  const expiresIso = isAnnual ? muni_fiscalYearEndIso(today) : (r && r.amusement && r.amusement.eventDate) || today;
 
   const permit = {
     number: generatePermitNumber(a.appNumber),
@@ -24908,7 +25946,7 @@ function generatePermit(a){
     eventName: isAnnual ? '' : (r && r.amusement && r.amusement.eventName) || '',
     eventDate: isAnnual ? '' : (r && r.amusement && r.amusement.eventDate) || '',
     expectedPatrons: isAnnual ? ((r && r.venue && r.venue.maxCap) || 'N/A') : ((r && r.amusement && r.amusement.patrons) || 'N/A'),
-    validity: isAnnual ? `${muni_formatShortDate(today)} – ${muni_formatShortDate(expiresIso)}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
+    validity: isAnnual ? muni_fiscalYearLabel(today) : `Valid on ${muni_formatLongDate(expiresIso)}`,
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
     qrData: window.atdVerifyUrl(a.appNumber)
@@ -28547,7 +29585,7 @@ function jcf_attachPhoneFormatter(id){
     el.value = jcf_formatPhoneValue(digits);
   });
 }
-['promoterPhone','ownerContact','djContact','soundContact'].forEach(jcf_attachPhoneFormatter);
+['promoterPhone','ownerContact','djContact','soundContact','jcfAnnual_propOwnerPhone'].forEach(jcf_attachPhoneFormatter);
 ['promoterTrn','djTrn','soundTrn'].forEach(jcf_attachTrnFormatter);
 
 // ---- Age auto-calculation ----
@@ -28830,6 +29868,16 @@ function startWizard(){
   if(!poaData){
     jcf_updateLandingBanner();
     window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
+  // An Annual POA license gets its own, entirely separate wizard
+  // (jcfAnnual_*) instead of this one — the Special Event flow below is
+  // built around a single event date/flyer/promoter, none of which exist
+  // on an Annual filing (see the six-section design at the top of this
+  // file's jcfAnnual_* block). Branch here, before touching any of this
+  // flow's own DOM/state, and never fall through to it for an Annual filing.
+  if(poaData.licenseType === 'Annual'){
+    jcfAnnual_startWizard();
     return;
   }
   document.getElementById('jcf_infoPage').classList.add('hidden');
@@ -29601,13 +30649,26 @@ async function submitJcfApp(){
   // a workflow preference. An Active Applicant/DJ/Sound System match on
   // EITHER the Municipal or JCF watch list auto-rejects this application
   // immediately, before it ever reaches an officer's queue. Checked in
-  // order (promoter, then each DJ, then each Sound System) and stops at the
-  // first match -- one flagged party is enough to reject the whole filing.
+  // order (promoter, then each Company director, then each DJ, then each
+  // Sound System) and stops at the first match -- one flagged party is
+  // enough to reject the whole filing.
   let watchlistHit = null;
   const promoterTrnForWatchlist = jcf_val('promoterTrn');
   if(promoterTrnForWatchlist){
     const flag = await window.atdCheckWatchlistFlag(promoterTrnForWatchlist);
     if(flag) watchlistHit = { role: 'Applicant', flag };
+  }
+  // Company directors -- mirrors the POA wizard's own submitApp() check
+  // (see its own comment there) for a Company applicant's directors, which
+  // this filing now knows about too (poaData.directors, added to
+  // openJcfForm()'s payload). Only ever populated when the linked POA
+  // application was filed by a Company, same guard the POA side uses.
+  if(!watchlistHit && poaData && poaData.applicantType === 'Company'){
+    for(const d of (poaData.directors || [])){
+      if(!d.trn) continue;
+      const flag = await window.atdCheckWatchlistFlag(d.trn);
+      if(flag){ watchlistHit = { role: `Director (${d.name || 'unnamed'})`, flag }; break; }
+    }
   }
   if(!watchlistHit){
     for(const d of djs){
@@ -29834,6 +30895,746 @@ function jcf_updateLandingBanner(){
 jcf_updateLandingBanner();
 
 
+
+// ==================== ANNUAL JCF NOISE ABATEMENT WIZARD ====================
+// Used instead of everything above (jcf_step1..4/jcf_stepReview) whenever
+// the linked POA application is an Annual license — see startWizard()'s own
+// gate. Built as one complete, self-contained flow rather than reusing the
+// Special Event steps with isAnnual branches sprinkled through them: the two
+// filings barely share any fields (no single event, no flyer, a completely
+// different set of sections), so that would have meant more conditionals
+// than actual shared code. What DOES get reused verbatim, per explicit
+// instruction: openDjForm/saveDj/openSoundForm/saveSound and the shared
+// djs/soundSystems arrays (see jcfAnnual_mountDjSoundForms), and the
+// confirmPage success screen.
+
+// Fixed government fiscal year (April 1 - March 31) — same rule as the
+// Annual POA permit (muni_fiscalYearEndIso) and the Annual JCF permit
+// (jcfd_fiscalYearEndIso, JCF Officer scope) — duplicated here per this
+// file's per-scope-helper convention. Used for the Section 1 "Licence
+// Period" display and stored on the submitted record.
+function jcf_fiscalYearStartIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const startYear = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${startYear}-04-01`;
+}
+function jcf_fiscalYearEndIso(referenceIso){
+  const d = new Date(referenceIso + 'T00:00:00');
+  if(isNaN(d.getTime())) return referenceIso;
+  const endYear = d.getMonth() >= 3 ? d.getFullYear() + 1 : d.getFullYear();
+  return `${endYear}-03-31`;
+}
+function jcf_fiscalYearLabel(referenceIso){
+  const startYear = jcf_fiscalYearStartIso(referenceIso).slice(0, 4);
+  const endYear = jcf_fiscalYearEndIso(referenceIso).slice(0, 4);
+  return `April 1, ${startYear} – March 31, ${endYear}`;
+}
+
+const JCFANNUAL_STEP_NAMES = ['Applicant Information', 'Premises Information', 'Entertainment Activities', 'Community Impact', 'Other Licenses & Approvals', 'Noise Abatement Act — eBriefing', 'Application Review & Declaration'];
+
+// Section 2 — Registered Property Owner, collected via a popup modal (see
+// jcfAnnual_openPropertyOwnerModal/jcfAnnual_savePropertyOwner) rather than
+// inline fields, per the design spec.
+let jcfAnnualPropertyOwner = { name: '', phone: '', email: '' };
+
+// Section 3 — Entertainment Activities.
+const JCFANNUAL_ACTIVITIES = ['Live band','DJ','Sound system','Karaoke','Dancing','Live performances','Recorded music','Television/sports broadcasting','Cultural performances','Comedy','Theatre','Gaming/amusement machines','Outdoor entertainment','Other'];
+// Frequency is a plain <select> (#jcfAnnual_frequency) rather than a radio
+// group per the human's own revision of the original design spec — its
+// options are hardcoded directly on that <select> in the markup, so there is
+// no JCFANNUAL_FREQUENCIES array to keep in sync with it.
+let jcfAnnualDjSoundMounted = false;
+
+// Section 4 — Community Impact.
+const JCFANNUAL_NEARBY_OPTIONS = ['Residential properties','Apartment complex','Hotel','Guest house','School','Hospital','Nursing home','Church/place of worship','Commercial businesses','Industrial area','Agricultural area','Vacant land','Other'];
+const JCFANNUAL_COMPLAINT_SOURCES = ['Residents','Police','Municipal Corporation','Other'];
+let jcfAnnualNoiseNoticeFileName = '';
+let jcfAnnualNoiseNoticeFileData = null;
+
+// Section 5 — Other Licenses & Approvals. The Municipal Places of Amusement
+// Licence itself is handled separately in the markup (jcfAnnual_step5) since
+// it auto-tracks the linked POA application instead of taking an upload/
+// expiry date like these six.
+const JCFANNUAL_OTHER_LICENSE_KEYS = ['trade','liquor','fire','health','jamms','jacap'];
+const JCFANNUAL_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
+let jcfAnnualOtherLicenseFiles = {}; // { [key]: { fileData, fileName } }
+
+// Section 6 — Declaration/signature capture. Duplicated from the Special
+// Event flow's own sigMode/sigCanvasCtx/etc. rather than shared, matching
+// this file's per-scope-helper convention (and avoiding a single shared
+// <canvas> element that would need relocating between two different DOM
+// homes the way the DJ/Sound block does).
+let jcfAnnualSigMode = 'type';
+let jcfAnnualSigUploadFileData = null;
+let jcfAnnualSigUploadFileName = '';
+let jcfAnnualSigCanvasCtx = null;
+let jcfAnnualSigHasDrawing = false;
+
+function jcfAnnual_startWizard(){
+  document.getElementById('jcf_infoPage').classList.add('hidden');
+  document.getElementById('jcfAnnual_applicationFlow').classList.remove('hidden');
+  jcfAnnual_mountDjSoundForms();
+  jcfAnnual_prefill();
+  jcfAnnual_loadBriefingVideos();
+  jcfAnnual_goStep(1);
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// Relocates the Special Event flow's own #jcf_djSoundBlock (its "+ Add DJ"/
+// "+ Add Sound System" buttons, DJ/Sound System card lists, and add/edit
+// forms — see the comment wrapping that block in jcf_step3's markup) into
+// this wizard's own wrap, bodily, exactly once. This is what "reuse
+// openDjForm/saveDj/openSoundForm/saveSound and the shared djs/soundSystems
+// arrays verbatim" actually means in DOM terms: those functions are
+// hardcoded to specific element ids (#djFormWrap, #djCards, etc.), so
+// reusing them without duplicating a single line of their code means moving
+// the one real copy of those elements to wherever they need to be visible,
+// not cloning them.
+function jcfAnnual_mountDjSoundForms(){
+  if(jcfAnnualDjSoundMounted) return;
+  const block = document.getElementById('jcf_djSoundBlock');
+  const wrap = document.getElementById('jcfAnnual_djSoundWrap');
+  if(block && wrap) wrap.appendChild(block);
+  jcfAnnualDjSoundMounted = true;
+}
+
+function jcfAnnual_prefill(){
+  const todayIso = new Date().toISOString().slice(0,10);
+  document.getElementById('jcfAnnual_licencePeriodLabel').textContent = jcf_fiscalYearLabel(todayIso);
+
+  const isCompany = poaData.applicantType === 'Company';
+  let applicantHtml =
+    reviewRow(isCompany ? 'Company name' : 'Full name', poaData.applicantName) +
+    reviewRow('Phone number', poaData.applicantPhone) +
+    reviewRow('Tax Registration Number', poaData.applicantTrn) +
+    reviewRow('Address', [poaData.applicantAddr1, poaData.applicantAddr2, poaData.applicantDistrict, poaData.applicantParish].filter(Boolean).join(', '));
+  if(isCompany){
+    applicantHtml += (poaData.directors && poaData.directors.length)
+      ? poaData.directors.map(d => reviewRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '))).join('')
+      : reviewRow('Company Directors', 'None on file');
+  }
+  document.getElementById('jcfAnnual_applicantInfoBody').innerHTML = applicantHtml;
+
+  // Section 2 — all pulled straight from the linked POA application per the
+  // design spec ("grab from POA"); read-only, not editable here.
+  document.getElementById('jcfAnnual_businessTypeDisplay').textContent = poaData.businessType || 'N/A';
+  document.getElementById('jcfAnnual_registrationOfUseDisplay').textContent = poaData.registrationOfUse || 'N/A';
+  document.getElementById('jcfAnnual_businessNameDisplay').textContent = poaData.venueName || 'N/A';
+  document.getElementById('jcfAnnual_businessAddressDisplay').textContent = [poaData.venueAddr1, poaData.venueAddr2, poaData.venueDistrict, poaData.venueParish].filter(Boolean).join(', ') || 'N/A';
+  jcfAnnual_renderPropertyOwnerSummary();
+
+  jcfAnnual_renderActivityCheckboxes();
+  jcfAnnual_renderNearbyCheckboxes();
+  jcfAnnual_renderOtherLicensesSection();
+}
+
+// ==================== Section 1/2 navigation ====================
+function jcfAnnual_continueFromStep1(){
+  jcfAnnual_goStep(2);
+}
+function jcfAnnual_openPropertyOwnerModal(){
+  document.getElementById('jcfAnnual_propOwnerName').value = jcfAnnualPropertyOwner.name || '';
+  document.getElementById('jcfAnnual_propOwnerPhone').value = jcfAnnualPropertyOwner.phone || '';
+  document.getElementById('jcfAnnual_propOwnerEmail').value = jcfAnnualPropertyOwner.email || '';
+  document.getElementById('jcfAnnual_propertyOwnerModal').classList.remove('hidden');
+}
+function jcfAnnual_closePropertyOwnerModal(){
+  document.getElementById('jcfAnnual_propertyOwnerModal').classList.add('hidden');
+}
+// Same simple email shape check used elsewhere in the app (e.g. the POA
+// portal's own attachEmailValidation) — duplicated here per this file's
+// per-scope-helper convention rather than reaching across the IIFE boundary.
+const JCFANNUAL_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function jcfAnnual_savePropertyOwner(){
+  const email = jcf_val('jcfAnnual_propOwnerEmail');
+  if(email && !JCFANNUAL_EMAIL_RE.test(email)){
+    jcf_showToast('Please enter a valid email address (e.g. name@example.com).');
+    return;
+  }
+  jcfAnnualPropertyOwner = {
+    name: jcf_val('jcfAnnual_propOwnerName'),
+    phone: jcf_val('jcfAnnual_propOwnerPhone'),
+    email
+  };
+  jcfAnnual_renderPropertyOwnerSummary();
+  jcfAnnual_closePropertyOwnerModal();
+}
+function jcfAnnual_renderPropertyOwnerSummary(){
+  const el = document.getElementById('jcfAnnual_propertyOwnerSummary');
+  const { name, phone, email } = jcfAnnualPropertyOwner;
+  el.textContent = (name || phone || email) ? [name, phone, email].filter(Boolean).join(' · ') : 'Not provided.';
+}
+function jcfAnnual_continueFromStep2(){
+  if(!jcf_val('jcfAnnual_ownershipStatus')){
+    jcf_showToast('Please select an Ownership Status.');
+    return;
+  }
+  jcfAnnual_goStep(3);
+}
+
+// ==================== Section 3: Entertainment Activities ====================
+function jcfAnnual_renderActivityCheckboxes(){
+  document.getElementById('jcfAnnual_activitiesWrap').innerHTML = JCFANNUAL_ACTIVITIES.map(a => `
+    <label class="checkbox-row"><input type="checkbox" class="jcfAnnual-activity-cb" value="${jcf_escapeHtml(a)}" onchange="jcfAnnual_onActivityChange()"> ${jcf_escapeHtml(a)}</label>
+  `).join('');
+}
+function jcfAnnual_onActivityChange(){
+  const otherChecked = Array.from(document.querySelectorAll('.jcfAnnual-activity-cb')).some(cb => cb.checked && cb.value === 'Other');
+  document.getElementById('jcfAnnual_activityOtherWrap').classList.toggle('hidden', !otherChecked);
+}
+function jcfAnnual_getSelectedActivities(){
+  return Array.from(document.querySelectorAll('.jcfAnnual-activity-cb')).filter(cb => cb.checked).map(cb => cb.value);
+}
+function jcfAnnual_toggleDjSoundWrap(){
+  document.getElementById('jcfAnnual_djSoundWrap').classList.toggle('hidden', radioVal('jcfAnnual_hasDjSound') !== 'Yes');
+}
+// "Show to the officers on the back end all the permits connected to that
+// venue" starts here, applicant-side: this notice is the applicant's own
+// first look at the Premises ID their venue either already has or will get
+// — see poaData.venueIsNew/venueRegistryVenueId, added to openJcfForm()'s
+// payload, and buildApplicationRecord's own venueRegistryVenueId comment for
+// why an existing (not-new) venue never has one to show yet.
+function jcfAnnual_renderPremisesIdNotice(){
+  const panel = document.getElementById('jcfAnnual_premisesIdPanel');
+  if(radioVal('jcfAnnual_rentToPromoters') !== 'Yes'){
+    panel.classList.add('hidden');
+    return;
+  }
+  panel.classList.remove('hidden');
+  panel.textContent = (poaData.venueIsNew && poaData.venueRegistryVenueId)
+    ? `This venue will be registered as an official venue in the Municipal Event Venue Database. Premises ID: ${poaData.venueRegistryVenueId}. All permits connected to this venue — including for the Super Admin — reference this Premises ID.`
+    : `This venue will be registered as an official venue in the Municipal Event Venue Database, and assigned a Premises ID, once your linked Places of Amusement application is processed. Every permit connected to this venue will then reference that Premises ID.`;
+}
+function jcfAnnual_continueFromStep3(){
+  if(!jcfAnnual_getSelectedActivities().length){
+    jcf_showToast('Please select at least one entertainment activity.');
+    return;
+  }
+  if(!jcf_val('jcfAnnual_frequency')){
+    jcf_showToast('Please select how frequently amplified/live entertainment is provided.');
+    return;
+  }
+  if(!radioVal('jcfAnnual_hasDjSound')){
+    jcf_showToast('Please indicate whether you engage a Primary DJ or Sound System.');
+    return;
+  }
+  if(!radioVal('jcfAnnual_rentToPromoters')){
+    jcf_showToast('Please indicate whether this location will be rented to promoters.');
+    return;
+  }
+  jcfAnnual_goStep(4);
+}
+
+// ==================== Section 4: Community Impact ====================
+function jcfAnnual_renderNearbyCheckboxes(){
+  document.getElementById('jcfAnnual_nearbyWrap').innerHTML = JCFANNUAL_NEARBY_OPTIONS.map(o =>
+    `<label class="checkbox-row"><input type="checkbox" class="jcfAnnual-nearby-cb" value="${jcf_escapeHtml(o)}"> ${jcf_escapeHtml(o)}</label>`
+  ).join('');
+}
+function jcfAnnual_getSelectedNearby(){
+  return Array.from(document.querySelectorAll('.jcfAnnual-nearby-cb')).filter(cb => cb.checked).map(cb => cb.value);
+}
+function jcfAnnual_toggleComplaintsWrap(){
+  const show = radioVal('jcfAnnual_noiseComplaints12mo') === 'Yes';
+  document.getElementById('jcfAnnual_complaintsWrap').classList.toggle('hidden', !show);
+  const srcWrap = document.getElementById('jcfAnnual_complaintSourcesWrap');
+  if(show && !srcWrap.innerHTML){
+    srcWrap.innerHTML = JCFANNUAL_COMPLAINT_SOURCES.map(s =>
+      `<label class="checkbox-row"><input type="checkbox" class="jcfAnnual-complaintsrc-cb" value="${jcf_escapeHtml(s)}"> ${jcf_escapeHtml(s)}</label>`
+    ).join('');
+  }
+}
+function jcfAnnual_getSelectedComplaintSources(){
+  return Array.from(document.querySelectorAll('.jcfAnnual-complaintsrc-cb')).filter(cb => cb.checked).map(cb => cb.value);
+}
+function jcfAnnual_toggleNoiseNoticeUpload(){
+  document.getElementById('jcfAnnual_noiseNoticeUploadWrap').classList.toggle('hidden', radioVal('jcfAnnual_existingNotices') !== 'Yes');
+}
+async function jcfAnnual_noiseNoticeFileChosen(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  jcfAnnualNoiseNoticeFileName = file.name;
+  jcfAnnualNoiseNoticeFileData = await jcf_readFileAsDataUrl(file);
+  document.getElementById('jcfAnnual_noiseNoticePreviewWrap').innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jcfAnnualNoiseNoticeFileName)}</div>`;
+}
+function jcfAnnual_continueFromStep4(){
+  if(!radioVal('jcfAnnual_residentialVicinity')){
+    jcf_showToast('Please indicate whether there are residential premises within the immediate vicinity.');
+    return;
+  }
+  if(!radioVal('jcfAnnual_noiseComplaints12mo')){
+    jcf_showToast('Please indicate whether the premises has received noise complaints within the past 12 months.');
+    return;
+  }
+  if(radioVal('jcfAnnual_noiseComplaints12mo') === 'Yes' && !jcf_val('jcfAnnual_complaintsCount')){
+    jcf_showToast('Please enter the number of complaints.');
+    return;
+  }
+  if(!radioVal('jcfAnnual_existingNotices')){
+    jcf_showToast('Please indicate whether there are existing Noise Abatement Notices or conditions affecting the premises.');
+    return;
+  }
+  if(radioVal('jcfAnnual_existingNotices') === 'Yes' && !jcfAnnualNoiseNoticeFileData){
+    jcf_showToast('Please upload documentation for the existing Noise Abatement Notice/conditions.');
+    return;
+  }
+  jcfAnnual_goStep(5);
+}
+
+// ==================== Section 5: Other Licenses & Approvals ====================
+function jcfAnnual_renderOtherLicensesSection(){
+  document.getElementById('jcfAnnual_poaLicenceTrackRow').textContent = `Application ${poaData.appNumber} (Tracking Code: ${poaData.trackingCode || 'N/A'})`;
+  document.getElementById('jcfAnnual_otherLicensesWrap').innerHTML = JCFANNUAL_OTHER_LICENSE_KEYS.map(key => `
+    <label class="checkbox-row"><input type="checkbox" class="jcfAnnual-otherlic-cb" data-key="${key}" onchange="jcfAnnual_toggleOtherLicenseFields('${key}')"> ${jcf_escapeHtml(JCFANNUAL_OTHER_LICENSE_LABELS[key])}</label>
+    <div class="field-row hidden" id="jcfAnnual_otherLic_${key}_fields" style="margin:6px 0 14px 26px;">
+      <div class="field-group">
+        <label for="jcfAnnual_otherLic_${key}_number">Licence Number <span class="required-mark">*</span></label>
+        <input type="text" id="jcfAnnual_otherLic_${key}_number">
+      </div>
+      <div class="field-group">
+        <label for="jcfAnnual_otherLic_${key}_expiry">Expiry Date <span class="required-mark">*</span></label>
+        <input type="date" id="jcfAnnual_otherLic_${key}_expiry">
+      </div>
+      <div class="field-group">
+        <div class="id-flyer-box-title">Upload <span class="required-mark">*</span></div>
+        <div class="flyer-upload-box" id="jcfAnnual_otherLic_${key}_box" onclick="document.getElementById('jcfAnnual_otherLic_${key}_file').click()">
+          <div id="jcfAnnual_otherLic_${key}_previewWrap"><div class="fu-icon">⤒</div><div class="fu-label">Upload</div></div>
+          <input type="file" id="jcfAnnual_otherLic_${key}_file" accept="image/*,.pdf" style="display:none;" onchange="jcfAnnual_otherLicenseFileChosen('${key}', this)">
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+function jcfAnnual_toggleOtherLicenseFields(key){
+  const cb = document.querySelector(`.jcfAnnual-otherlic-cb[data-key="${key}"]`);
+  document.getElementById(`jcfAnnual_otherLic_${key}_fields`).classList.toggle('hidden', !(cb && cb.checked));
+}
+async function jcfAnnual_otherLicenseFileChosen(key, input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  jcfAnnualOtherLicenseFiles[key] = { fileData, fileName: file.name };
+  document.getElementById(`jcfAnnual_otherLic_${key}_previewWrap`).innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(file.name)}</div>`;
+}
+function jcfAnnual_continueFromStep5(){
+  for(const key of JCFANNUAL_OTHER_LICENSE_KEYS){
+    const cb = document.querySelector(`.jcfAnnual-otherlic-cb[data-key="${key}"]`);
+    if(!cb || !cb.checked) continue;
+    const hasFile = !!(jcfAnnualOtherLicenseFiles[key] && jcfAnnualOtherLicenseFiles[key].fileData);
+    if(!jcf_val(`jcfAnnual_otherLic_${key}_number`) || !jcf_val(`jcfAnnual_otherLic_${key}_expiry`) || !hasFile){
+      jcf_showToast(`Please complete the Licence Number, Expiry Date, and upload for ${JCFANNUAL_OTHER_LICENSE_LABELS[key]}.`);
+      return;
+    }
+  }
+  jcfAnnual_goStep(6);
+}
+
+// ==================== Section 6: Noise Abatement Act eBriefing ====================
+function jcfAnnual_continueFromStep6(){
+  if(!document.getElementById('jcfAnnual_watchNoise').checked){
+    jcf_showToast('Please confirm you have watched the Noise Abatement Act briefing before continuing.');
+    return;
+  }
+  jcfAnnual_goStep(7);
+}
+
+// ==================== Section 7: Review, Declaration, Signature ====================
+async function jcfAnnual_loadBriefingVideos(){
+  const templates = window.atdLoadFormTemplates ? await window.atdLoadFormTemplates() : window.ATD_DEFAULT_FORM_TEMPLATES;
+  const map = { noise: templates.jcfBriefingVideoNoiseUrl, loudspeakers: templates.jcfBriefingVideoLoudspeakersUrl, charges: templates.jcfBriefingVideoChargesUrl };
+  Object.keys(map).forEach(key => {
+    const frame = document.getElementById(`jcfAnnual_jcfVideoFrame_${key}`);
+    if(frame) frame.innerHTML = jcf_buildVideoEmbedHtml(map[key]);
+  });
+}
+function jcfAnnual_switchSigMode(mode){
+  jcfAnnualSigMode = mode;
+  ['Type','Upload','Draw'].forEach(m => {
+    const isActive = m.toLowerCase() === mode;
+    document.getElementById('jcfAnnual_sigTab'+m).classList.toggle('active', isActive);
+    document.getElementById('jcfAnnual_sigPane'+m).classList.toggle('active', isActive);
+  });
+  if(mode === 'draw') jcfAnnual_initSigCanvasIfNeeded();
+}
+async function jcfAnnual_sigUploadFileChosen(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  jcfAnnualSigUploadFileName = file.name;
+  jcfAnnualSigUploadFileData = await jcf_readFileAsDataUrl(file);
+  const wrap = document.getElementById('jcfAnnual_sigUploadPreviewWrap');
+  if(jcfAnnualSigUploadFileData){
+    wrap.innerHTML = `<div class="sig-upload-preview"><img src="${jcfAnnualSigUploadFileData}" alt="Signature"></div><div class="fu-label">${jcf_escapeHtml(jcfAnnualSigUploadFileName)}</div>`;
+  } else {
+    jcf_showToast('That image is too large — please use a file under 500KB.');
+  }
+}
+function jcfAnnual_initSigCanvasIfNeeded(){
+  const canvas = document.getElementById('jcfAnnual_sigCanvas');
+  if(canvas.dataset.inited) return;
+  canvas.dataset.inited = '1';
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * ratio;
+  canvas.height = rect.height * ratio;
+  jcfAnnualSigCanvasCtx = canvas.getContext('2d');
+  jcfAnnualSigCanvasCtx.scale(ratio, ratio);
+  jcfAnnualSigCanvasCtx.strokeStyle = '#1a1d24';
+  jcfAnnualSigCanvasCtx.lineWidth = 2.2;
+  jcfAnnualSigCanvasCtx.lineCap = 'round';
+  jcfAnnualSigCanvasCtx.lineJoin = 'round';
+  let drawing = false;
+  const getPos = (e) => { const r = canvas.getBoundingClientRect(); const point = e.touches ? e.touches[0] : e; return { x: point.clientX - r.left, y: point.clientY - r.top }; };
+  const start = (e) => { drawing = true; jcfAnnualSigHasDrawing = true; const p = getPos(e); jcfAnnualSigCanvasCtx.beginPath(); jcfAnnualSigCanvasCtx.moveTo(p.x, p.y); e.preventDefault(); };
+  const move = (e) => { if(!drawing) return; const p = getPos(e); jcfAnnualSigCanvasCtx.lineTo(p.x, p.y); jcfAnnualSigCanvasCtx.stroke(); e.preventDefault(); };
+  const end = () => { drawing = false; };
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+}
+function jcfAnnual_clearSigCanvas(){
+  const canvas = document.getElementById('jcfAnnual_sigCanvas');
+  if(jcfAnnualSigCanvasCtx) jcfAnnualSigCanvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+  jcfAnnualSigHasDrawing = false;
+}
+function jcfAnnual_getSignatureValue(){
+  if(jcfAnnualSigMode === 'type') return { type: 'text', value: jcf_val('jcfAnnual_signatureText') };
+  if(jcfAnnualSigMode === 'upload') return { type: 'image', value: jcfAnnualSigUploadFileData, fileName: jcfAnnualSigUploadFileName };
+  if(jcfAnnualSigMode === 'draw'){
+    if(!jcfAnnualSigHasDrawing) return { type: 'draw', value: null };
+    return { type: 'draw', value: document.getElementById('jcfAnnual_sigCanvas').toDataURL('image/png') };
+  }
+  return { type: 'text', value: '' };
+}
+function jcfAnnual_hasSignature(){ return !!jcfAnnual_getSignatureValue().value; }
+
+function jcfAnnual_renderReview(){
+  const isCompany = poaData.applicantType === 'Company';
+  let applicantHtml =
+    reviewRow('Licence Period', jcf_fiscalYearLabel(new Date().toISOString().slice(0,10))) +
+    reviewRow('Application Type', 'New') +
+    reviewRow('Applicant Type', poaData.applicantType || 'Individual') +
+    reviewRow(isCompany ? 'Company name' : 'Full name', poaData.applicantName) +
+    reviewRow('Phone', poaData.applicantPhone) +
+    reviewRow('TRN', poaData.applicantTrn) +
+    reviewRow('Address', [poaData.applicantAddr1, poaData.applicantAddr2, poaData.applicantDistrict, poaData.applicantParish].filter(Boolean).join(', '));
+  if(isCompany){
+    applicantHtml += (poaData.directors || []).map(d => reviewRow('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '))).join('');
+  }
+  document.getElementById('jcfAnnual_revApplicant').innerHTML = applicantHtml;
+
+  document.getElementById('jcfAnnual_revPremises').innerHTML =
+    reviewRow('Type of Business', poaData.businessType) +
+    reviewRow('Registration of Use', poaData.registrationOfUse) +
+    reviewRow('Name of Business', poaData.venueName) +
+    reviewRow('Business Address', [poaData.venueAddr1, poaData.venueAddr2, poaData.venueDistrict, poaData.venueParish].filter(Boolean).join(', ')) +
+    reviewRow('Ownership Status', jcf_val('jcfAnnual_ownershipStatus')) +
+    reviewRow('Registered Property Owner', [jcfAnnualPropertyOwner.name, jcfAnnualPropertyOwner.phone, jcfAnnualPropertyOwner.email].filter(Boolean).join(' · ') || 'Not provided');
+
+  const activities = jcfAnnual_getSelectedActivities();
+  const activitiesDisplay = activities.filter(a => a !== 'Other')
+    .concat(activities.includes('Other') ? [`Other${jcf_val('jcfAnnual_activityOtherText') ? ': ' + jcf_val('jcfAnnual_activityOtherText') : ''}`] : []);
+  let entHtml = reviewRow('Activities', activitiesDisplay.join(', ') || 'None selected');
+  entHtml += reviewRow('Frequency', jcf_val('jcfAnnual_frequency'));
+  entHtml += reviewRow('Engages Primary DJ/Sound System', radioVal('jcfAnnual_hasDjSound'));
+  if(djs.length) entHtml += djs.map(d => reviewRow(`DJ — ${d.name}`, `TRN ${d.trn} · Alias "${d.alias}" · ${d.contact}`)).join('');
+  if(soundSystems.length) entHtml += soundSystems.map(s => reviewRow(`Sound System — ${s.name}`, `TRN (Owner) ${s.trn} · Owner ${s.ownerName} · ${s.contact}`)).join('');
+  entHtml += reviewRow('Rented to promoters for events', radioVal('jcfAnnual_rentToPromoters'));
+  if(radioVal('jcfAnnual_rentToPromoters') === 'Yes'){
+    entHtml += reviewRow('Premises ID', (poaData.venueIsNew && poaData.venueRegistryVenueId)
+      ? poaData.venueRegistryVenueId
+      : 'Will be assigned once your Places of Amusement application registers this venue');
+  }
+  document.getElementById('jcfAnnual_revEntertainment').innerHTML = entHtml;
+
+  let commHtml = reviewRow('Nearby', jcfAnnual_getSelectedNearby().join(', ') || 'None selected');
+  commHtml += reviewRow('Residential premises in immediate vicinity', radioVal('jcfAnnual_residentialVicinity'));
+  commHtml += reviewRow('Noise complaints in past 12 months', radioVal('jcfAnnual_noiseComplaints12mo'));
+  if(radioVal('jcfAnnual_noiseComplaints12mo') === 'Yes'){
+    commHtml += reviewRow('Number of complaints', jcf_val('jcfAnnual_complaintsCount'));
+    commHtml += reviewRow('Source of complaints', jcfAnnual_getSelectedComplaintSources().join(', ') || 'N/A');
+  }
+  commHtml += reviewRow('Existing Noise Abatement Notices/conditions', radioVal('jcfAnnual_existingNotices'));
+  if(radioVal('jcfAnnual_existingNotices') === 'Yes'){
+    commHtml += reviewRow('Documentation', jcfAnnualNoiseNoticeFileName || 'Not uploaded');
+  }
+  document.getElementById('jcfAnnual_revCommunity').innerHTML = commHtml;
+
+  let licHtml = reviewRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${poaData.appNumber}`);
+  JCFANNUAL_OTHER_LICENSE_KEYS.forEach(key => {
+    const cb = document.querySelector(`.jcfAnnual-otherlic-cb[data-key="${key}"]`);
+    if(!cb || !cb.checked) return;
+    const f = jcfAnnualOtherLicenseFiles[key] || {};
+    licHtml += reviewRow(JCFANNUAL_OTHER_LICENSE_LABELS[key], `Licence # ${jcf_val('jcfAnnual_otherLic_'+key+'_number')} · Expires ${jcf_val('jcfAnnual_otherLic_'+key+'_expiry')} · ${f.fileName || 'Not uploaded'}`);
+  });
+  document.getElementById('jcfAnnual_revOtherLicenses').innerHTML = licHtml;
+}
+
+async function jcfAnnual_goStep(n){
+  for(let i=1; i<=7; i++){
+    const sec = document.getElementById('jcfAnnual_step'+i);
+    if(sec) sec.classList.toggle('hidden', i !== n);
+  }
+  document.getElementById('jcfAnnual_stepNum').textContent = n;
+  document.getElementById('jcfAnnual_stepName').textContent = JCFANNUAL_STEP_NAMES[n-1];
+  document.getElementById('jcfAnnual_progressFill').style.width = (n/7*100)+'%';
+  if(n === 7){
+    // Declaration text is the SAME admin-editable text the Special Event
+    // flow uses (window.atdLoadFormTemplates -> jcfDeclarationText) — reused
+    // AS-IS per instruction rather than a separate Annual-only version.
+    if(window.atdLoadFormTemplates){
+      const templates = await window.atdLoadFormTemplates();
+      document.getElementById('jcfAnnual_declarationText').textContent = templates.jcfDeclarationText;
+    }
+    document.getElementById('jcfAnnual_declarationCheck').checked = false;
+    jcfAnnual_renderReview();
+  }
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+async function jcfAnnual_submitApp(){
+  const errorBox = document.getElementById('jcfAnnual_submitError');
+  errorBox.classList.add('hidden');
+  const submitBtn = document.getElementById('jcfAnnual_submitBtn');
+
+  if(!document.getElementById('jcfAnnual_watchNoise').checked || !document.getElementById('jcfAnnual_watchLoudspeakers').checked || !document.getElementById('jcfAnnual_watchCharges').checked){
+    errorBox.textContent = 'You must confirm you have watched all three briefing videos before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(!document.getElementById('jcfAnnual_declarationCheck').checked){
+    errorBox.textContent = 'Please read and check the declaration before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(!jcfAnnual_hasSignature()){
+    errorBox.textContent = 'Please provide your signature (typed, uploaded, or drawn) before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  if(window.__atdPreviewMode){
+    errorBox.textContent = 'Preview mode — every check above passed, but no application was actually submitted. Use "Exit preview" above to return to Admin.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = window.atdLoadingHtml('Submitting…', 16);
+
+  const number = jcfAppNumber || ('JCF' + Date.now().toString().slice(-8));
+  const signature = jcfAnnual_getSignatureValue();
+  const todayIso = new Date().toISOString().slice(0,10);
+
+  // Mandatory watch list check — mirrors submitJcfApp()'s own (Special
+  // Event flow) multi-subject check, extended the same way that function's
+  // own Company-director check now is: applicant/company, then (for a
+  // Company applicant) every director, then each DJ, then each Sound
+  // System. Stops at the first match.
+  let watchlistHit = null;
+  if(poaData.applicantTrn){
+    const flag = await window.atdCheckWatchlistFlag(poaData.applicantTrn);
+    if(flag) watchlistHit = { role: poaData.applicantType === 'Company' ? 'Company' : 'Applicant', flag };
+  }
+  if(!watchlistHit && poaData.applicantType === 'Company'){
+    for(const d of (poaData.directors || [])){
+      if(!d.trn) continue;
+      const flag = await window.atdCheckWatchlistFlag(d.trn);
+      if(flag){ watchlistHit = { role: `Director (${d.name || 'unnamed'})`, flag }; break; }
+    }
+  }
+  if(!watchlistHit){
+    for(const d of djs){
+      const flag = await window.atdCheckWatchlistFlag(d.trn);
+      if(flag){ watchlistHit = { role: 'DJ', flag }; break; }
+    }
+  }
+  if(!watchlistHit){
+    for(const s of soundSystems){
+      const flag = await window.atdCheckWatchlistFlag(s.trn);
+      if(flag){ watchlistHit = { role: 'Sound System', flag }; break; }
+    }
+  }
+  const watchlistRejectionMessage = watchlistHit ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
+
+  const activities = jcfAnnual_getSelectedActivities();
+  const otherLicenses = { poa: { checked: true, licenceNumber: poaData.appNumber || '' } };
+  JCFANNUAL_OTHER_LICENSE_KEYS.forEach(key => {
+    const cb = document.querySelector(`.jcfAnnual-otherlic-cb[data-key="${key}"]`);
+    const checked = !!(cb && cb.checked);
+    otherLicenses[key] = {
+      checked,
+      licenceNumber: checked ? jcf_val(`jcfAnnual_otherLic_${key}_number`) : '',
+      expiryDate: checked ? jcf_val(`jcfAnnual_otherLic_${key}_expiry`) : '',
+      fileName: checked ? ((jcfAnnualOtherLicenseFiles[key] && jcfAnnualOtherLicenseFiles[key].fileName) || '') : ''
+    };
+  });
+
+  const record = {
+    jcfAppNumber: number,
+    poaAppNumber: poaData ? poaData.appNumber : null,
+    linkedTrackingCode: poaData ? poaData.trackingCode : null,
+    ownerEmail: (window.AccountBridge && window.AccountBridge.getCurrentUser()) ? window.AccountBridge.getCurrentUser().email : null,
+    muniId: poaData ? poaData.muniId : null,
+    municipalityName: poaData ? poaData.municipalityName : '',
+    submittedDate: todayIso,
+    submittedAt: new Date().toISOString(),
+    status: watchlistHit ? 'Rejected' : 'Submitted',
+    assignedOfficerId: null,
+    assignedOfficerName: '',
+    comments: [],
+    recommendation: '',
+    recommendationNotes: '',
+    recommendedBy: watchlistHit ? 'Auto-rejected: watch list match' : '',
+    finalDecision: watchlistRejectionMessage,
+    permitGenerated: false,
+    permit: null,
+    // Everything below this line is what jcfd_renderApplicationDetail's
+    // formVariant === 'Annual' branch (jcfd_renderAnnualSubmissionColumn,
+    // JCF Officer scope) reads instead of eventOverview/venueInfo.
+    formVariant: 'Annual',
+    fiscalYearLabel: jcf_fiscalYearLabel(todayIso),
+    premisesVenueId: (poaData && poaData.venueRegistryVenueId) || '',
+    applicantInfo: {
+      applicationType: 'New',
+      applicantType: poaData.applicantType || 'Individual',
+      name: poaData.applicantName || '',
+      phone: poaData.applicantPhone || '',
+      trn: poaData.applicantTrn || '',
+      email: poaData.applicantEmail || '',
+      addr1: poaData.applicantAddr1 || '', addr2: poaData.applicantAddr2 || '',
+      district: poaData.applicantDistrict || '', parish: poaData.applicantParish || '',
+      directors: poaData.directors || []
+    },
+    premisesInfo: {
+      businessType: poaData.businessType || '',
+      registrationOfUse: poaData.registrationOfUse || '',
+      businessName: poaData.venueName || '',
+      businessAddress: [poaData.venueAddr1, poaData.venueAddr2, poaData.venueDistrict, poaData.venueParish].filter(Boolean).join(', '),
+      ownershipStatus: jcf_val('jcfAnnual_ownershipStatus'),
+      propertyOwner: { name: jcfAnnualPropertyOwner.name, phone: jcfAnnualPropertyOwner.phone, email: jcfAnnualPropertyOwner.email }
+    },
+    entertainment: {
+      activities: activities.filter(a => a !== 'Other'),
+      otherActivityText: activities.includes('Other') ? jcf_val('jcfAnnual_activityOtherText') : '',
+      frequency: jcf_val('jcfAnnual_frequency'),
+      hasDjOrSound: radioVal('jcfAnnual_hasDjSound'),
+      rentToPromoters: radioVal('jcfAnnual_rentToPromoters'),
+      venueIsNew: !!(poaData && poaData.venueIsNew),
+      venueRegistryStatus: (poaData && poaData.venueRegistryStatus) || '',
+      premisesId: (poaData && poaData.venueIsNew && poaData.venueRegistryVenueId) ? poaData.venueRegistryVenueId : ''
+    },
+    djs,
+    soundSystems,
+    communityImpact: {
+      nearby: jcfAnnual_getSelectedNearby(),
+      residentialVicinity: radioVal('jcfAnnual_residentialVicinity'),
+      noiseComplaints12mo: radioVal('jcfAnnual_noiseComplaints12mo'),
+      complaintsCount: radioVal('jcfAnnual_noiseComplaints12mo') === 'Yes' ? jcf_val('jcfAnnual_complaintsCount') : '',
+      complaintSources: radioVal('jcfAnnual_noiseComplaints12mo') === 'Yes' ? jcfAnnual_getSelectedComplaintSources() : [],
+      existingNotices: radioVal('jcfAnnual_existingNotices'),
+      // noiseNoticeFileData intentionally NOT embedded here — stored under
+      // jcfApplicationFiles:<number> instead, same reasoning as
+      // photoIdFileData/flyerFileData in the Special Event flow's own
+      // submitJcfApp().
+      noiseNoticeFileName: radioVal('jcfAnnual_existingNotices') === 'Yes' ? jcfAnnualNoiseNoticeFileName : ''
+    },
+    otherLicenses,
+    briefings: { noiseAbatementWatched: true, loudSpeakersWatched: true, chargesWatched: true },
+    signature
+  };
+
+  try{
+    if(window.storage){
+      await jcf_storageSetWithRetry(`jcfApplication:${number}`, JSON.stringify(record), true);
+      // Same reasoning as the Special Event flow's own jcfApplicationFiles
+      // write — large base64 uploads are kept out of the main record and
+      // stored under their own key instead, best-effort.
+      if(jcfAnnualNoiseNoticeFileData || Object.keys(jcfAnnualOtherLicenseFiles).length){
+        try{
+          await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify({
+            noiseNoticeFileData: jcfAnnualNoiseNoticeFileData,
+            otherLicenseFiles: jcfAnnualOtherLicenseFiles
+          }), true);
+        } catch(fileErr){ /* non-critical — the JCF application itself was submitted fine */ }
+      }
+    }
+    document.getElementById('jcfAnnual_applicationFlow').classList.add('hidden');
+    document.getElementById('confirmPage').classList.remove('hidden');
+    document.getElementById('confirmAppNumber').textContent = number;
+    document.getElementById('confirmBackToPoaBtn').classList.toggle('hidden', !poaData);
+    if(window.AccountBridge && window.AccountBridge.getCurrentUser()){
+      window.AccountBridge.clearDraft('jcf');
+    }
+
+    if(watchlistHit){
+      jcf_showToast('This application was rejected — see the confirmation screen for details.');
+      const confirmMsgEl = document.getElementById('confirmPage');
+      if(confirmMsgEl) confirmMsgEl.insertAdjacentHTML('beforeend',
+        `<div class="info-banner warn" style="margin-top:16px;">${jcf_escapeHtml(watchlistRejectionMessage)}</div>`);
+      const notifyEmail = (poaData && poaData.applicantEmail) || record.ownerEmail;
+      const applicantName = poaData.applicantName || '';
+      if(notifyEmail){
+        window.atdSendEmail('application_watchlist_rejected', notifyEmail, {
+          appNumber: number, applicantName, role: watchlistHit.role,
+          flaggedName: watchlistHit.flag.fullName, agencyName: watchlistHit.flag.agencyName
+        });
+        window.atdNotifyApplicant(notifyEmail, 'application_watchlist_rejected', watchlistRejectionMessage, number);
+      }
+      if(record.poaAppNumber && window.storage){
+        try{
+          const poaResult = await window.storage.get(`application:${record.poaAppNumber}`, true);
+          if(poaResult && poaResult.value){
+            const poaRec = JSON.parse(poaResult.value);
+            if(poaRec.status !== 'Rejected'){
+              poaRec.status = 'Rejected';
+              poaRec.recommendation = 'Recommend Reject';
+              poaRec.recommendedBy = `Auto-rejected: watch list match on linked JCF Noise Abatement Permit application ${number} (${watchlistHit.role} ${watchlistHit.flag.fullName}).`;
+              await window.storage.set(`application:${record.poaAppNumber}`, JSON.stringify(poaRec), true);
+            }
+          }
+        } catch(cascadeErr){ /* best-effort only — the JCF rejection itself already succeeded */ }
+      }
+    } else {
+      jcf_showToast('JCF Noise Abatement application submitted.');
+    }
+  } catch(err){
+    console.error('jcfAnnual_submitApp() failed:', err);
+    const detail = (err && err.message) ? err.message : String(err);
+    errorBox.textContent = `We could not submit your application. Please check your connection and try again. (Details: ${detail})`;
+    errorBox.classList.remove('hidden');
+  } finally{
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit application';
+  }
+}
+
+// ---- expose entry points called from inline HTML handlers ----
+window.jcfAnnual_continueFromStep1 = jcfAnnual_continueFromStep1;
+window.jcfAnnual_continueFromStep2 = jcfAnnual_continueFromStep2;
+window.jcfAnnual_continueFromStep3 = jcfAnnual_continueFromStep3;
+window.jcfAnnual_continueFromStep4 = jcfAnnual_continueFromStep4;
+window.jcfAnnual_continueFromStep5 = jcfAnnual_continueFromStep5;
+window.jcfAnnual_continueFromStep6 = jcfAnnual_continueFromStep6;
+window.jcfAnnual_goStep = jcfAnnual_goStep;
+window.jcfAnnual_onActivityChange = jcfAnnual_onActivityChange;
+window.jcfAnnual_toggleDjSoundWrap = jcfAnnual_toggleDjSoundWrap;
+window.jcfAnnual_renderPremisesIdNotice = jcfAnnual_renderPremisesIdNotice;
+window.jcfAnnual_toggleComplaintsWrap = jcfAnnual_toggleComplaintsWrap;
+window.jcfAnnual_toggleNoiseNoticeUpload = jcfAnnual_toggleNoiseNoticeUpload;
+window.jcfAnnual_noiseNoticeFileChosen = jcfAnnual_noiseNoticeFileChosen;
+window.jcfAnnual_openPropertyOwnerModal = jcfAnnual_openPropertyOwnerModal;
+window.jcfAnnual_closePropertyOwnerModal = jcfAnnual_closePropertyOwnerModal;
+window.jcfAnnual_savePropertyOwner = jcfAnnual_savePropertyOwner;
+window.jcfAnnual_toggleOtherLicenseFields = jcfAnnual_toggleOtherLicenseFields;
+window.jcfAnnual_otherLicenseFileChosen = jcfAnnual_otherLicenseFileChosen;
+window.jcfAnnual_switchSigMode = jcfAnnual_switchSigMode;
+window.jcfAnnual_sigUploadFileChosen = jcfAnnual_sigUploadFileChosen;
+window.jcfAnnual_clearSigCanvas = jcfAnnual_clearSigCanvas;
+window.jcfAnnual_submitApp = jcfAnnual_submitApp;
 
 // ---- expose entry points called from inline HTML handlers ----
 window.backToStep4 = backToStep4;
