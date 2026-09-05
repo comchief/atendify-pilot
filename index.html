@@ -14826,7 +14826,14 @@ function poa_updateAdLocationButton(){
   hint.style.color = complete ? 'var(--green, #1a9f5c)' : 'var(--text-muted)';
 }
 
-function poa_openAdLocationModal(){
+async function poa_openAdLocationModal(){
+  // Re-fetch the municipality's standard locations every time the modal
+  // opens, not just once when Step 3 first loads — an applicant can sit on
+  // this step for a while, and a location the CEO adds in the meantime (or
+  // one that only starts working once fix50_adlocations_rls.sql is applied)
+  // should show up the next time they open this modal, not only after a
+  // full page reload.
+  await loadMunicipalityAdLocations();
   poa_renderAdLocationModalBody();
   document.getElementById('poa_adLocationModal').classList.remove('hidden');
 }
@@ -21516,10 +21523,20 @@ async function addAdLocation(){
     return;
   }
   adLocations.push(name);
-  await persistAdLocations();
-  input.value = '';
+  const saved = await persistAdLocations();
   renderAdLocationsList();
-  muni_showToast(`${name} added to your standard locations.`);
+  if(saved){
+    input.value = '';
+    muni_showToast(`${name} added to your standard locations.`);
+  } else {
+    // Roll back the optimistic in-memory add so the list on screen matches
+    // what's actually in the database — without this, a write RLS silently
+    // rejects (see fix50_adlocations_rls.sql) left the location looking
+    // "added" in this one tab while no other session, including any
+    // applicant's, could ever see it.
+    adLocations.pop();
+    renderAdLocationsList();
+  }
 }
 
 async function removeAdLocation(index){
@@ -21531,17 +21548,29 @@ async function removeAdLocation(index){
   if(name === undefined) return;
   if(!(await window.atdConfirm(`Remove "${name}" from your standard locations? Applicants will no longer be able to assign a sign to it.`))) return;
   adLocations.splice(index, 1);
-  await persistAdLocations();
+  const saved = await persistAdLocations();
   renderAdLocationsList();
-  muni_showToast(`${name} removed.`);
+  if(saved){
+    muni_showToast(`${name} removed.`);
+  } else {
+    // Roll back — see the matching comment in addAdLocation().
+    adLocations.splice(index, 0, name);
+    renderAdLocationsList();
+  }
 }
 
+// Returns true once the write actually reaches storage, false if it was
+// rejected (including a silent RLS denial) — callers use this to avoid
+// telling the CEO a location was saved when it wasn't (see fix50_adlocations_rls.sql
+// for the RLS policy this prefix needs before writes can succeed at all).
 async function persistAdLocations(){
-  if(!window.storage || !currentUser) return;
+  if(!window.storage || !currentUser) return false;
   try{
     await window.storage.set(`adLocations:${currentUser.muniId}`, JSON.stringify(adLocations), true);
+    return true;
   } catch(err){
     muni_showToast('Could not save standard locations right now.');
+    return false;
   }
 }
 
