@@ -827,6 +827,28 @@
   .permit-doc-cfo{ font-size: 13.5px; line-height:1.6; margin-top:4px; }
   .permit-doc-efile{ margin-top: 26px; font-size: 12px; font-style: italic; color:#666; }
 
+  /* Annual Amusement Licence (Third Schedule, Regulation 4) — a distinct,
+     centered layout matching the government-issued template exactly, used
+     only for Annual permits (see muni_buildAnnualPermitDocHtml /
+     poa_buildAnnualPermitDocHtml); Special Event keeps the generic grid
+     layout above unchanged. */
+  .permit-doc-annual{ text-align:center; }
+  .permit-doc-annual .permit-doc-title-box{ font-size:30px; }
+  .permit-doc-annual-schedule{ font-size: 12.5px; font-weight:700; margin: 0 0 20px; }
+  .permit-doc-annual-meta{
+    display:flex; justify-content:center; gap:36px; flex-wrap:wrap;
+    font-size: 14px; margin: 0 0 20px;
+  }
+  .permit-doc-annual-meta strong{ color:#1a56db; }
+  .permit-doc-annual .permit-doc-body{ text-align:center; }
+  .permit-doc-annual-conditions-title{ color:#b91c1c; font-weight:700; margin: 18px 0 8px; }
+  .permit-doc-annual-conditions-body{ color:#b91c1c; font-size: 13.5px; line-height:1.6; margin: 0 0 20px; }
+  .permit-doc-annual-dated{ font-size: 14px; margin: 18px 0 30px; }
+  .permit-doc-annual .permit-doc-signature{ display:flex; justify-content:center; }
+  .permit-doc-annual .permit-doc-cfo{ text-align:center; }
+  .permit-doc-annual .permit-doc-efile{ text-align:center; }
+  .permit-doc-annual-footer{ text-align:right; font-size: 10.5px; color:#999; margin-top:18px; }
+
   /* Printable documents (Payment Advice / Notice of Application) */
   .print-only{ display:none; }
   @media print{
@@ -17580,26 +17602,45 @@ async function submitApp(){
   submitBtn.innerHTML = window.atdLoadingHtml('Submitting…', 16);
 
   try{
+    // Checks BOTH the Municipal and JCF watch lists (window.atdCheckWatchlistFlag,
+    // shared shim) — a JCF flag blocks submission the same way even when the
+    // Municipal Corporation itself has never separately flagged this TRN.
+    // For a Company applicant this now also checks every director on file
+    // (companyDirectors, collected on the Business Information step), not
+    // just the company's own TRN — mirrors the JCF Noise Abatement filing's
+    // own multi-subject check (promoter/DJs/sound systems, see submitJcf()
+    // below) rather than only ever screening the one name on the
+    // application. Checked in order (applicant/company, then each director)
+    // and stops at the first match — one flagged party is enough to reject
+    // the whole application.
+    const applicantTypeForWatchlist = document.querySelector('input[name="applicantType"]:checked')?.value || 'Individual';
+    const isCompanyForWatchlist = applicantTypeForWatchlist === 'Company';
+    let watchlistHit = null;
     const trn = poa_normalizeTrn(poa_val('trn'));
     if(trn){
-      // Checks BOTH the Municipal and JCF watch lists (window.atdCheckWatchlistFlag,
-      // shared shim) — a JCF flag blocks submission the same way even when the
-      // Municipal Corporation itself has never separately flagged this TRN.
       const flag = await window.atdCheckWatchlistFlag(trn);
-      if(flag){
-        errorBox.textContent = window.atdWatchlistRejectionMessage('Applicant', flag);
-        errorBox.classList.remove('hidden');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Submit application';
-        const applicantEmail = poa_val('email');
-        if(applicantEmail){
-          window.atdSendEmail('application_watchlist_rejected', applicantEmail, {
-            appNumber: '', applicantName: poa_val('fullName'), role: 'Applicant',
-            flaggedName: flag.fullName, agencyName: flag.agencyName
-          });
-        }
-        return;
+      if(flag) watchlistHit = { role: isCompanyForWatchlist ? 'Company' : 'Applicant', flag };
+    }
+    if(!watchlistHit && isCompanyForWatchlist){
+      for(const d of companyDirectors){
+        if(!d.trn) continue;
+        const flag = await window.atdCheckWatchlistFlag(poa_normalizeTrn(d.trn));
+        if(flag){ watchlistHit = { role: `Director (${d.name || 'unnamed'})`, flag }; break; }
       }
+    }
+    if(watchlistHit){
+      errorBox.textContent = window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag);
+      errorBox.classList.remove('hidden');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit application';
+      const applicantEmail = poa_val('email');
+      if(applicantEmail){
+        window.atdSendEmail('application_watchlist_rejected', applicantEmail, {
+          appNumber: '', applicantName: isCompanyForWatchlist ? poa_val('companyName') : poa_val('fullName'), role: watchlistHit.role,
+          flaggedName: watchlistHit.flag.fullName, agencyName: watchlistHit.flag.agencyName
+        });
+      }
+      return;
     }
 
     const appNumber = await generateAppNumber();
@@ -19320,7 +19361,93 @@ function poa_formatLongDate(isoDate){
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+// "St. James" -> "Saint James" — the Annual Amusement Licence template
+// (Third Schedule, Regulation 4) writes every parish out in full ("in the
+// Parish of Saint James"), unlike the abbreviated "St." form used
+// everywhere else in this app (dropdowns, addresses, the generic Special
+// Event permit above) — cosmetic only, doesn't touch the stored parish
+// value itself.
+function poa_permitParishName(parish){
+  return (parish || '').replace(/^St\.\s*/i, 'Saint ');
+}
+
+// dd/mm/yyyy — see muni_formatShortDate's twin on the Municipal side for why
+// this differs from poa_formatLongDate (the Annual template's own explicit
+// date format, distinct from the generic Special Event permit's long-form
+// dates).
+function poa_formatShortDate(isoDate){
+  if(!isoDate) return 'N/A';
+  const d = new Date(isoDate + 'T00:00:00');
+  if(isNaN(d.getTime())) return isoDate;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+// The Annual Amusement Licence — Third Schedule, Regulation 4 — is a
+// distinct, government-supplied template (see the uploaded reference PDF),
+// not just a relabeled version of the generic "AMUSEMENT LICENSE" grid
+// layout below that Special Event permits use: different regulation
+// citation, a Licence No./Licence Year pair instead of a 6-cell grid, a
+// Registration of Use field, and its own exact wording for the grant and
+// revocation clauses (including the template's own "License"/"Licence"
+// spelling inconsistency, kept verbatim). Dispatched to from
+// poa_buildPermitDocHtml below so every existing call site (Main Menu
+// Permits tab, printPermitFromMenu, Admin's document preview) gets the
+// right layout automatically based on p.permitTypeLabel, with no changes
+// needed at any of those call sites.
+function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
+  qrTargetId = qrTargetId || 'permitQrTarget';
+  const parishName = poa_permitParishName(p.parish);
+  return `
+    <div class="permit-doc permit-doc-annual">
+      <div class="permit-doc-top">
+        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
+        ${logoDataUrl
+          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
+        <div class="permit-doc-qr">
+          <div class="qr-box" id="${qrTargetId}"></div>
+          <div class="qr-scan-label">SCAN ME</div>
+        </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">${poa_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
+      </div>
+      <div class="permit-doc-reg">PLACES OF AMUSEMENT REGULATION 1999</div>
+      <div class="permit-doc-title-box">AMUSEMENT LICENCE</div>
+      <div class="permit-doc-annual-schedule">THIRD SCHEDULE (REGULATION 4)</div>
+
+      <div class="permit-doc-annual-meta">
+        <div>Licence No.: <strong>${poa_escapeHtml(p.linkedAppNumber || p.number)}</strong></div>
+        <div>Licence Year: <strong>${poa_escapeHtml(String(p.permitYear))}</strong></div>
+      </div>
+
+      <p class="permit-doc-body">This License is hereby granted to: <strong>${poa_escapeHtml(p.issuedTo || 'N/A')}</strong> of <strong>${poa_escapeHtml(p.venueName || 'N/A')}</strong>.
+      For the use of <strong>${poa_escapeHtml(p.registrationOfUse || 'N/A')}</strong> located at: <strong>${poa_escapeHtml(p.venueAddress || 'N/A')}</strong>
+      in the Parish of ${poa_escapeHtml(parishName || 'N/A')}, for the following type of amusement, namely:
+      <strong>${poa_escapeHtml(p.amusementType || 'N/A')}</strong>.</p>
+
+      <p class="permit-doc-body">From <strong>${poa_escapeHtml(poa_formatShortDate(p.issuedDate))}</strong> to the <strong>${poa_escapeHtml(poa_formatShortDate(p.expiresDate))}</strong>.</p>
+
+      <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
+      <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
+
+      <div class="permit-doc-annual-dated">Dated this: <strong>${poa_escapeHtml(poa_formatShortDate(p.issuedDate))}</strong> on behalf of the Parish of ${poa_escapeHtml((parishName || '').toUpperCase())}</div>
+
+      <div class="permit-doc-signature">
+        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+      </div>
+      <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${poa_escapeHtml(p.municipalityName)}</strong></div>
+
+      <div class="permit-doc-efile">e-File</div>
+      <div class="permit-doc-annual-footer">POA-Annual License</div>
+    </div>
+  `;
+}
+
 function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
+  if(p && p.permitTypeLabel === 'ANNUAL') return poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl);
   qrTargetId = qrTargetId || 'permitQrTarget';
   const eventClause = p.eventName
     ? ` with event name: <strong>${poa_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${poa_escapeHtml(poa_formatLongDate(p.eventDate))}</strong>`
@@ -22231,6 +22358,32 @@ async function flagApplicantToWatchlist(appId){
 }
 window.flagApplicantToWatchlist = flagApplicantToWatchlist;
 
+// Watchlist card entry point for ANY subject on an application — the named
+// applicant/company itself, or one of a Company applicant's own directors
+// (see the Watchlist card's wlSubjects list above) — dispatching to
+// flagApplicantToWatchlist() for the former (unchanged, still fetches the
+// applicant's Photo ID on demand) or prefilling straight from that
+// director's own record for the latter. A director only ever has
+// name/title/phone/trn on file (collected on the Business Information step —
+// see companyDirectors), never a separate address, email, or photo ID of
+// their own, so those fields fall back to the company's own address (still
+// useful context for whoever reviews the watchlist entry) or blank.
+async function flagWatchlistSubject(appId, trn){
+  const app = applications.find(a => a.id === appId);
+  if(!app || !app.raw || !app.raw.applicant) return;
+  const ap = app.raw.applicant;
+  if(ap.trn === trn) return flagApplicantToWatchlist(appId);
+  const director = (ap.directors || []).find(d => d.trn === trn);
+  if(!director) return;
+  openWatchlistAddModal({
+    fullName: director.name,
+    address: [ap.addr1, ap.addr2, ap.district, ap.parish].filter(Boolean).join(', '),
+    trn: director.trn, phone: director.phone, email: '',
+    sourceAppId: appId
+  });
+}
+window.flagWatchlistSubject = flagWatchlistSubject;
+
 function openWatchlistAddModal(prefill){
   if(!hasPerm('review')){
     muni_showToast("You don't have permission to manage the watchlist.");
@@ -23581,46 +23734,78 @@ async function renderAppDetail(){
   } else {
 
   // ---- Watchlist card ----
-  const applicantTrn = a.raw && a.raw.applicant ? a.raw.applicant.trn : '';
-  const wlEntry = findWatchlistEntry(applicantTrn);
-  const jcfFlag = await jcfFlagForTrn(applicantTrn);
-  const jcfActive = !!(jcfFlag && jcfFlag.status === 'Active');
-  cardsHtml += `<div class="official-card"><h4>Watchlist</h4>`;
-  if(jcfActive){
-    // A JCF flag overrides a non-flagged (or cleared) Municipal Corporation
-    // status — always shown as active regardless of what the Municipal
-    // record itself says, since the JCF Watch List is a separate,
-    // Municipal-uneditable source of truth.
-    cardsHtml += `<div class="status-banner bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> This TRN is flagged by the JCF Noise Abatement Division</div>`;
-    cardsHtml += `<div class="readback-row">Reason: ${muni_escapeHtml(jcfFlag.reason)}</div>`;
-    cardsHtml += `<div class="readback-row">Flagged by ${muni_escapeHtml(jcfFlag.flaggedBy)} on ${muni_escapeHtml(jcfFlag.flaggedDate)}</div>`;
-    cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">This flag was set by JCF and can't be cleared from the Municipal dashboard.</p>`;
-    if(wlEntry && wlEntry.status === 'Active'){
-      cardsHtml += `<div class="readback-row" style="margin-top:8px;">Also actively flagged by the Municipal Corporation — reason: ${muni_escapeHtml(wlEntry.reason)}</div>`;
-      cardsHtml += `<div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-sm" onclick='openWatchlistViewModal(${JSON.stringify(wlEntry.trn)})'>View watchlist file</button></div>`;
-    }
-  } else if(wlEntry && wlEntry.status === 'Active'){
-    cardsHtml += `<div class="status-banner bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> This TRN is on the active watchlist</div>`;
-    cardsHtml += `<div class="readback-row">Reason: ${muni_escapeHtml(wlEntry.reason)}</div>`;
-    cardsHtml += `<div class="readback-row">Flagged by ${muni_escapeHtml(wlEntry.flaggedBy)} on ${muni_escapeHtml(wlEntry.flaggedDate)}</div>`;
-    cardsHtml += `<div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-sm" onclick='openWatchlistViewModal(${JSON.stringify(wlEntry.trn)})'>View watchlist file</button></div>`;
-  } else if(wlEntry && wlEntry.status === 'Cleared'){
-    cardsHtml += `<div class="readback-row">This TRN has a cleared watchlist history.</div>`;
-    cardsHtml += `<div class="action-btn-row" style="margin-top:8px;"><button class="btn btn-sm" onclick='openWatchlistViewModal(${JSON.stringify(wlEntry.trn)})'>View watchlist file</button></div>`;
-  } else {
-    cardsHtml += `<div class="readback-row">This TRN is not on the watchlist.</div>`;
+  // Checks every TRN this application actually carries, not just the named
+  // applicant — a Company applicant's own directors (r.applicant.directors,
+  // each with their own name/title/phone/trn, collected on the Business
+  // Information step) are just as capable of being the person a municipality
+  // or the JCF actually wants flagged, so each one gets its own row here,
+  // mirroring the JCF Officer Portal's own multi-subject Watch List card
+  // (jcfd_renderApplicationDetail's wlSubjects — Promoter/DJs/Sound Systems)
+  // rather than only ever checking the one name on the application.
+  const wlApplicantIsCompany = !!(a.raw && a.raw.applicant && a.raw.applicant.type === 'Company');
+  const wlSubjects = [];
+  if(a.raw && a.raw.applicant && a.raw.applicant.trn){
+    wlSubjects.push({ type: wlApplicantIsCompany ? 'Company' : 'Applicant', name: a.raw.applicant.name, trn: a.raw.applicant.trn });
   }
-  if(hasPerm('review') && !jcfActive && (!wlEntry || wlEntry.status !== 'Active') && a.raw && a.raw.applicant){
-    // Photo ID data is fetched on demand (see flagApplicantToWatchlist) rather
-    // than being embedded here — it's stored under its own
-    // `applicationPhotoId:<appNumber>` key, not on the record itself (see
-    // buildApplicationRecord's _photoIdFileDataPending note), and inlining a
-    // large base64 image straight into this onclick attribute would be both
-    // wasteful and exactly the kind of thing that caused submission failures
-    // elsewhere in this app.
-    cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-danger btn-sm" onclick='flagApplicantToWatchlist(${JSON.stringify(a.id)})'>Flag this applicant</button></div>`;
-  } else if(!hasPerm('review')){
-    cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">You don't have permission to manage the watchlist.</p>`;
+  if(wlApplicantIsCompany){
+    (a.raw.applicant.directors || []).forEach(d => {
+      if(d.trn) wlSubjects.push({ type: 'Director', name: d.name, trn: d.trn });
+    });
+  }
+
+  cardsHtml += `<div class="official-card"><h4>Watchlist</h4>`;
+  if(!wlSubjects.length){
+    cardsHtml += `<div class="readback-row">No TRNs on file to check against the watchlist.</div>`;
+  } else {
+    let anyActiveFlag = false;
+    for(const subj of wlSubjects){
+      const wlEntry = findWatchlistEntry(subj.trn);
+      const jcfFlag = await jcfFlagForTrn(subj.trn);
+      const jcfActive = !!(jcfFlag && jcfFlag.status === 'Active');
+      const wlActive = !!(wlEntry && wlEntry.status === 'Active');
+      if(jcfActive || wlActive) anyActiveFlag = true;
+
+      const badges = [];
+      if(jcfActive) badges.push('<span class="badge badge-red">JCF Flagged</span>');
+      if(wlActive) badges.push('<span class="badge badge-amber">Municipal Flagged</span>');
+      else if(wlEntry && wlEntry.status === 'Cleared') badges.push('<span class="badge badge-gray">Municipal Cleared</span>');
+      if(!badges.length) badges.push('<span class="badge badge-gray">Not flagged</span>');
+
+      cardsHtml += `<div class="record-row"><div><div class="record-main">${muni_escapeHtml(subj.type)} — ${muni_escapeHtml(subj.name || 'N/A')}</div>
+        <div class="record-sub">TRN: ${muni_escapeHtml(subj.trn)} ${badges.join(' ')}</div>`;
+      if(jcfActive){
+        // A JCF flag overrides a non-flagged (or cleared) Municipal
+        // Corporation status for this same person — always shown regardless
+        // of what the Municipal record itself says, since the JCF Watch
+        // List is a separate, Municipal-uneditable source of truth.
+        cardsHtml += `<div class="record-sub">JCF: ${muni_escapeHtml(jcfFlag.reason)} (flagged by ${muni_escapeHtml(jcfFlag.flaggedBy)} on ${muni_escapeHtml(jcfFlag.flaggedDate)}) — can't be cleared from the Municipal dashboard.</div>`;
+      }
+      if(wlEntry && wlEntry.status === 'Active'){
+        cardsHtml += `<div class="record-sub">Municipal Corporation: ${muni_escapeHtml(wlEntry.reason)} (flagged by ${muni_escapeHtml(wlEntry.flaggedBy)} on ${muni_escapeHtml(wlEntry.flaggedDate)})</div>`;
+      } else if(wlEntry && wlEntry.status === 'Cleared'){
+        cardsHtml += `<div class="record-sub">Municipal Corporation: cleared watchlist history on file.</div>`;
+      }
+      cardsHtml += `</div><div class="action-btn-row">`;
+      if(wlEntry){
+        cardsHtml += `<button class="btn btn-sm" onclick='openWatchlistViewModal(${JSON.stringify(wlEntry.trn)})'>View watchlist file</button>`;
+      }
+      if(hasPerm('review') && !jcfActive && !wlActive){
+        // Photo ID data (for the applicant/company subject only — directors
+        // don't have a separate ID upload of their own) is fetched on demand
+        // inside flagWatchlistSubject/flagApplicantToWatchlist rather than
+        // being embedded here — it's stored under its own
+        // `applicationPhotoId:<appNumber>` key, not on the record itself
+        // (see buildApplicationRecord's _photoIdFileDataPending note), and
+        // inlining a large base64 image straight into this onclick attribute
+        // would be both wasteful and exactly the kind of thing that caused
+        // submission failures elsewhere in this app.
+        cardsHtml += `<button class="btn btn-danger btn-sm" onclick='flagWatchlistSubject(${JSON.stringify(a.id)}, ${JSON.stringify(subj.trn)})'>Flag this ${muni_escapeHtml(subj.type.toLowerCase())}</button>`;
+      }
+      cardsHtml += `</div></div>`;
+    }
+    if(!hasPerm('review') && !anyActiveFlag){
+      cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">You don't have permission to manage the watchlist.</p>`;
+    }
   }
   cardsHtml += `</div>`;
 
@@ -23906,7 +24091,7 @@ async function renderAppDetail(){
   const printArea = document.getElementById('permitPrintArea');
   if(printArea){
     if(a.permitGenerated && a.permit){
-      printArea.innerHTML = muni_buildPermitDocHtml(a.permit, cachedSignature);
+      printArea.innerHTML = muni_buildPermitDocHtml(a.permit, cachedSignature, cachedLogo);
       // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
       muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(a.appNumber));
     } else {
@@ -23915,8 +24100,80 @@ async function renderAppDetail(){
   }
 }
 
+// "St. James" -> "Saint James" — see poa_permitParishName's twin on the
+// applicant side for why the Annual template needs this and the generic
+// Special Event layout below doesn't.
+function muni_permitParishName(parish){
+  return (parish || '').replace(/^St\.\s*/i, 'Saint ');
+}
+
+// dd/mm/yyyy — see poa_formatShortDate's twin on the applicant side.
+function muni_formatShortDate_permit(isoDate){
+  if(!isoDate) return 'N/A';
+  const d = new Date(isoDate + 'T00:00:00');
+  if(isNaN(d.getTime())) return isoDate;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+// The Annual Amusement Licence (Third Schedule, Regulation 4) — see
+// poa_buildAnnualPermitDocHtml's own comment for the full rationale; this is
+// the same layout, rebuilt in the Municipal officer portal's own scope
+// (muni_escapeHtml, not poa_escapeHtml) so the CEO's own print/preview of a
+// permit they just issued matches exactly what the applicant will see.
+function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl){
+  const parishName = muni_permitParishName(p.parish);
+  return `
+    <div class="permit-doc permit-doc-annual">
+      <div class="permit-doc-top">
+        <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
+        ${logoDataUrl
+          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${muni_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
+        <div class="permit-doc-qr">
+          <div class="qr-box" id="permitQrTarget"></div>
+          <div class="qr-scan-label">SCAN ME</div>
+        </div>
+      </div>
+      <div class="permit-doc-muniblock">
+        <div class="permit-doc-muniname">${muni_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
+      </div>
+      <div class="permit-doc-reg">PLACES OF AMUSEMENT REGULATION 1999</div>
+      <div class="permit-doc-title-box">AMUSEMENT LICENCE</div>
+      <div class="permit-doc-annual-schedule">THIRD SCHEDULE (REGULATION 4)</div>
+
+      <div class="permit-doc-annual-meta">
+        <div>Licence No.: <strong>${muni_escapeHtml(p.linkedAppNumber || p.number)}</strong></div>
+        <div>Licence Year: <strong>${muni_escapeHtml(String(p.permitYear))}</strong></div>
+      </div>
+
+      <p class="permit-doc-body">This License is hereby granted to: <strong>${muni_escapeHtml(p.issuedTo || 'N/A')}</strong> of <strong>${muni_escapeHtml(p.venueName || 'N/A')}</strong>.
+      For the use of <strong>${muni_escapeHtml(p.registrationOfUse || 'N/A')}</strong> located at: <strong>${muni_escapeHtml(p.venueAddress || 'N/A')}</strong>
+      in the Parish of ${muni_escapeHtml(parishName || 'N/A')}, for the following type of amusement, namely:
+      <strong>${muni_escapeHtml(p.amusementType || 'N/A')}</strong>.</p>
+
+      <p class="permit-doc-body">From <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.issuedDate))}</strong> to the <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.expiresDate))}</strong>.</p>
+
+      <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
+      <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
+
+      <div class="permit-doc-annual-dated">Dated this: <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.issuedDate))}</strong> on behalf of the Parish of ${muni_escapeHtml((parishName || '').toUpperCase())}</div>
+
+      <div class="permit-doc-signature">
+        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+      </div>
+      <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${muni_escapeHtml(p.municipalityName)}</strong></div>
+
+      <div class="permit-doc-efile">e-File</div>
+      <div class="permit-doc-annual-footer">POA-Annual License</div>
+    </div>
+  `;
+}
+
 // ==================== Permit document (shared builder) ====================
-function muni_buildPermitDocHtml(p, signatureDataUrl){
+function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl){
+  if(p && p.permitTypeLabel === 'ANNUAL') return muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl);
   const eventClause = p.eventName
     ? ` with event name: <strong>${muni_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${muni_escapeHtml(muni_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -24592,19 +24849,46 @@ function muni_formatLongDate(isoDate){
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+// dd/mm/yyyy — the exact format the Annual Amusement Licence template
+// (Third Schedule, Regulation 4) calls for on its own approval/expiration
+// date fields, distinct from the long-form date muni_formatLongDate above
+// produces for the generic Special Event permit layout.
+function muni_formatShortDate(isoDate){
+  if(!isoDate) return 'N/A';
+  const d = new Date(isoDate + 'T00:00:00');
+  if(isNaN(d.getTime())) return isoDate;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
+}
+
+// One year after isoDate, e.g. 2026-09-05 -> 2027-09-05. A 29 February
+// approval date normalizes to 1 March the following (non-leap) year — the
+// same rollover JS's own Date arithmetic gives for "add a year", and
+// consistent with how banks/government systems here already handle it.
+function addOneYearIso(isoDate){
+  const d = new Date(isoDate + 'T00:00:00');
+  if(isNaN(d.getTime())) return isoDate;
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0,10);
+}
+
 function generatePermit(a){
   const r = a.raw;
   const isAnnual = r && r.amusement && r.amusement.licenseType === 'Annual';
   const today = new Date().toISOString().slice(0,10);
   const permitYear = new Date().getFullYear();
-  const expiresIso = isAnnual ? `${permitYear + 1}-03-31` : (r && r.amusement && r.amusement.eventDate) || today;
+  // Annual expires exactly one year after the date it's approved (not a
+  // fixed fiscal year-end) — every Annual permit therefore has its own
+  // expiration date depending on when the CEO actually signs off.
+  const expiresIso = isAnnual ? addOneYearIso(today) : (r && r.amusement && r.amusement.eventDate) || today;
 
   const permit = {
     number: generatePermitNumber(a.appNumber),
     linkedAppNumber: a.appNumber,
     issuedDate: today,
     expiresDate: expiresIso,
-    permitYear,
+    permitYear: isAnnual ? new Date(expiresIso + 'T00:00:00').getFullYear() : permitYear,
     issuedTo: (r && r.applicant && r.applicant.name) || a.applicant,
     applicantAddress: r ? [r.applicant.addr1, r.applicant.addr2, r.applicant.district, r.applicant.parish].filter(Boolean).join(', ') : '',
     licenseType: a.licenseType,
@@ -24612,11 +24896,19 @@ function generatePermit(a){
     municipalityName: (r && r.municipalityName) || myMunicipalityName(),
     parish: (r && r.parish) || '',
     venueName: (r && r.venue && r.venue.name) || '',
+    // Annual-only fields — the venue's actual physical address (poa_venueName
+    // itself is relabeled "Business name" for Annual on every other screen —
+    // see poa_goReview — so venueName above already holds that, and this is
+    // the separate "located at" address the Annual licence template needs)
+    // and the Registration of Use option (Grounds Only / Building Only /
+    // Grounds and Building) selected on the Business Information step.
+    venueAddress: isAnnual ? (r && r.venue ? [r.venue.addr1, r.venue.addr2, r.venue.district].filter(Boolean).join(', ') : '') : '',
+    registrationOfUse: isAnnual ? ((r && r.venue && r.venue.useOfVenue) || '') : '',
     amusementType: isAnnual ? (r && r.amusement && r.amusement.businessType) : (r && r.amusement && r.amusement.eventType),
     eventName: isAnnual ? '' : (r && r.amusement && r.amusement.eventName) || '',
     eventDate: isAnnual ? '' : (r && r.amusement && r.amusement.eventDate) || '',
     expectedPatrons: isAnnual ? ((r && r.venue && r.venue.maxCap) || 'N/A') : ((r && r.amusement && r.amusement.patrons) || 'N/A'),
-    validity: isAnnual ? `1 April ${permitYear} – 31 March ${permitYear + 1}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
+    validity: isAnnual ? `${muni_formatShortDate(today)} – ${muni_formatShortDate(expiresIso)}` : `Valid on ${muni_formatLongDate(expiresIso)}`,
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
     qrData: window.atdVerifyUrl(a.appNumber)
