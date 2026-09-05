@@ -4785,22 +4785,30 @@
   // which keep whatever validation they already had before this feature.
   // ATD_DEFAULT_FORM_FIELD_CONFIG intentionally reproduces today's real
   // behavior exactly: every POA field defaults to NOT required (POA enforces
-  // nothing today beyond the declaration) EXCEPT fileFlier (Event Flier) and
+  // nothing today beyond the declaration) EXCEPT fileFlier (Event Flier),
   // fileBizReg (Business Registration Document, Annual's own equivalent
-  // upload), both required by default — see the "remove (Optional) from
-  // Event Flier" fix and the Annual license path's "render it similar to ID
-  // (Make mandatory)" instruction — and every JCF field keeps the
+  // upload) — see the "remove (Optional) from Event Flier" fix and the
+  // Annual license path's "render it similar to ID (Make mandatory)"
+  // instruction — and licenseType (Annual/Special) itself, also required by
+  // default: Private security and the Event Flier upload are now hidden
+  // until License type is actually set to Special (see
+  // poa_applyLicenseTypeFields/specialOnlyDocsSection's default-hidden
+  // markup), which quietly opened a gap where an applicant could click
+  // straight through Step 2 to Step 3 having picked neither Annual nor
+  // Special at all — nothing left there to block them once fileFlier/
+  // fileBizReg are both correctly hidden with no license type chosen.
+  // Requiring the radio itself closes that gap. Every JCF field keeps the
   // required/optional split it already has today (see the hardcoded
   // `if(!value)` checks in continueFromStep1/2 and submitJcfApp). So an
   // install that never opens the new "Required Fields" admin panel behaves
-  // identically to before this feature existed (those two uploads aside);
+  // identically to before this feature existed (those three fields aside);
   // only fields an admin actively toggles change behavior from there.
   window.ATD_DEFAULT_FORM_FIELD_CONFIG = {
     poa: {
       fullName: false, companyName: false, filePhotoId: false, fileLogo: false,
       phone: false, home: false, email: false, trn: false, poa_dob: false, gender: false,
       addr1: false, addr2: false, apDistrict: false, parish: false,
-      licenseType: false, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
+      licenseType: true, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
       privateSecurity: false, fileFlier: true, fileBizReg: true,
       adDisplay: false,
       poa_venueName: false, vAddr1: false, vAddr2: false, district: false, maxCap: false, maxParking: false,
@@ -5904,11 +5912,12 @@
         <!-- Private security AND the Event Flier upload only apply to a
              Special Event filing -- an Annual (ongoing business) license has
              no single event to guard or advertise, so this whole wrapper is
-             hidden for Annual (see poa_applyLicenseTypeFields) rather than
-             admin-configurable. Annual gets its own, separate Business
-             Registration Document upload below (bizRegSection) instead of
-             sharing this one relabeled. -->
-        <div id="specialOnlyDocsSection">
+             hidden by default (before either License Type radio is picked)
+             and stays hidden for Annual, only appearing once Special is
+             explicitly selected (see poa_applyLicenseTypeFields). Annual
+             gets its own, separate Business Registration Document upload
+             below (bizRegSection) instead of sharing this one relabeled. -->
+        <div id="specialOnlyDocsSection" class="hidden">
           <div id="privateSecuritySection">
             <div class="section-title">Private security</div>
             <div class="yesno" style="margin-bottom:20px;">
@@ -5996,6 +6005,15 @@
             </thead>
             <tbody id="adTableBody"></tbody>
           </table>
+
+          <!-- Only shown when at least one chosen item (qty > 0) has its
+               own "Require placement location" turned on by the
+               municipality's CEO (Manage > Advertisements) — see
+               poa_updateAdLocationButton()/poa_adLocationRequirement(). -->
+          <div id="adLocationAssignWrap" class="hidden" style="margin-top:18px;">
+            <button class="btn" type="button" id="poa_adLocationBtn" onclick="poa_openAdLocationModal()">Location Assignment</button>
+            <div class="col-desc" id="poa_adLocationHint" style="margin-top:8px;"></div>
+          </div>
         </div>
 
         <div class="btn-row">
@@ -6493,6 +6511,22 @@
   </div>
 </div>
 
+<!-- ===== Sign Location Assignment Modal (Advertisement step, Special
+     event only) -- one row per individual sign, across every advertisement
+     item whose municipality-configured "Require placement location" is on
+     and whose quantity is > 0. See poa_openAdLocationModal()/
+     poa_adLocationRequirement(). ===== -->
+<div class="modal-overlay hidden" id="poa_adLocationModal">
+  <div class="modal-box modal-wide">
+    <h3>Assign sign locations</h3>
+    <p class="modal-sub" id="poa_adLocationModalSub">Assign each sign below to one of this municipality's standard locations.</p>
+    <div id="poa_adLocationModalBody" style="max-height:50vh; overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="poa_closeAdLocationModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="poa_toast" role="status" aria-live="polite" aria-atomic="true">Application submitted successfully.</div>
 <div id="printArea" class="print-only"></div>
 
@@ -6803,6 +6837,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <!-- ===== ADVERTISEMENTS PAGE ===== -->
     <div class="page hidden" id="page-ads">
       <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Standard Advertisement Locations</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Locations an applicant can assign a sign to on the public application form, when an advertisement item below requires one (see "Require placement location" on each item). Only the CEO can change these.</p>
+        <div class="field-row" style="align-items:flex-end;">
+          <div class="field-group" style="flex:1;">
+            <label for="adLocationInput">Location name</label>
+            <input type="text" id="adLocationInput" placeholder="e.g. Main Street, near the market" onkeydown="if(event.key==='Enter'){event.preventDefault(); addAdLocation();}">
+          </div>
+          <button class="btn btn-primary" type="button" style="margin-bottom:26px;" onclick="addAdLocation()">+ Add location</button>
+        </div>
+        <div id="adLocationsList" style="margin-top:14px;"></div>
+      </div>
+
+      <div class="panel">
         <div class="panel-head">
           <h2>Advertisement items</h2>
           <div class="panel-tools">
@@ -6813,7 +6860,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">These items and costs appear on the public application form's Advertisement step.</p>
         <div style="overflow-x:auto;">
           <table>
-            <thead><tr><th>Type</th><th>Name</th><th>Cost</th><th></th></tr></thead>
+            <thead><tr><th>Type</th><th>Name</th><th>Cost</th><th>Placement location</th><th></th></tr></thead>
             <tbody id="adItemsBody"></tbody>
           </table>
         </div>
@@ -7631,6 +7678,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label for="adFormCost">Cost (JMD)</label>
       <input type="number" id="adFormCost" min="0" placeholder="e.g. 2000">
     </div>
+
+    <!-- When on, an applicant choosing this item must assign every unit
+         (based on the quantity they enter) to one of the municipality's own
+         Standard Advertisement Locations before they can continue past the
+         Advertisement step -- see poa_adLocationRequirement() on the public
+         form. When off (the default), no placement location is required for
+         this item at all. -->
+    <label class="consent-checkbox-row" for="adFormRequiresLocation" style="margin-top:4px;">
+      <input type="checkbox" id="adFormRequiresLocation">
+      <span>Require placement location for this item</span>
+    </label>
 
     <div class="modal-actions">
       <button class="btn" onclick="closeAdModal()">Cancel</button>
@@ -14616,8 +14674,27 @@ const AD_PRICES = {
   "Other structure": 2000
 };
 
+// ==================== Sign Location Assignment (Advertisement step) ====================
+// A municipality's CEO can turn "Require placement location" on for any
+// advertisement item (Manage > Advertisements). When on, every unit of that
+// item the applicant selects (its quantity) must be individually assigned to
+// one of that municipality's own Standard Advertisement Locations before the
+// applicant can leave this step — see poa_adLocationRequirement() (what's
+// required vs. assigned right now) and the Location Assignment modal below
+// (poa_openAdLocationModal()). Keyed as "<item name>#<zero-based index>" so
+// each individual sign has its own stable slot independent of the others.
+// Declared before buildAdTable() (below), which reads it -- buildAdTable()
+// is invoked once immediately at module load (see the top-level
+// `buildAdTable();` call), so this must already be initialized by then.
+let poa_adLocationAssignments = {};
+let muniAdLocations = [];
+
 function defaultGroupedAdItems(){
-  return AD_GROUPS.map(g => ({ name: g.name, items: g.items.map(n => ({ name: n, cost: AD_PRICES[n] || 0 })) }));
+  // The hardcoded seed catalog (used before a municipality has configured
+  // its own advertisement items, or if that fetch fails) has no notion of
+  // "Require placement location" — every seed item defaults to not
+  // requiring one, same as a freshly-added real item would.
+  return AD_GROUPS.map(g => ({ name: g.name, items: g.items.map(n => ({ name: n, cost: AD_PRICES[n] || 0, requiresLocation: false })) }));
 }
 
 function buildAdTable(groups){
@@ -14632,19 +14709,34 @@ function buildAdTable(groups){
     group.items.forEach(item=>{
       const tr = document.createElement('tr');
       tr.innerHTML = `<td class="type-cell">${item.name}</td>
-        <td><input type="number" min="0" value="0" data-type="${item.name}" data-price="${item.cost}" class="ad-qty"></td>
+        <td><input type="number" min="0" value="0" data-type="${item.name}" data-price="${item.cost}" data-requires-location="${item.requiresLocation ? '1' : '0'}" class="ad-qty"></td>
         <td class="ad-cost" data-cost-for="${item.name}">${poa_formatCurrency(0)}</td>`;
       body.appendChild(tr);
     });
   });
+  // Whatever was assigned against a since-rebuilt table (e.g. re-selecting
+  // the municipality, or a fresh loadMunicipalityAdItems() fetch) no longer
+  // matches these rows one-for-one — start the Location Assignment state
+  // clean rather than risk stale keys silently miscounting.
+  poa_adLocationAssignments = {};
   document.querySelectorAll('.ad-qty').forEach(input=>{
     input.addEventListener('input', ()=>{
       const qty = parseInt(input.value, 10) || 0;
       const price = parseFloat(input.dataset.price) || 0;
       const costCell = document.querySelector(`[data-cost-for="${input.dataset.type}"]`);
       costCell.textContent = poa_formatCurrency(qty * price);
+      // A lowered quantity may leave assignments for indices that no longer
+      // exist (e.g. dropping from 5 signs to 2) — drop those rather than
+      // silently keeping them assigned-but-unreachable.
+      Object.keys(poa_adLocationAssignments).forEach(k=>{
+        if(!k.startsWith(input.dataset.type + '#')) return;
+        const idx = parseInt(k.slice(input.dataset.type.length + 1), 10);
+        if(idx >= qty) delete poa_adLocationAssignments[k];
+      });
+      poa_updateAdLocationButton();
     });
   });
+  poa_updateAdLocationButton();
 }
 buildAdTable();
 
@@ -14677,13 +14769,112 @@ async function loadMunicipalityAdItems(){
     const order = ["Banners", "Sign Boards", "Stages", "Tents", "Other"];
     const grouped = order.map(cat => ({
       name: cat,
-      items: items.filter(i => i.category === cat).map(i => ({ name: i.name, cost: i.cost }))
+      items: items.filter(i => i.category === cat).map(i => ({ name: i.name, cost: i.cost, requiresLocation: !!i.requiresLocation }))
     })).filter(g => g.items.length);
     buildAdTable(grouped);
   } catch(err){
     buildAdTable();
   }
 }
+
+async function loadMunicipalityAdLocations(){
+  muniAdLocations = [];
+  if(window.storage && selectedMunicipality){
+    try{
+      const result = await window.storage.get(`adLocations:${selectedMunicipality.id}`, true);
+      if(result && result.value){
+        const saved = JSON.parse(result.value);
+        if(Array.isArray(saved)) muniAdLocations = saved;
+      }
+    } catch(err){ /* keep empty — Location Assignment modal shows "no locations configured" */ }
+  }
+  poa_updateAdLocationButton();
+}
+
+// Walks every currently-rendered .ad-qty row and reports, across every item
+// with requiresLocation on and qty > 0, how many individual signs need a
+// location assigned vs. how many already have one.
+function poa_adLocationRequirement(){
+  const perType = [];
+  let totalRequired = 0, totalAssigned = 0;
+  document.querySelectorAll('.ad-qty').forEach(input=>{
+    if(input.dataset.requiresLocation !== '1') return;
+    const qty = parseInt(input.value, 10) || 0;
+    if(qty <= 0) return;
+    const type = input.dataset.type;
+    let assigned = 0;
+    for(let i = 0; i < qty; i++){ if(poa_adLocationAssignments[`${type}#${i}`]) assigned++; }
+    perType.push({ type, qty, assigned });
+    totalRequired += qty;
+    totalAssigned += assigned;
+  });
+  return { perType, totalRequired, totalAssigned };
+}
+
+// Shows/hides the "Location Assignment" button and keeps its progress hint
+// current — called whenever a quantity changes, the municipality's ad items/
+// locations (re)load, or an assignment is made/cleared in the modal.
+function poa_updateAdLocationButton(){
+  const wrap = document.getElementById('adLocationAssignWrap');
+  const hint = document.getElementById('poa_adLocationHint');
+  if(!wrap || !hint) return;
+  const req = poa_adLocationRequirement();
+  wrap.classList.toggle('hidden', req.totalRequired === 0);
+  if(req.totalRequired === 0) return;
+  const complete = req.totalAssigned >= req.totalRequired;
+  hint.textContent = `${req.totalAssigned} of ${req.totalRequired} sign${req.totalRequired === 1 ? '' : 's'} assigned a location.`;
+  hint.style.color = complete ? 'var(--green, #1a9f5c)' : 'var(--text-muted)';
+}
+
+function poa_openAdLocationModal(){
+  poa_renderAdLocationModalBody();
+  document.getElementById('poa_adLocationModal').classList.remove('hidden');
+}
+function poa_closeAdLocationModal(){
+  document.getElementById('poa_adLocationModal').classList.add('hidden');
+}
+window.poa_openAdLocationModal = poa_openAdLocationModal;
+window.poa_closeAdLocationModal = poa_closeAdLocationModal;
+
+function poa_renderAdLocationModalBody(){
+  const body = document.getElementById('poa_adLocationModalBody');
+  const req = poa_adLocationRequirement();
+  if(!req.perType.length){
+    body.innerHTML = `<p class="col-desc">No signs currently need a location assigned.</p>`;
+    return;
+  }
+  if(!muniAdLocations.length){
+    body.innerHTML = `<p class="col-desc" style="color:var(--red);">This municipality hasn't configured any Standard Advertisement Locations yet. Please contact them before continuing, or choose a different advertisement item.</p>`;
+    return;
+  }
+  let html = '';
+  req.perType.forEach(pt=>{
+    html += `<div class="section-title" style="margin-top:16px;">${poa_escapeHtml(pt.type)} (${pt.assigned} of ${pt.qty} assigned)</div>`;
+    for(let i = 0; i < pt.qty; i++){
+      const key = `${pt.type}#${i}`;
+      const current = poa_adLocationAssignments[key] || '';
+      const options = muniAdLocations.map(l => `<option value="${poa_escapeHtml(l)}" ${l === current ? 'selected' : ''}>${poa_escapeHtml(l)}</option>`).join('');
+      html += `<div class="field-group" style="margin-bottom:10px;">
+        <label>${poa_escapeHtml(pt.type)} — Sign ${i + 1}</label>
+        <select onchange='poa_setAdLocationAssignment(${JSON.stringify(pt.type)}, ${i}, this.value)'>
+          <option value="" ${current ? '' : 'selected'}>Select a location</option>
+          ${options}
+        </select>
+      </div>`;
+    }
+  });
+  body.innerHTML = html;
+}
+window.poa_renderAdLocationModalBody = poa_renderAdLocationModalBody;
+
+function poa_setAdLocationAssignment(type, index, value){
+  const key = `${type}#${index}`;
+  if(value) poa_adLocationAssignments[key] = value;
+  else delete poa_adLocationAssignments[key];
+  poa_updateAdLocationButton();
+  poa_renderAdLocationModalBody();
+}
+window.poa_setAdLocationAssignment = poa_setAdLocationAssignment;
 
 const steps = ["poa_step1","poa_step2","poa_step3","poa_step4","step5"];
 const stepNames = ["Applicant","Amusement","Advertisement","Venue","Costs"];
@@ -15261,6 +15452,18 @@ async function poa_goStepSaving(n){
     poa_showToast(`Please complete "${missing}" before continuing.`);
     return;
   }
+  // Sign Location Assignment isn't a single DOM field POA_FIELD_CHECKS can
+  // check — it's a dynamic per-instance requirement (one location per sign,
+  // across however many items/quantities the applicant picked) — so it's
+  // gated here instead, only when actually leaving Step 3 with at least one
+  // required-but-unassigned sign outstanding (see poa_adLocationRequirement()).
+  if(currentStep === 3){
+    const req = poa_adLocationRequirement();
+    if(req.totalAssigned < req.totalRequired){
+      poa_showToast(`Please assign a location to every sign (${req.totalAssigned} of ${req.totalRequired} done) using "Location Assignment" before continuing.`);
+      return;
+    }
+  }
   poa_saveDraftSilently();
   poa_goStep(n);
 }
@@ -15374,7 +15577,7 @@ function poa_goStep(n){
   document.getElementById('poa_stepTotal').textContent = effSteps.length;
   document.getElementById('poa_progressFill').style.width = (displayNum/effSteps.length*100)+'%';
   currentStep = n;
-  if(n === 3) loadMunicipalityAdItems();
+  if(n === 3){ loadMunicipalityAdItems(); loadMunicipalityAdLocations(); }
   if(n === 4) loadMunicipalityVenues();
   if(n === 5) renderCosts();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -16712,7 +16915,19 @@ async function poa_goReview(){
       const items = [];
       qtys.forEach(inp=>{
         const q = parseInt(inp.value,10) || 0;
-        if(q > 0) items.push([inp.dataset.type, String(q)]);
+        if(q > 0){
+          let value = String(q);
+          // Locations assigned per sign (see poa_adLocationAssignments) —
+          // only shown for items the municipality has marked as requiring
+          // one, in sign order, so the applicant can double-check each
+          // placement before submitting.
+          if(inp.dataset.requiresLocation === '1'){
+            const locs = [];
+            for(let i = 0; i < q; i++){ locs.push(poa_adLocationAssignments[`${inp.dataset.type}#${i}`] || '(unassigned)'); }
+            value += ' — ' + locs.join(', ');
+          }
+          items.push([inp.dataset.type, value]);
+        }
       });
       adHtml = items.length ? items.map(rowHtml).join('') : '<div class="review-empty">No Advertisements added</div>';
     } else {
@@ -16879,7 +17094,18 @@ async function buildApplicationRecord(appNumber){
   if(adDisplay === 'Yes'){
     document.querySelectorAll('.ad-qty').forEach(inp=>{
       const q = parseInt(inp.value, 10) || 0;
-      if(q > 0) adItems.push({ name: inp.dataset.type, qty: q, cost: q * (parseFloat(inp.dataset.price) || 0) });
+      if(q > 0){
+        // One assigned location per unit, in order — see
+        // poa_adLocationAssignments/poa_adLocationRequirement(). An item
+        // whose municipality doesn't require a placement location (or
+        // wasn't turned on when this application was submitted) simply
+        // carries an empty array here, same as before this feature existed.
+        const locations = [];
+        if(inp.dataset.requiresLocation === '1'){
+          for(let i = 0; i < q; i++){ locations.push(poa_adLocationAssignments[`${inp.dataset.type}#${i}`] || ''); }
+        }
+        adItems.push({ name: inp.dataset.type, qty: q, cost: q * (parseFloat(inp.dataset.price) || 0), locations });
+      }
     });
   }
 
@@ -17306,6 +17532,16 @@ async function submitApp(){
       errorBox.textContent = `Please complete "${missingField}" before submitting.`;
       errorBox.classList.remove('hidden');
       return;
+    }
+    // Same safety-net reasoning as above, for Sign Location Assignment (see
+    // poa_goStepSaving's own gate on the way forward through Step 3).
+    if(s === 3){
+      const adLocReq = poa_adLocationRequirement();
+      if(adLocReq.totalAssigned < adLocReq.totalRequired){
+        errorBox.textContent = `Please assign a location to every sign (${adLocReq.totalAssigned} of ${adLocReq.totalRequired} done) using "Location Assignment" before submitting.`;
+        errorBox.classList.remove('hidden');
+        return;
+      }
     }
   }
 
@@ -19593,6 +19829,7 @@ function muni_enterShellAsUser(user){
   cacheLogo();
   loadVenues();
   loadAdItems();
+  loadAdLocations();
   loadWatchlist();
   loadPromotions();
 }
@@ -19849,7 +20086,7 @@ function muni_goPage(page, keepAppsActive){
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
   if(page === 'venues'){ renderVenues(); renderPendingVenues(); }
-  if(page === 'ads') renderAdItems();
+  if(page === 'ads') { renderAdItems(); renderAdLocationsList(); }
   if(page === 'watchlist') renderWatchlist();
   if(page === 'slaBreaches') renderSlaBreaches();
   if(page === 'reports') renderReports();
@@ -21110,7 +21347,7 @@ function renderAdItems(){
   list.sort((a,b)=> AD_CATEGORY_ORDER.indexOf(a.category) - AD_CATEGORY_ORDER.indexOf(b.category) || a.name.localeCompare(b.name));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="4" class="table-empty">No advertisement items found.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="table-empty">No advertisement items found.</td></tr>`;
     return;
   }
 
@@ -21119,6 +21356,7 @@ function renderAdItems(){
       <td><span class="badge badge-blue">${muni_escapeHtml(a.category)}</span></td>
       <td class="cell-primary">${muni_escapeHtml(a.name)}</td>
       <td>${muni_formatCurrency(a.cost)}</td>
+      <td>${a.requiresLocation ? '<span class="badge badge-green">Required</span>' : '<span style="color:var(--text-muted);">Not required</span>'}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" title="Edit" onclick='openAdModal(${JSON.stringify(a.id)})'>
@@ -21147,11 +21385,13 @@ function openAdModal(id){
     document.getElementById('adFormCategory').value = a.category;
     document.getElementById('adFormName').value = a.name;
     document.getElementById('adFormCost').value = a.cost;
+    document.getElementById('adFormRequiresLocation').checked = !!a.requiresLocation;
   } else {
     title.textContent = 'Add advertisement';
     document.getElementById('adFormCategory').value = 'Banners';
     document.getElementById('adFormName').value = '';
     document.getElementById('adFormCost').value = '';
+    document.getElementById('adFormRequiresLocation').checked = false;
   }
   document.getElementById('adModal').classList.remove('hidden');
 }
@@ -21164,6 +21404,7 @@ async function saveAdItem(){
   const category = document.getElementById('adFormCategory').value;
   const name = document.getElementById('adFormName').value.trim();
   const cost = parseFloat(document.getElementById('adFormCost').value) || 0;
+  const requiresLocation = document.getElementById('adFormRequiresLocation').checked;
 
   if(!name){
     muni_showToast('Please enter a name for this advertisement item.');
@@ -21172,14 +21413,14 @@ async function saveAdItem(){
 
   if(editingAdId){
     const a = adItems.find(a => a.id === editingAdId);
-    Object.assign(a, { category, name, cost });
+    Object.assign(a, { category, name, cost, requiresLocation });
     await persistAdItem(a);
     muni_showToast(`${name} updated.`);
   } else {
     const newItem = {
       id: `ad-${Date.now()}-${Math.floor(Math.random()*1000)}`,
       muniId: currentUser.muniId,
-      category, name, cost,
+      category, name, cost, requiresLocation,
       createdBy: currentUser.name,
       created: new Date().toISOString().slice(0,10)
     };
@@ -21216,6 +21457,92 @@ async function deleteAdItem(id){
   adItems = adItems.filter(x => x.id !== id);
   muni_showToast(`${a.name} removed.`);
   renderAdItems();
+}
+
+// ==================== Standard Advertisement Locations ====================
+// A municipality's own catalog of standard locations an applicant assigns
+// each individual sign to on the public application form's Advertisement
+// step, when the advertisement item they picked has "Require placement
+// location" turned on (see requiresLocation on each adItem above and
+// poa_adLocationRequirement()/Location Assignment modal on the applicant
+// side). Kept as one simple JSON array under its own storage key per
+// municipality, rather than folded into formElements:<muniId> — a flat list
+// of names has no per-item metadata to justify that shared record's shape.
+let adLocations = [];
+
+async function loadAdLocations(){
+  if(!window.storage || !currentUser) return;
+  try{
+    const result = await window.storage.get(`adLocations:${currentUser.muniId}`, true);
+    if(result && result.value){
+      const saved = JSON.parse(result.value);
+      if(Array.isArray(saved)) adLocations = saved;
+    }
+  } catch(err){ /* keep whatever's already loaded */ }
+  if(!document.getElementById('page-ads').classList.contains('hidden')) renderAdLocationsList();
+}
+
+function renderAdLocationsList(){
+  const container = document.getElementById('adLocationsList');
+  if(!container) return;
+  if(!adLocations.length){
+    container.innerHTML = `<p style="font-size:13.5px; color:var(--text-muted);">No standard locations added yet.</p>`;
+    return;
+  }
+  container.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">` +
+    adLocations.map((loc, i) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 14px; border:1px solid var(--border); border-radius:8px;">
+        <span style="font-size:14px;">${muni_escapeHtml(loc)}</span>
+        <button class="icon-btn" title="Remove" onclick="removeAdLocation(${i})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
+    `).join('') + `</div>`;
+}
+
+async function addAdLocation(){
+  if(!hasPerm('review')){
+    muni_showToast("You don't have permission to manage advertisements.");
+    return;
+  }
+  const input = document.getElementById('adLocationInput');
+  const name = input.value.trim();
+  if(!name){
+    muni_showToast('Please enter a location name.');
+    return;
+  }
+  if(adLocations.some(l => l.toLowerCase() === name.toLowerCase())){
+    muni_showToast('That location is already in the list.');
+    return;
+  }
+  adLocations.push(name);
+  await persistAdLocations();
+  input.value = '';
+  renderAdLocationsList();
+  muni_showToast(`${name} added to your standard locations.`);
+}
+
+async function removeAdLocation(index){
+  if(!hasPerm('review')){
+    muni_showToast("You don't have permission to manage advertisements.");
+    return;
+  }
+  const name = adLocations[index];
+  if(name === undefined) return;
+  if(!(await window.atdConfirm(`Remove "${name}" from your standard locations? Applicants will no longer be able to assign a sign to it.`))) return;
+  adLocations.splice(index, 1);
+  await persistAdLocations();
+  renderAdLocationsList();
+  muni_showToast(`${name} removed.`);
+}
+
+async function persistAdLocations(){
+  if(!window.storage || !currentUser) return;
+  try{
+    await window.storage.set(`adLocations:${currentUser.muniId}`, JSON.stringify(adLocations), true);
+  } catch(err){
+    muni_showToast('Could not save standard locations right now.');
+  }
 }
 
 // ==================== Watchlist ====================
@@ -22918,7 +23245,15 @@ function renderSubmissionColumn(a){
     html += detailRow('Displaying Advertisement at/leading up to event', r.advertisement.hasAds ? 'Yes' : 'No');
     if(r.advertisement.hasAds && r.advertisement.items && r.advertisement.items.length){
       r.advertisement.items.forEach(item=>{
-        html += detailRow(`${item.name} (x${item.qty})`, muni_formatCurrency(item.cost));
+        // Placement locations only exist for an item the municipality had
+        // "Require placement location" turned on for at submission time
+        // (see poa_adLocationAssignments on the applicant side) — an empty
+        // array here just means that item never required one.
+        let value = muni_formatCurrency(item.cost);
+        if(item.locations && item.locations.length){
+          value += ' — ' + item.locations.map(l => l || '(unassigned)').join(', ');
+        }
+        html += detailRow(`${item.name} (x${item.qty})`, value);
       });
     }
   }
@@ -24696,6 +25031,7 @@ document.addEventListener('click', (e)=>{
 
 
 // ---- expose entry points called from inline HTML handlers ----
+window.addAdLocation = addAdLocation;
 window.advanceStatus = advanceStatus;
 window.applyRoleDefaults = applyRoleDefaults;
 window.approveDocument = approveDocument;
@@ -24722,6 +25058,7 @@ window.removeFormElementType = removeFormElementType;
 window.addCustomFormElementDoc = addCustomFormElementDoc;
 window.resetFormElementsToDefault = resetFormElementsToDefault;
 window.deleteAdItem = deleteAdItem;
+window.removeAdLocation = removeAdLocation;
 window.deleteUser = deleteUser;
 window.documentAdditionalPayment = documentAdditionalPayment;
 window.generateUserPassword = generateUserPassword;
