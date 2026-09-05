@@ -6440,6 +6440,19 @@
               </div>
             </div>
             <div id="mmNoiseSummaryBody" style="margin-top:26px;"></div>
+
+            <!-- Photo ID / Proof of Ownership re-upload — these two are now
+                 officer-reviewable (approve/reject, see the JCF Officer
+                 Portal's jcfd_openDocModal) on a Special Event filing, so a
+                 Rejected one needs a way back to the applicant to fix,
+                 mirroring the JAMMS/JCAP grid on the Documents view above.
+                 Hidden entirely for an Annual filing (jcfAnnual_* has no
+                 equivalent fields) and until a linked filing exists. -->
+            <div id="mmNoiseDocSection" class="hidden" style="margin-top:32px;">
+              <div class="detail-section-title" style="font-size:19px;">Noise Abatement Application Documents</div>
+              <p class="col-desc" style="margin-bottom:24px;">Photo ID and Proof of Ownership/Authorization for your Noise Abatement Permit application. If the JCF rejects one, re-upload it here.</p>
+              <div class="mm-doc-grid" id="mmNoiseDocGrid"></div>
+            </div>
           </div>
         </div>
 
@@ -10829,6 +10842,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <h3 id="jcfd_docModalTitle">Document</h3>
     <p class="modal-sub" id="jcfd_docModalSub"></p>
     <div class="doc-preview-box" id="jcfd_docPreviewBox"></div>
+
+    <div id="jcfd_docStatusRow" style="margin-bottom:16px;"></div>
+
+    <div class="field-group hidden" id="jcfd_docNoteGroup">
+      <label for="jcfd_docNoteInput">Officer note</label>
+      <textarea id="jcfd_docNoteInput" placeholder="Add a note about this document (visible to your team; shared with the applicant if rejected)"></textarea>
+    </div>
+
+    <div id="jcfd_docModalActions" class="modal-actions" style="justify-content:flex-start;"></div>
+
     <div class="modal-actions">
       <button class="btn" onclick="jcfd_closeDocModal()">Close</button>
     </div>
@@ -13210,7 +13233,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Mirrors the Municipal Officer's renderSubmissionColumn() — a stack of
   // read-only .panel sections (same .detail-section-title/.detail-row style)
   // covering everything the applicant submitted.
-  function jcfd_renderSubmissionColumn(rec){
+  async function jcfd_renderSubmissionColumn(rec){
     // Annual filings (rec.formVariant === 'Annual') store an entirely
     // different set of nested objects (applicantInfo/premisesInfo/
     // entertainment/communityImpact/otherLicenses — see jcfAnnual_submitApp
@@ -13294,22 +13317,40 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     html += `<div class="panel"><div class="detail-section-title">Briefing &amp; Documents</div>`;
     html += jcfd_detailRow('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
-    html += jcfd_detailRowAction('Photo ID', eo.photoIdFileName || 'Not uploaded', 'photoId', !!eo.photoIdFileName);
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName);
-    html += jcfd_detailRowAction("Proof of Ownership/Authorization", vi.permissionLetterFileName || 'Not uploaded', 'permissionLetter', !!vi.permissionLetterFileName);
-    // JAMMS/JCAP Approval — uploaded by the applicant on their linked POA
-    // application's Main Menu, not on this filing itself (see
-    // JCF_REQUIRED_DOC_LIST), so these only ever appear for a filing that
-    // actually has a linked POA application to have carried them from; a
-    // standalone JCF filing shows "Not uploaded" for both, same as any
-    // applicant who hasn't uploaded them yet.
-    const carriedDocs = rec.carriedJcfDocuments || {};
-    html += jcfd_detailRowAction('JAMMS Approval', carriedDocs.jamsFileName || 'Not uploaded', 'jams', !!carriedDocs.jamsFileName);
-    html += jcfd_detailRowAction('JCAP Approval', carriedDocs.jcapFileName || 'Not uploaded', 'jcap', !!carriedDocs.jcapFileName);
+    // Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP
+    // Approval are all now officer-reviewable (approve/reject) documents —
+    // show their live status badge here rather than just a filename, and
+    // route "Review" through the same jcfd_openDocModal used for the
+    // Official Use Checklist's auto-computed fields, so this panel can
+    // never disagree with what actually gates permit approval. JAMMS/JCAP
+    // are read live from the linked POA application's own jcfDocuments
+    // field (via jcfd_getLiveJcfDocuments) rather than the stale
+    // rec.carriedJcfDocuments snapshot, which only ever reflected the
+    // filenames on file at the moment this JCF filing was first submitted.
+    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
+    html += jcfd_detailRowDoc('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId');
+    html += jcfd_detailRowDoc("Proof of Ownership/Authorization", vi.permissionLetterFileName, vi.permissionLetterStatus, 'permissionLetter');
+    html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
+    html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
     col.innerHTML = html;
+  }
+
+  // Like jcfd_detailRowAction, but for the 4 documents an Officer can
+  // approve/reject (see jcfd_openDocModal/jcfd_updateDocStatus): shows a
+  // status badge next to the filename (defaulting to "Submitted" for a
+  // filing uploaded before officer document review existed and never
+  // explicitly given a status) instead of a bare filename, and labels the
+  // action button "Review" rather than "View" to match.
+  function jcfd_detailRowDoc(label, fileName, status, kind){
+    const hasFile = !!fileName;
+    const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
+    const badge = hasFile ? ` <span class="badge ${jcfd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
+    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">Review</button>` : '';
+    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
   }
 
   // Annual variant of jcfd_renderSubmissionColumn — reads the
@@ -13415,6 +13456,57 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}${btn}</div></div>`;
   }
 
+  // Live status of the 4 reviewable documents on a Special Event filing —
+  // photoId/permissionLetter live on the JCF record itself, but JAMMS/JCAP
+  // are only authoritative on the linked POA application's own jcfDocuments
+  // field (uploaded/re-uploaded from that applicant's Main Menu). Shared by
+  // both the Official Use Checklist card and jcfd_openDocModal so the two
+  // never disagree about what's uploaded/approved. Returns null document
+  // fields (not just falsy uploaded flags) so a standalone filing with no
+  // linked POA application still resolves cleanly via the carriedJcfDocuments
+  // filename-only snapshot.
+  async function jcfd_getLiveJcfDocuments(rec){
+    let jams = null, jcap = null;
+    if(rec.poaAppNumber && window.storage){
+      try{
+        const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        const poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+        const jd = (poaRec && poaRec.jcfDocuments) || {};
+        jams = jd['JAMMS Approval'] || null;
+        jcap = jd['JCAP Approval'] || null;
+      } catch(e){ /* fall through to the snapshot below */ }
+    }
+    if(!jams && !jcap){
+      const carriedDocs = rec.carriedJcfDocuments || {};
+      if(carriedDocs.jamsFileName) jams = { uploaded: true, fileName: carriedDocs.jamsFileName };
+      if(carriedDocs.jcapFileName) jcap = { uploaded: true, fileName: carriedDocs.jcapFileName };
+    }
+    return { jams, jcap };
+  }
+
+  // Computes the auto-checked Official Use Checklist fields for a Special
+  // Event filing (Annual filings keep their original, fully-manual
+  // checklist — see the user's confirmed scope decision — and never call
+  // this). Shared by the checklist card render and the Final Decision
+  // gating logic below so they can never fall out of sync with each other.
+  async function jcfd_computeChecklistAutoFields(rec){
+    const eo = rec.eventOverview || {}, vi = rec.venueInfo || {}, briefings = rec.briefings || {};
+    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
+    // JAMMS/JCAP only ever exist for a filing with a linked POA application
+    // to have carried them from (submitJcfApp()'s own continueFromStep2
+    // gate only requires them in that case, since there's no upload control
+    // for either in the JCF wizard itself) — so a standalone filing (no
+    // poaAppNumber) is never penalized for lacking documents it had no way
+    // to supply in the first place.
+    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
+    return {
+      requiredDocsUploaded: !!eo.photoIdFileName && !!vi.permissionLetterFileName && jamsJcapSatisfied,
+      promoterIdentityVerified: eo.photoIdStatus === 'Approved',
+      promoterBriefedNoiseAct: !!(briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched),
+      proofOfOwnershipSubmitted: vi.permissionLetterStatus === 'Approved'
+    };
+  }
+
   async function jcfd_renderApplicationDetail(){
     const rec = await jcfd_getActiveApp();
     if(!rec){
@@ -13443,13 +13535,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     const eo = rec.eventOverview || {};
 
+    // Special Event filings auto-compute 3 of the 4 Official Use Checklist
+    // items from officer document reviews + applicant briefing responses —
+    // computed once here and reused by both the checklist card and the
+    // Final Decision gating logic below. Annual filings are explicitly out
+    // of scope for this and keep their original all-manual checklist.
+    const isAnnualFiling = rec.formVariant === 'Annual';
+    const autoChecklist = isAnnualFiling ? null : await jcfd_computeChecklistAutoFields(rec);
+
     // Header — same layout/style as the Municipal Officer's app-detail header.
     document.getElementById('jcfd_detailAppNumber').textContent = rec.jcfAppNumber || '—';
     document.getElementById('jcfd_detailAppSub').textContent = `${eo.promoterName || 'N/A'} · Submitted ${rec.submittedDate || 'N/A'} · Tracking Code: ${rec.linkedTrackingCode || '—'}`;
     document.getElementById('jcfd_detailStatusBadge').innerHTML = jcfd_statusBadge(rec);
     jcfd_renderStatusStepper(rec);
 
-    jcfd_renderSubmissionColumn(rec);
+    await jcfd_renderSubmissionColumn(rec);
     if(rec.premisesVenueId){
       const venuePanelHtml = await jcfd_venuePermitsPanelHtml(rec.premisesVenueId, rec.jcfAppNumber);
       const submissionColEl = document.getElementById('jcfd_submissionColumn');
@@ -13519,19 +13619,38 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     {
       const cl = rec.officialChecklist || {};
       const canCheck = jcfd_hasPerm('checklist');
-      const CHECKLIST_ITEMS = [
-        ['promoterIdentityVerified', 'Promoter Identity Verified'],
-        ['eventVenueSatisfactory', 'Event Venue Satisfactory'],
-        ['promoterBriefedNoiseAct', 'Promoter Briefed on Noise Abatement Act'],
-        ['venueUseLetterSubmitted', 'Venue Use Letter Submitted']
-      ];
       html += `<div class="official-card">
         <h4>Official Use Checklist</h4>
         <p class="col-desc" style="margin-bottom:10px;">Must be verified by a Police Supervisor before a permit is issued.</p>`;
-      CHECKLIST_ITEMS.forEach(([key, label]) => {
-        const checked = !!cl[key];
-        html += `<label class="checkbox-row"><input type="checkbox" ${checked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('${key}', this.checked)"> ${acctEscapeHtml(label)}</label>`;
-      });
+      if(!isAnnualFiling){
+        // Special Event filings: 3 of the 4 items below are computed
+        // automatically (see jcfd_computeChecklistAutoFields) rather than
+        // toggled by hand, mirroring the Municipal Officer Portal's own
+        // "auto-checked, disabled checkbox with cell-sub explanation"
+        // pattern (Document Check / JCF Approval Granted cards). Only
+        // "Event Venue Satisfactory" stays a manual Supervisor judgment
+        // call. Annual filings render the original all-manual list below,
+        // completely unchanged.
+        const auto = autoChecklist;
+        const autoRow = (checked, label, sub) => `<label class="checkbox-row" style="cursor:default;"><input type="checkbox" disabled ${checked ? 'checked' : ''}><span>${acctEscapeHtml(label)} <span class="cell-sub" style="display:block;">${acctEscapeHtml(sub)}</span></span></label>`;
+        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP Approval have all been uploaded.');
+        html += autoRow(auto.promoterIdentityVerified, 'Promoter Identity Verified', 'Auto-checked when the Officer approves the uploaded Photo ID.');
+        const venueChecked = !!cl.eventVenueSatisfactory;
+        html += `<label class="checkbox-row"><input type="checkbox" ${venueChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('eventVenueSatisfactory', this.checked)"> Event Venue Satisfactory</label>`;
+        html += autoRow(auto.promoterBriefedNoiseAct, 'Promoter Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
+        html += autoRow(auto.proofOfOwnershipSubmitted, 'Proof of Ownership/Authorization Submitted', 'Auto-checked when the Officer verifies the document.');
+      } else {
+        const CHECKLIST_ITEMS = [
+          ['promoterIdentityVerified', 'Promoter Identity Verified'],
+          ['eventVenueSatisfactory', 'Event Venue Satisfactory'],
+          ['promoterBriefedNoiseAct', 'Promoter Briefed on Noise Abatement Act'],
+          ['venueUseLetterSubmitted', 'Venue Use Letter Submitted']
+        ];
+        CHECKLIST_ITEMS.forEach(([key, label]) => {
+          const checked = !!cl[key];
+          html += `<label class="checkbox-row"><input type="checkbox" ${checked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('${key}', this.checked)"> ${acctEscapeHtml(label)}</label>`;
+        });
+      }
       if(cl.updatedBy){
         html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
       }
@@ -13684,13 +13803,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // Use column above and restores the Approve/Reject controls here.
     if(canDecide){
       const cl = rec.officialChecklist || {};
-      const checklistLabels = {
-        promoterIdentityVerified: 'promoter identity has not been verified',
-        eventVenueSatisfactory: 'the event venue has not been marked satisfactory',
-        promoterBriefedNoiseAct: 'the promoter has not been briefed on the Noise Abatement Act',
-        venueUseLetterSubmitted: 'the venue use letter has not been submitted'
-      };
-      const missingChecklistItems = Object.keys(checklistLabels).filter(key => !cl[key]).map(key => checklistLabels[key]);
+      let missingChecklistItems;
+      if(!isAnnualFiling){
+        // Special Event filings gate on the same auto-computed values the
+        // checklist card above renders, plus the one remaining manual item —
+        // never on cl[key] directly, since 3 of those 4 keys are no longer
+        // ever written by jcfd_toggleChecklistItem for this form variant.
+        const auto = autoChecklist;
+        const specialChecklistLabels = {
+          requiredDocsUploaded: 'not all required documents have been uploaded (Photo ID, Proof of Ownership/Authorization, JAMMS Approval, JCAP Approval)',
+          promoterIdentityVerified: 'promoter identity has not been verified',
+          eventVenueSatisfactory: 'the event venue has not been marked satisfactory',
+          promoterBriefedNoiseAct: 'the promoter has not been briefed on the Noise Abatement Act',
+          proofOfOwnershipSubmitted: 'the proof of ownership/authorization has not been approved'
+        };
+        const specialChecklistValues = { ...auto, eventVenueSatisfactory: !!cl.eventVenueSatisfactory };
+        missingChecklistItems = Object.keys(specialChecklistLabels).filter(key => !specialChecklistValues[key]).map(key => specialChecklistLabels[key]);
+      } else {
+        const checklistLabels = {
+          promoterIdentityVerified: 'promoter identity has not been verified',
+          eventVenueSatisfactory: 'the event venue has not been marked satisfactory',
+          promoterBriefedNoiseAct: 'the promoter has not been briefed on the Noise Abatement Act',
+          venueUseLetterSubmitted: 'the venue use letter has not been submitted'
+        };
+        missingChecklistItems = Object.keys(checklistLabels).filter(key => !cl[key]).map(key => checklistLabels[key]);
+      }
       const isDecided = rec.status === 'Approved' || rec.status === 'Rejected';
       html += `<div class="official-card">
         <h4>Final Decision</h4>
@@ -14625,9 +14762,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return m ? m[1] : '';
   }
 
+  // Reviewable document kinds — Photo ID (Promoter Identity Verified),
+  // Proof of Ownership/Authorization (renamed from "Venue Use Letter
+  // Submitted"), and the two carried-over-from-POA approvals, JAMMS and
+  // JCAP. Event Flyer and Signature on File stay view-only, as before —
+  // nothing in this request asked for those to be approved/rejected.
+  const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'jams', 'jcap'];
+  let jcfdActiveDocKind = null;
+
+  function jcfd_docStatusBadgeClass(status){
+    return { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[status] || 'badge-gray';
+  }
+
   async function jcfd_openDocModal(kind){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
+    jcfdActiveDocKind = JCFD_REVIEWABLE_DOC_KINDS.includes(kind) ? kind : null;
     // Read-side audit trail (Phase D finding #8) — someone's uploaded ID,
     // event flyer, or venue permission letter is exactly the kind of thing
     // a breach investigation needs a "who looked at this and when" trail
@@ -14649,6 +14799,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const box = document.getElementById('jcfd_docPreviewBox');
     box.innerHTML = '<p class="col-desc">' + window.atdLoadingHtml() + '</p>';
     document.getElementById('jcfd_docModal').classList.remove('hidden');
+
+    // Reset the review controls on every open — populated below only for
+    // the reviewable kinds; every other kind (flyer/signature/noiseNotice/
+    // otherLicense_*) stays view-only, same as before this feature.
+    document.getElementById('jcfd_docStatusRow').innerHTML = '';
+    document.getElementById('jcfd_docNoteGroup').classList.add('hidden');
+    document.getElementById('jcfd_docModalActions').innerHTML = '';
 
     let dataUrl = '', fileName = '', title = '';
     // Annual variant's own two file-carrying kinds — Community Impact's
@@ -14685,25 +14842,67 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         : `<img src="${dataUrl}" alt="${acctEscapeHtml(title)}" style="max-width:100%; border-radius:8px;">`;
       return;
     }
+    let status = 'Not Uploaded', officerNote = '';
     if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
       title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
-        : kind === 'permissionLetter' ? "Venue Owner's Letter of Permission"
+        : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
         : kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
-      try{
-        const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
-        const files = (r && r.value) ? JSON.parse(r.value) : {};
-        dataUrl = kind === 'photoId' ? files.photoIdFileData
-          : kind === 'flyer' ? files.flyerFileData
-          : kind === 'permissionLetter' ? files.permissionLetterFileData
-          : kind === 'jams' ? files.jamsFileData : files.jcapFileData;
-      } catch(e){ /* leave dataUrl empty */ }
-      fileName = kind === 'photoId'
-        ? ((rec.eventOverview && rec.eventOverview.photoIdFileName) || '')
-        : kind === 'flyer'
-        ? ((rec.briefings && rec.briefings.eventFlyerFileName) || '')
-        : kind === 'permissionLetter'
-        ? ((rec.venueInfo && rec.venueInfo.permissionLetterFileName) || '')
-        : ((rec.carriedJcfDocuments && (kind === 'jams' ? rec.carriedJcfDocuments.jamsFileName : rec.carriedJcfDocuments.jcapFileName)) || '');
+
+      if(kind === 'jams' || kind === 'jcap'){
+        // JAMMS/JCAP are uploaded (and re-uploaded, after a rejection) on the
+        // applicant's LINKED POA APPLICATION Main Menu (see
+        // renderMmJcfDocuments/mmJcfDocFileChosen), not on this filing —
+        // rec.carriedJcfDocuments is only a filename snapshot taken once at
+        // JCF submission time, so it goes stale the moment the applicant
+        // re-uploads. Read the live file + status from the POA record
+        // itself so a reviewer never sees a rejected/superseded file, or
+        // reviews against a status this filing doesn't actually control.
+        const docName = kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
+        let poaJcfDoc = null;
+        if(rec.poaAppNumber){
+          try{
+            const poaR = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+            const poaRec = (poaR && poaR.value) ? JSON.parse(poaR.value) : null;
+            poaJcfDoc = poaRec && poaRec.jcfDocuments ? poaRec.jcfDocuments[docName] : null;
+          } catch(e){ /* fall through to the snapshot below */ }
+        }
+        if(poaJcfDoc){
+          dataUrl = poaJcfDoc.fileData || '';
+          fileName = poaJcfDoc.fileName || '';
+          status = poaJcfDoc.status || (poaJcfDoc.uploaded ? 'Submitted' : 'Not Uploaded');
+          officerNote = poaJcfDoc.officerNote || '';
+        } else {
+          // No linked POA application to read from (a standalone JCF
+          // filing) — fall back to the one-time snapshot captured at
+          // submission, same as before this feature existed.
+          try{
+            const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+            const files = (r && r.value) ? JSON.parse(r.value) : {};
+            dataUrl = kind === 'jams' ? files.jamsFileData : files.jcapFileData;
+          } catch(e){ /* leave dataUrl empty */ }
+          fileName = (rec.carriedJcfDocuments && (kind === 'jams' ? rec.carriedJcfDocuments.jamsFileName : rec.carriedJcfDocuments.jcapFileName)) || '';
+          status = fileName ? 'Submitted' : 'Not Uploaded';
+        }
+      } else {
+        try{
+          const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+          const files = (r && r.value) ? JSON.parse(r.value) : {};
+          dataUrl = kind === 'photoId' ? files.photoIdFileData
+            : kind === 'flyer' ? files.flyerFileData
+            : files.permissionLetterFileData;
+        } catch(e){ /* leave dataUrl empty */ }
+        if(kind === 'photoId'){
+          fileName = (rec.eventOverview && rec.eventOverview.photoIdFileName) || '';
+          status = (rec.eventOverview && rec.eventOverview.photoIdStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+          officerNote = (rec.eventOverview && rec.eventOverview.photoIdOfficerNote) || '';
+        } else if(kind === 'flyer'){
+          fileName = (rec.briefings && rec.briefings.eventFlyerFileName) || '';
+        } else {
+          fileName = (rec.venueInfo && rec.venueInfo.permissionLetterFileName) || '';
+          status = (rec.venueInfo && rec.venueInfo.permissionLetterStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+          officerNote = (rec.venueInfo && rec.venueInfo.permissionLetterOfficerNote) || '';
+        }
+      }
     } else if(kind === 'signature'){
       title = 'Signature on File';
       if(rec.signature && rec.signature.type === 'text'){
@@ -14720,6 +14919,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     titleEl.textContent = title;
     subEl.textContent = fileName || '';
+
+    if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind)){
+      document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${status}</span>` +
+        (status === 'Rejected' && officerNote ? `<div class="readback-row">Previous note: ${acctEscapeHtml(officerNote)}</div>` : '');
+      const canReviewDoc = jcfd_hasPerm('checklist');
+      document.getElementById('jcfd_docNoteGroup').classList.remove('hidden');
+      document.getElementById('jcfd_docNoteInput').value = officerNote || '';
+      const actions = document.getElementById('jcfd_docModalActions');
+      if(canReviewDoc && dataUrl){
+        actions.innerHTML = `
+          <button class="btn btn-success btn-sm" onclick="jcfd_approveDoc()">✔ Approve document</button>
+          <button class="btn btn-danger btn-sm" onclick="jcfd_rejectDoc()">✖ Reject &amp; require re-upload</button>
+          <button class="btn btn-sm" onclick="jcfd_saveDocNote()">Save note only</button>`;
+      } else if(!canReviewDoc){
+        actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>`;
+      } else {
+        actions.innerHTML = '';
+      }
+    }
+
     if(!dataUrl){
       box.innerHTML = '<div class="doc-preview-placeholder">Not uploaded.</div>';
       return;
@@ -14733,8 +14952,112 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_openDocModal = jcfd_openDocModal;
 
-  function jcfd_closeDocModal(){ document.getElementById('jcfd_docModal').classList.add('hidden'); }
+  function jcfd_closeDocModal(){ document.getElementById('jcfd_docModal').classList.add('hidden'); jcfdActiveDocKind = null; }
   window.jcfd_closeDocModal = jcfd_closeDocModal;
+
+  // Best-effort applicant email lookup for a document-rejection notice — a
+  // JCF filing's own record carries no email of its own (see eventOverview's
+  // shape), so this reads it off the linked POA application's applicant
+  // (the common case), falling back to the signed-in account's own email for
+  // a standalone filing with no linked POA application.
+  async function jcfd_resolveApplicantEmail(rec){
+    if(rec.poaAppNumber && window.storage){
+      try{
+        const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        const poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+        if(poaRec && poaRec.applicant && poaRec.applicant.email) return poaRec.applicant.email;
+      } catch(e){ /* fall through to ownerEmail below */ }
+    }
+    return rec.ownerEmail || null;
+  }
+
+  const JCFD_DOC_REVIEW_LABELS = { photoId: 'Photo ID', permissionLetter: 'Proof of Ownership/Authorization', jams: 'JAMMS Approval', jcap: 'JCAP Approval' };
+
+  // Shared save path for Approve/Reject/Save-note-only on one of the four
+  // JCFD_REVIEWABLE_DOC_KINDS. JAMMS/JCAP live on the linked POA
+  // application's own jcfDocuments (see jcfd_openDocModal's own comment on
+  // why — they're uploaded/re-uploaded there, not on this filing) so their
+  // status/note is written back there instead of onto this record.
+  async function jcfd_updateDocStatus(newStatus){
+    const kind = jcfdActiveDocKind;
+    if(!kind) return;
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    const note = document.getElementById('jcfd_docNoteInput').value.trim();
+    const label = JCFD_DOC_REVIEW_LABELS[kind] || kind;
+
+    if(kind === 'jams' || kind === 'jcap'){
+      if(!rec.poaAppNumber){
+        jcfd_showToast('This is a standalone filing with no linked Places of Amusement application to update.');
+        return;
+      }
+      const docName = kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
+      try{
+        const poaR = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        const poaRec = (poaR && poaR.value) ? JSON.parse(poaR.value) : null;
+        if(!poaRec || !poaRec.jcfDocuments || !poaRec.jcfDocuments[docName]){
+          jcfd_showToast('Could not find this document on the linked application.');
+          return;
+        }
+        poaRec.jcfDocuments[docName].status = newStatus;
+        poaRec.jcfDocuments[docName].officerNote = note;
+        await window.storage.set(`application:${rec.poaAppNumber}`, JSON.stringify(poaRec), true);
+      } catch(e){
+        jcfd_showToast('Could not save — please try again.');
+        return;
+      }
+    } else {
+      const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
+      const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
+      const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
+      rec[section] = rec[section] || {};
+      rec[section][statusKey] = newStatus;
+      rec[section][noteKey] = note;
+      await jcfd_saveActiveApp(rec);
+    }
+
+    jcfd_showToast(`${label} ${newStatus.toLowerCase()}${newStatus === 'Rejected' ? ' — the applicant will need to re-upload.' : '.'}`);
+    jcfd_closeDocModal();
+    jcfd_renderApplicationDetail();
+
+    if(newStatus === 'Rejected'){
+      const applicantEmail = await jcfd_resolveApplicantEmail(rec);
+      if(applicantEmail){
+        if(window.atdSendEmail){
+          window.atdSendEmail('document_rejected', applicantEmail, {
+            appNumber: rec.jcfAppNumber, applicantName: (rec.eventOverview && rec.eventOverview.promoterName) || '',
+            documentName: label, officerNote: note, municipalityName: rec.municipalityName || ''
+          });
+        }
+        if(window.atdNotifyApplicant){
+          window.atdNotifyApplicant(applicantEmail, 'document_rejected',
+            `${label} on your JCF Noise Abatement application ${rec.jcfAppNumber} was rejected: "${note}". Please log in and re-upload.`, rec.jcfAppNumber);
+        }
+      }
+    }
+  }
+
+  // These three are the only callers of jcfd_updateDocStatus and are
+  // themselves only ever invoked from onclick="" handlers — same reasoning
+  // as the Municipal Officer's own approveDocument/rejectDocument/
+  // saveDocNote for not needing their return values observed anywhere.
+  async function jcfd_approveDoc(){ return jcfd_updateDocStatus('Approved'); }
+  async function jcfd_rejectDoc(){
+    const note = document.getElementById('jcfd_docNoteInput').value.trim();
+    if(!note){
+      jcfd_showToast('Please add a note explaining why this document is being rejected.');
+      return;
+    }
+    return jcfd_updateDocStatus('Rejected');
+  }
+  async function jcfd_saveDocNote(){
+    const statusBadge = document.querySelector('#jcfd_docStatusRow .badge');
+    const currentStatus = statusBadge ? statusBadge.textContent.trim() : 'Submitted';
+    return jcfd_updateDocStatus(currentStatus);
+  }
+  window.jcfd_approveDoc = jcfd_approveDoc;
+  window.jcfd_rejectDoc = jcfd_rejectDoc;
+  window.jcfd_saveDocNote = jcfd_saveDocNote;
 
   // ==================== JCF Watch List ====================
   // Talks to the Municipal Corporation's own watchlist by reading the same
@@ -19725,6 +20048,8 @@ function renderMmNoise(){
   if(!jcfApp){
     notStarted.classList.remove('hidden');
     submitted.classList.add('hidden');
+    const docSection = document.getElementById('mmNoiseDocSection');
+    if(docSection) docSection.classList.add('hidden');
     return;
   }
 
@@ -19825,6 +20150,10 @@ function renderMmNoise(){
     html += `</div>`;
 
     body.innerHTML = html;
+    // Annual filings have no photoIdFileName/permissionLetterFileName
+    // equivalent (see jcfAnnual_submitApp's own applicantInfo/premisesInfo
+    // shape) — nothing for this section to show.
+    document.getElementById('mmNoiseDocSection').classList.add('hidden');
     return;
   }
 
@@ -19865,8 +20194,110 @@ function renderMmNoise(){
   html += `</div>`;
 
   body.innerHTML = html;
+
+  document.getElementById('mmNoiseDocSection').classList.remove('hidden');
+  renderMmNoiseDocuments();
 }
 window.renderMmNoise = renderMmNoise;
+
+// Photo ID / Proof of Ownership re-upload for a Special Event JCF filing —
+// same uploaded/locked/rejected states and grid markup as
+// renderMmJcfDocuments() above, but these two documents live on the JCF
+// filing record itself (jcfApplication:<jcfAppNumber> / its companion
+// jcfApplicationFiles:<jcfAppNumber> file blob) rather than on this POA
+// application record, since they're uploaded during the JCF wizard, not
+// here — so this reads/writes currentLinkedJcfApp instead of
+// currentAppRecord.
+const MM_NOISE_DOC_KINDS = [
+  { kind: 'photoId', label: 'Photo ID' },
+  { kind: 'permissionLetter', label: 'Proof of Ownership/Authorization' }
+];
+function renderMmNoiseDocuments(){
+  const jcfApp = currentLinkedJcfApp;
+  const grid = document.getElementById('mmNoiseDocGrid');
+  if(!grid || !jcfApp) return;
+  const eo = jcfApp.eventOverview || {}, vi = jcfApp.venueInfo || {};
+
+  grid.innerHTML = MM_NOISE_DOC_KINDS.map(({ kind, label }, i) => {
+    const fileName = kind === 'photoId' ? eo.photoIdFileName : vi.permissionLetterFileName;
+    const officerNote = kind === 'photoId' ? eo.photoIdOfficerNote : vi.permissionLetterOfficerNote;
+    const rawStatus = kind === 'photoId' ? eo.photoIdStatus : vi.permissionLetterStatus;
+    const status = rawStatus || (fileName ? 'Submitted' : 'Not Uploaded');
+    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
+    const icon = status === 'Rejected'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+      : fileName
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>';
+    const statusText = { 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending JCF review (locked)', 'Approved': 'Approved by JCF (locked)', 'Rejected': 'Rejected by JCF — please re-upload' }[status] || status;
+    const canUpload = status === 'Rejected'; // 'Not Uploaded' never happens here — both are hard-required at JCF submission time.
+
+    return `
+      <div class="mm-doc-item">
+        <div class="mm-doc-upload ${stateClass}" ${canUpload ? `onclick="document.getElementById('mmNoiseDocFile${i}').click()"` : 'style="cursor:default;"'}>
+          ${icon}
+        </div>
+        <div class="mm-doc-label">${poa_escapeHtml(label)} *</div>
+        <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
+        ${status === 'Rejected' && officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(officerNote)}"</div>` : ''}
+        <input type="file" id="mmNoiseDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmNoiseDocFileChosen(${JSON.stringify(kind)}, ${JSON.stringify(label)}, this)'>
+      </div>
+    `;
+  }).join('');
+}
+
+async function mmNoiseDocFileChosen(kind, label, input){
+  if(!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const jcfApp = currentLinkedJcfApp;
+  if(!jcfApp || !jcfApp.jcfAppNumber || !window.storage){
+    input.value = '';
+    poa_showToast('Could not reach your Noise Abatement application — please try again.');
+    return;
+  }
+
+  const confirmed = await window.atdConfirm(`Upload "${file.name}" for ${label}?\n\nOnce submitted, you won't be able to select a different file for this document unless a JCF officer rejects it.`);
+  if(!confirmed){
+    input.value = '';
+    return;
+  }
+
+  const fileData = await poa_readFileAsDataUrl(file);
+  const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
+  const fileNameKey = kind === 'photoId' ? 'photoIdFileName' : 'permissionLetterFileName';
+  const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
+  const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
+  const fileDataKey = kind === 'photoId' ? 'photoIdFileData' : 'permissionLetterFileData';
+
+  try{
+    jcfApp[section] = jcfApp[section] || {};
+    jcfApp[section][fileNameKey] = file.name;
+    jcfApp[section][statusKey] = 'Submitted';
+    jcfApp[section][noteKey] = '';
+    await window.storage.set(`jcfApplication:${jcfApp.jcfAppNumber}`, JSON.stringify(jcfApp), true);
+
+    // The actual file blob lives in the companion jcfApplicationFiles record
+    // (see submitJcfApp()'s own reasoning for keeping large base64 images
+    // off the main record) — read-modify-write it the same way.
+    let files = {};
+    try{
+      const r = await window.storage.get(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, true);
+      files = (r && r.value) ? JSON.parse(r.value) : {};
+    } catch(e){ /* start fresh if unreadable */ }
+    files[fileDataKey] = fileData;
+    await window.storage.set(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, JSON.stringify(files), true);
+  } catch(e){
+    input.value = '';
+    poa_showToast('Could not save your upload — please try again.');
+    return;
+  }
+
+  input.value = '';
+  await poa_refreshLinkedJcfApp();
+  renderMmNoiseDocuments();
+  poa_showToast(`${label} uploaded and submitted.`);
+}
+window.mmNoiseDocFileChosen = mmNoiseDocFileChosen;
 
 function printDoc(html){
   document.getElementById('printArea').innerHTML = html;
@@ -29880,7 +30311,19 @@ function startWizard(){
     jcfAnnual_startWizard();
     return;
   }
+  // Defensive reset: nothing above hides the Annual wizard's own containers,
+  // so without this, a session that opened an Annual-linked application's
+  // JCF form earlier (any entry point — Main Menu, Track Application, or a
+  // logged-in user's own application) and then opens a DIFFERENT,
+  // Special-linked application in the same page lifetime would show BOTH
+  // wizards stacked in the DOM at once, since jcfAnnual_startWizard() only
+  // ever adds jcfAnnual_applicationFlow, never removes it again. Every real
+  // entry point re-runs startWizard() fresh each time (see openJcfForm()),
+  // so this is the one place that needs to undo the other flow's state.
+  document.getElementById('jcfAnnual_applicationFlow').classList.add('hidden');
+  document.getElementById('confirmPage').classList.add('hidden');
   document.getElementById('jcf_infoPage').classList.add('hidden');
+  document.getElementById('jcf_stepReview').classList.add('hidden');
   document.getElementById('jcf_applicationFlow').classList.remove('hidden');
   document.getElementById('jcf_saveLaterWrap').classList.toggle('hidden', !(window.AccountBridge && window.AccountBridge.getCurrentUser()));
   prefillFromPoa();
@@ -30078,6 +30521,34 @@ async function continueFromStep2(){
     }
     if(countWords(reason) > 500){
       jcf_showToast('The breach details must be no more than 500 words.');
+      return;
+    }
+  }
+  // Proof of Ownership/Authorization is now an officer-reviewable document
+  // (approve/reject, gating Final Decision — see jcfd_openDocModal/the
+  // Official Use Checklist) rather than an admin-optional field, so it's
+  // hard-required here unconditionally, same as Photo ID/Event flyer on
+  // Step 1, rather than only when an admin has marked it required in
+  // JCF_FIELD_CHECKS below.
+  if(!permissionLetterFileData){
+    jcf_showToast('Please upload Proof of Ownership/Authorization before continuing.');
+    return;
+  }
+  // JAMMS/JCAP Approval are likewise now required, but only ever arrive
+  // carried over from the applicant's linked Places of Amusement
+  // application (there's no upload control for them in this wizard — see
+  // prefillFromPoa's own comment on this) — so this only applies when this
+  // filing actually has one to have carried them from. A standalone filing
+  // (no linked POA application) has no way to supply either document and
+  // is left unaffected, same as JAMMS/JCAP already being treated as N/A for
+  // a standalone filing everywhere else in the JCF officer view.
+  if(poaData){
+    if(!jamsFileData){
+      jcf_showToast('JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before continuing.');
+      return;
+    }
+    if(!jcapFileData){
+      jcf_showToast('JCAP Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before continuing.');
       return;
     }
   }
@@ -30607,6 +31078,24 @@ async function submitJcfApp(){
     errorBox.classList.remove('hidden');
     return;
   }
+  // Safety-net re-check for the same reasons as photoId/flyer above — see
+  // continueFromStep2's own comment for why JAMMS/JCAP only gate a filing
+  // that actually has a linked POA application to have carried them from.
+  if(!permissionLetterFileData){
+    errorBox.textContent = 'Please upload Proof of Ownership/Authorization before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(poaData && !jamsFileData){
+    errorBox.textContent = 'JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(poaData && !jcapFileData){
+    errorBox.textContent = 'JCAP Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
   if(!hasSignature()){
     errorBox.textContent = 'Please provide your signature (typed, uploaded, or drawn) before submitting.';
     errorBox.classList.remove('hidden');
@@ -30724,7 +31213,13 @@ async function submitJcfApp(){
       promoterBreachReason: radioVal('promoterBreached') === 'Yes' ? jcf_val('promoterBreachReason') : '',
       // photoIdFileData intentionally NOT embedded here — see the note
       // above the storage.set() calls below.
-      photoIdFileName
+      photoIdFileName,
+      // Officer document review status (see jcfd_openDocModal/
+      // jcfd_updateDocStatus) — starts at 'Submitted' since photoIdFileData
+      // is hard-required above, matching the Official Use Checklist's
+      // "Required Documents Uploaded" auto-check expecting a real status
+      // value rather than treating an absent field as already-uploaded.
+      photoIdStatus: 'Submitted', photoIdOfficerNote: ''
     },
     venueInfo: {
       venueName: jcf_val('jcf_venueName'),
@@ -30743,7 +31238,11 @@ async function submitJcfApp(){
       // permissionLetterFileData intentionally NOT embedded here — same
       // reasoning as photoIdFileData/flyerFileData above, stored under
       // jcfApplicationFiles:<number> instead.
-      permissionLetterFileName
+      permissionLetterFileName,
+      // Officer document review status — see the matching photoIdStatus
+      // note above; permissionLetterFileData is likewise hard-required
+      // above, so this always starts at 'Submitted' too.
+      permissionLetterStatus: 'Submitted', permissionLetterOfficerNote: ''
     },
     djs,
     soundSystems,
@@ -30972,6 +31471,15 @@ let jcfAnnualSigCanvasCtx = null;
 let jcfAnnualSigHasDrawing = false;
 
 function jcfAnnual_startWizard(){
+  // Defensive reset — the reciprocal of startWizard()'s own reset before its
+  // Special-flow branch: undo any Special wizard state left over from an
+  // earlier Special-linked application opened in this same page lifetime
+  // (jcf_applicationFlow, its own jcf_stepReview sibling, and the shared
+  // confirmPage), so this Annual filing's own containers are the only ones
+  // visible rather than stacking on top of a leftover Special view.
+  document.getElementById('jcf_applicationFlow').classList.add('hidden');
+  document.getElementById('jcf_stepReview').classList.add('hidden');
+  document.getElementById('confirmPage').classList.add('hidden');
   document.getElementById('jcf_infoPage').classList.add('hidden');
   document.getElementById('jcfAnnual_applicationFlow').classList.remove('hidden');
   jcfAnnual_mountDjSoundForms();
