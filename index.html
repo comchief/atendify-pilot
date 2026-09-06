@@ -10487,13 +10487,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2 id="jcfd_appsHeading">Applications</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_appSearch" placeholder="Search promoter, application #, or tracking code" aria-label="Search promoter, application #, or tracking code" oninput="jcfd_renderApplications()">
+              <input type="text" id="jcfd_appSearch" placeholder="Search promoter/applicant, application #, or tracking code" aria-label="Search promoter/applicant, application #, or tracking code" oninput="jcfd_renderApplications()">
             </div>
           </div>
+        </div>
+        <!-- Special Event and Annual filings have entirely different shapes
+             (promoter/venue/event date vs applicant/premises — see
+             jcfd_renderAnnualSubmissionColumn), so a single shared table
+             always showed "N/A" for one variant or the other. Split into two
+             tables, each with columns that actually apply to that variant. -->
+        <div class="panel">
+          <div class="panel-head"><h3 style="font-size:15px; margin:0;">Special Event Applications</h3></div>
           <div style="overflow-x:auto;">
             <table>
               <thead><tr><th>JCF Application #</th><th>Tracking Code</th><th>Promoter</th><th>Venue</th><th>Event Date</th><th>Assigned To</th><th>Status</th><th></th></tr></thead>
-              <tbody id="jcfd_applicationsBody"></tbody>
+              <tbody id="jcfd_applicationsBodySpecial"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3 style="font-size:15px; margin:0;">Annual Applications</h3></div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>Premises</th><th>Status</th><th></th></tr></thead>
+              <tbody id="jcfd_applicationsBodyAnnual"></tbody>
             </table>
           </div>
         </div>
@@ -13104,41 +13121,66 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
 
   async function jcfd_renderApplications(){
-    const body = document.getElementById('jcfd_applicationsBody');
-    if(!body) return;
+    const specialBody = document.getElementById('jcfd_applicationsBodySpecial');
+    const annualBody = document.getElementById('jcfd_applicationsBodyAnnual');
+    if(!specialBody || !annualBody) return;
     const search = (document.getElementById('jcfd_appSearch').value || '').toLowerCase();
     const all = await jcfd_findJurisdictionApplications();
     let visible = jcfd_visibleApplications(all);
     if(search){
-      visible = visible.filter(a =>
-        (a.rec.jcfAppNumber || '').toLowerCase().includes(search) ||
-        (a.rec.linkedTrackingCode || '').toLowerCase().includes(search) ||
-        (a.rec.eventOverview && (a.rec.eventOverview.promoterName || '').toLowerCase().includes(search))
-      );
+      visible = visible.filter(a => {
+        const isAnnual = a.rec.formVariant === 'Annual';
+        const name = isAnnual ? (a.rec.applicantInfo && a.rec.applicantInfo.name) : (a.rec.eventOverview && a.rec.eventOverview.promoterName);
+        return (a.rec.jcfAppNumber || '').toLowerCase().includes(search) ||
+          (a.rec.linkedTrackingCode || '').toLowerCase().includes(search) ||
+          (name || '').toLowerCase().includes(search);
+      });
     }
     document.getElementById('jcfd_appsHeading').textContent =
       jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'Applications assigned to me' : 'Applications in jurisdiction';
 
-    if(!visible.length){
-      body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">
-        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No applications have been assigned to you yet.' : 'No applications found for your jurisdiction yet.'}
+    const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
+    const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
+
+    if(!specialVisible.length){
+      specialBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">
+        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}
       </td></tr>`;
-      return;
+    } else {
+      specialBody.innerHTML = specialVisible.map(a => {
+        const eo = a.rec.eventOverview || {};
+        const vi = a.rec.venueInfo || {};
+        return `<tr>
+          <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+          <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
+          <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
+          <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
+          <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
+          <td>${jcfd_statusBadge(a.rec)}</td>
+          <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+        </tr>`;
+      }).join('');
     }
-    body.innerHTML = visible.map(a => {
-      const eo = a.rec.eventOverview || {};
-      const vi = a.rec.venueInfo || {};
-      return `<tr>
-        <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
-        <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
-        <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
-        <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
-        <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
-        <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
-        <td>${jcfd_statusBadge(a.rec)}</td>
-        <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
-      </tr>`;
-    }).join('');
+
+    if(!annualVisible.length){
+      annualBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">
+        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}
+      </td></tr>`;
+    } else {
+      annualBody.innerHTML = annualVisible.map(a => {
+        const ai = a.rec.applicantInfo || {};
+        const pi = a.rec.premisesInfo || {};
+        return `<tr>
+          <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+          <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
+          <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
+          <td>${jcfd_statusBadge(a.rec)}</td>
+          <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+        </tr>`;
+      }).join('');
+    }
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
 
@@ -13544,6 +13586,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     };
   }
 
+  // Annual filings' own auto-computed checklist fields — mirrors the Special
+  // Event function above, but against the Annual record's own shape and
+  // reviewable documents (see this session's JCFD_REVIEWABLE_DOC_KINDS
+  // extension: noiseNotice / otherLicense_<key> / signature). Only 2 of the
+  // 4 checklist items are auto here — "Applicant Identity Verified" and
+  // "Premises Information Verified" stay manual Supervisor toggles, same
+  // reasoning as "Event Venue Satisfactory" on the Special checklist.
+  async function jcfd_computeAnnualChecklistAutoFields(rec){
+    const briefings = rec.briefings || {};
+    const ci = rec.communityImpact || {};
+    const ol = rec.otherLicenses || {};
+
+    let requiredDocsUploaded = true;
+    if(ci.existingNotices === 'Yes' && ci.noiseNoticeStatus !== 'Approved') requiredDocsUploaded = false;
+    Object.keys(JCFD_OTHER_LICENSE_LABELS).forEach(key => {
+      const item = ol[key];
+      if(item && item.checked && item.status !== 'Approved') requiredDocsUploaded = false;
+    });
+    if(!(rec.signature && rec.signature.status === 'Approved')) requiredDocsUploaded = false;
+
+    return {
+      requiredDocsUploaded,
+      promoterBriefedNoiseAct: !!(briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched)
+    };
+  }
+
   async function jcfd_renderApplicationDetail(){
     const rec = await jcfd_getActiveApp();
     if(!rec){
@@ -13575,10 +13643,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // Special Event filings auto-compute 3 of the 4 Official Use Checklist
     // items from officer document reviews + applicant briefing responses —
     // computed once here and reused by both the checklist card and the
-    // Final Decision gating logic below. Annual filings are explicitly out
-    // of scope for this and keep their original all-manual checklist.
+    // Final Decision gating logic below. Annual filings auto-compute 2 of
+    // their own 4 items the same way (see jcfd_computeAnnualChecklistAutoFields).
     const isAnnualFiling = rec.formVariant === 'Annual';
-    const autoChecklist = isAnnualFiling ? null : await jcfd_computeChecklistAutoFields(rec);
+    const autoChecklist = isAnnualFiling ? await jcfd_computeAnnualChecklistAutoFields(rec) : await jcfd_computeChecklistAutoFields(rec);
 
     // Header — same layout/style as the Municipal Officer's app-detail header.
     document.getElementById('jcfd_detailAppNumber').textContent = rec.jcfAppNumber || '—';
@@ -13632,24 +13700,29 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `<div class="official-card"><div class="status-banner bad">This application was rejected${rec.finalDecision ? ': ' + acctEscapeHtml(rec.finalDecision) : ''}. Use "Reopen for Review" below to make further changes.</div></div>`;
     } else {
 
-    // Assignment card
-    html += `<div class="official-card">
-      <h4>Assignment</h4>
-      <p class="col-desc">Currently assigned to: <strong>${acctEscapeHtml(rec.assignedOfficerName || 'Unassigned')}</strong></p>`;
-    if(canManage){
-      html += `<div class="field-row">
-        <div class="field-group"><label for="jcfd_assignSelect">Assign to</label>
-          <select id="jcfd_assignSelect">
-            <option value="">Select an officer/station</option>
-            ${branchOfficers.map(o => `<option value="${o.id}" ${rec.assignedOfficerId===o.id?'selected':''}>${acctEscapeHtml(o.name)}</option>`).join('')}
-          </select>
+    // Assignment card — Special Event filings only. Annual filings are
+    // reviewed directly by a Supervisor/Chief rather than dispatched to a
+    // field officer (there's no event to attend), so this card is dropped
+    // entirely for them.
+    if(!isAnnualFiling){
+      html += `<div class="official-card">
+        <h4>Assignment</h4>
+        <p class="col-desc">Currently assigned to: <strong>${acctEscapeHtml(rec.assignedOfficerName || 'Unassigned')}</strong></p>`;
+      if(canManage){
+        html += `<div class="field-row">
+          <div class="field-group"><label for="jcfd_assignSelect">Assign to</label>
+            <select id="jcfd_assignSelect">
+              <option value="">Select an officer/station</option>
+              ${branchOfficers.map(o => `<option value="${o.id}" ${rec.assignedOfficerId===o.id?'selected':''}>${acctEscapeHtml(o.name)}</option>`).join('')}
+            </select>
+          </div>
         </div>
-      </div>
-      <button class="btn btn-primary btn-sm" onclick="jcfd_assignOfficer()">Assign</button>`;
-    } else if(!isOfficer){
-      html += `<p class="no-permission-note" style="margin-top:8px;">Only a Supervisor or Chief can reassign this application.</p>`;
+        <button class="btn btn-primary btn-sm" onclick="jcfd_assignOfficer()">Assign</button>`;
+      } else if(!isOfficer){
+        html += `<p class="no-permission-note" style="margin-top:8px;">Only a Supervisor or Chief can reassign this application.</p>`;
+      }
+      html += `</div>`;
     }
-    html += `</div>`;
 
     // Official Use Checklist card — must be checked by a Police Supervisor
     // (or a Chief, who always has full access).
@@ -13659,17 +13732,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `<div class="official-card">
         <h4>Official Use Checklist</h4>
         <p class="col-desc" style="margin-bottom:10px;">Must be verified by a Police Supervisor before a permit is issued.</p>`;
+      const autoRow = (checked, label, sub) => `<label class="checkbox-row" style="cursor:default;"><input type="checkbox" disabled ${checked ? 'checked' : ''}><span>${acctEscapeHtml(label)} <span class="cell-sub" style="display:block;">${acctEscapeHtml(sub)}</span></span></label>`;
       if(!isAnnualFiling){
         // Special Event filings: 3 of the 4 items below are computed
         // automatically (see jcfd_computeChecklistAutoFields) rather than
         // toggled by hand, mirroring the Municipal Officer Portal's own
         // "auto-checked, disabled checkbox with cell-sub explanation"
         // pattern (Document Check / JCF Approval Granted cards). Only
-        // "Event Venue Satisfactory" stays a manual Supervisor judgment
-        // call. Annual filings render the original all-manual list below,
-        // completely unchanged.
+        // "Event Venue Satisfactory" stays a manual Supervisor judgment call.
         const auto = autoChecklist;
-        const autoRow = (checked, label, sub) => `<label class="checkbox-row" style="cursor:default;"><input type="checkbox" disabled ${checked ? 'checked' : ''}><span>${acctEscapeHtml(label)} <span class="cell-sub" style="display:block;">${acctEscapeHtml(sub)}</span></span></label>`;
         html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP Approval have all been uploaded.');
         html += autoRow(auto.promoterIdentityVerified, 'Promoter Identity Verified', 'Auto-checked when the Officer approves the uploaded Photo ID.');
         const venueChecked = !!cl.eventVenueSatisfactory;
@@ -13677,16 +13748,25 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         html += autoRow(auto.promoterBriefedNoiseAct, 'Promoter Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
         html += autoRow(auto.proofOfOwnershipSubmitted, 'Proof of Ownership/Authorization Submitted', 'Auto-checked when the Officer verifies the document.');
       } else {
-        const CHECKLIST_ITEMS = [
-          ['promoterIdentityVerified', 'Promoter Identity Verified'],
-          ['eventVenueSatisfactory', 'Event Venue Satisfactory'],
-          ['promoterBriefedNoiseAct', 'Promoter Briefed on Noise Abatement Act'],
-          ['venueUseLetterSubmitted', 'Venue Use Letter Submitted']
-        ];
-        CHECKLIST_ITEMS.forEach(([key, label]) => {
-          const checked = !!cl[key];
-          html += `<label class="checkbox-row"><input type="checkbox" ${checked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('${key}', this.checked)"> ${acctEscapeHtml(label)}</label>`;
-        });
+        // Annual filings: "Applicant Identity Verified" and "Premises
+        // Information Verified" stay manual Supervisor toggles (there's no
+        // Photo ID/venue-inspection equivalent to auto-check them from —
+        // Annual applicants aren't promoters and there's no single event
+        // venue to inspect). "Applicant Briefed on Noise Abatement Act" and
+        // "Required Documents Uploaded" are auto-computed the same way as
+        // Special (see jcfd_computeAnnualChecklistAutoFields) — the latter
+        // now covers every reviewable document on this filing (Noise
+        // Notice if declared, every checked Other License, and the
+        // Signature), closing the same "uploaded but not yet reviewed"
+        // gap this session's document-approval work fixed on the Special
+        // side and on the Municipal Officer portal.
+        const auto = autoChecklist;
+        const identityChecked = !!cl.applicantIdentityVerified;
+        html += `<label class="checkbox-row"><input type="checkbox" ${identityChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('applicantIdentityVerified', this.checked)"> Applicant Identity Verified</label>`;
+        const premisesChecked = !!cl.premisesInformationVerified;
+        html += `<label class="checkbox-row"><input type="checkbox" ${premisesChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('premisesInformationVerified', this.checked)"> Premises Information Verified</label>`;
+        html += autoRow(auto.promoterBriefedNoiseAct, 'Applicant Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
+        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when every uploaded document on this filing (Noise Notice, Other Licenses, Signature) has been Approved.');
       }
       if(cl.updatedBy){
         html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
@@ -13857,13 +13937,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const specialChecklistValues = { ...auto, eventVenueSatisfactory: !!cl.eventVenueSatisfactory };
         missingChecklistItems = Object.keys(specialChecklistLabels).filter(key => !specialChecklistValues[key]).map(key => specialChecklistLabels[key]);
       } else {
-        const checklistLabels = {
-          promoterIdentityVerified: 'promoter identity has not been verified',
-          eventVenueSatisfactory: 'the event venue has not been marked satisfactory',
-          promoterBriefedNoiseAct: 'the promoter has not been briefed on the Noise Abatement Act',
-          venueUseLetterSubmitted: 'the venue use letter has not been submitted'
+        // Annual filings: gate on the same auto-computed values the
+        // checklist card above renders for the 2 auto items, plus the 2
+        // remaining manual items — mirrors the Special branch's own
+        // "never read cl[key] for an auto item" reasoning.
+        const auto = autoChecklist;
+        const annualChecklistLabels = {
+          applicantIdentityVerified: 'applicant identity has not been verified',
+          premisesInformationVerified: 'the premises information has not been verified',
+          promoterBriefedNoiseAct: 'the applicant has not been briefed on the Noise Abatement Act',
+          requiredDocsUploaded: 'not all uploaded documents on this filing have been Approved'
         };
-        missingChecklistItems = Object.keys(checklistLabels).filter(key => !cl[key]).map(key => checklistLabels[key]);
+        const annualChecklistValues = { ...auto, applicantIdentityVerified: !!cl.applicantIdentityVerified, premisesInformationVerified: !!cl.premisesInformationVerified };
+        missingChecklistItems = Object.keys(annualChecklistLabels).filter(key => !annualChecklistValues[key]).map(key => annualChecklistLabels[key]);
       }
       const isDecided = rec.status === 'Approved' || rec.status === 'Rejected';
       html += `<div class="official-card">
@@ -15603,7 +15689,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     const cl = rec.officialChecklist || {};
-    const checklistComplete = !!(cl.promoterIdentityVerified && cl.eventVenueSatisfactory && cl.promoterBriefedNoiseAct && cl.venueUseLetterSubmitted);
+    // Belt-and-suspenders re-check of the same gate the "Approve & issue
+    // permit" button's disabled state already enforces (see the
+    // missingChecklistItems computation in jcfd_renderApplicationDetail) —
+    // mirrored here rather than reusing that array-of-labels logic verbatim,
+    // since this only needs a single boolean and rec.formVariant decides
+    // which of the two checklist shapes applies.
+    let checklistComplete;
+    if(rec.formVariant === 'Annual'){
+      const auto = await jcfd_computeAnnualChecklistAutoFields(rec);
+      checklistComplete = !!(cl.applicantIdentityVerified && cl.premisesInformationVerified && auto.promoterBriefedNoiseAct && auto.requiredDocsUploaded);
+    } else {
+      const auto = await jcfd_computeChecklistAutoFields(rec);
+      checklistComplete = !!(auto.promoterIdentityVerified && cl.eventVenueSatisfactory && auto.promoterBriefedNoiseAct && auto.requiredDocsUploaded && auto.proofOfOwnershipSubmitted);
+    }
     if(!checklistComplete){
       jcfd_showToast('Cannot approve — the Official Use Checklist has not been fully completed yet.');
       return;
@@ -20124,6 +20223,130 @@ function renderMmSummary(){
 // helper convention since this is a different IIFE.
 const MM_JCF_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
 
+// JAMMS/JCAP specifically (not the other 4 Other Licenses) can be added or
+// re-uploaded on Main Menu at any time for an Annual filing — unlike the
+// original wizard, where these are only ever set once at submission. An
+// applicant who didn't have one yet when they filed can add it later, and
+// a rejected one can be re-uploaded. Uploading a file auto-checks that
+// licence and opens the Licence Number/Expiry Date fields, which are
+// required before the details can be saved. Renders inline as part of the
+// Other Licenses & Approvals section below (rendered via a dynamic HTML
+// string like everything else in this function, so onclick/onchange
+// handlers are wired the same way as the rest of the file).
+function mmAnnualOtherLicenseWidget(key, item){
+  const label = MM_JCF_OTHER_LICENSE_LABELS[key] || key;
+  const checked = !!(item && item.checked);
+  const status = (item && item.status) || (item && item.fileName ? 'Submitted' : 'Not Uploaded');
+  const canUpload = !checked || status === 'Rejected';
+  const statusText = { 'Not Uploaded': 'Not added yet', 'Submitted': 'Uploaded — pending JCF review (locked)', 'Approved': 'Approved by JCF (locked)', 'Rejected': 'Rejected by JCF — please re-upload' }[status] || status;
+
+  let html = `<div class="review-row"><div class="rr-label">${poa_escapeHtml(label)}</div><div class="rr-value">
+    ${checked ? `Licence # ${poa_escapeHtml(item.licenceNumber || 'N/A')} · Expires ${poa_escapeHtml(item.expiryDate || 'N/A')} · ` : ''}${poa_escapeHtml(statusText)}
+    ${canUpload ? ` <button type="button" class="btn btn-sm" style="margin-left:8px;" onclick="document.getElementById('mmAnnualOl_${key}_file').click()">${checked ? 'Re-upload' : 'Upload'}</button>` : ''}
+    <input type="file" id="mmAnnualOl_${key}_file" accept="image/*,.pdf" style="display:none;" onchange="mmAnnualOtherLicenseFileChosen('${key}', this)">
+  </div></div>`;
+
+  if(checked){
+    if(status === 'Rejected' && item.officerNote){
+      html += `<div class="mm-doc-rejection-note" style="margin:2px 0 10px;">"${poa_escapeHtml(item.officerNote)}"</div>`;
+    }
+    html += `<div class="field-row" style="margin:6px 0 16px;">
+      <div class="field-group">
+        <label for="mmAnnualOl_${key}_number">Licence Number <span class="required-mark">*</span></label>
+        <input type="text" id="mmAnnualOl_${key}_number" value="${poa_escapeHtml(item.licenceNumber || '')}">
+      </div>
+      <div class="field-group">
+        <label for="mmAnnualOl_${key}_expiry">Expiry Date <span class="required-mark">*</span></label>
+        <input type="date" id="mmAnnualOl_${key}_expiry" value="${poa_escapeHtml(item.expiryDate || '')}">
+      </div>
+      <div class="field-group" style="justify-content:flex-end;">
+        <button type="button" class="btn btn-sm" onclick="mmAnnualSaveOtherLicenseDetails('${key}')">Save licence details</button>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+async function mmAnnualOtherLicenseFileChosen(key, input){
+  if(!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const jcfApp = currentLinkedJcfApp;
+  if(!jcfApp || !jcfApp.jcfAppNumber || !window.storage){
+    input.value = '';
+    poa_showToast('Could not reach your Noise Abatement application — please try again.');
+    return;
+  }
+
+  const label = MM_JCF_OTHER_LICENSE_LABELS[key] || key;
+  const confirmed = await window.atdConfirm(`Upload "${file.name}" for ${label}?\n\nYou'll need to enter the Licence Number and Expiry Date next. Once submitted, you won't be able to select a different file for this document unless a JCF officer rejects it.`);
+  if(!confirmed){
+    input.value = '';
+    return;
+  }
+
+  const fileData = await poa_readFileAsDataUrl(file);
+  try{
+    jcfApp.otherLicenses = jcfApp.otherLicenses || {};
+    const existing = jcfApp.otherLicenses[key] || {};
+    jcfApp.otherLicenses[key] = {
+      ...existing,
+      checked: true,
+      fileName: file.name,
+      status: 'Submitted',
+      officerNote: ''
+    };
+    await window.storage.set(`jcfApplication:${jcfApp.jcfAppNumber}`, JSON.stringify(jcfApp), true);
+
+    // Same companion-record reasoning as mmJcfDocFileChosen/mmNoiseDocFileChosen
+    // above — large base64 file bytes live under jcfApplicationFiles, not on
+    // the main record, and jcfd_openDocModal reads otherLicense_<key> data
+    // from exactly this files.otherLicenseFiles.<key> shape.
+    let files = {};
+    try{
+      const r = await window.storage.get(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, true);
+      files = (r && r.value) ? JSON.parse(r.value) : {};
+    } catch(e){ /* start fresh if unreadable */ }
+    files.otherLicenseFiles = files.otherLicenseFiles || {};
+    files.otherLicenseFiles[key] = { fileData, fileName: file.name };
+    await window.storage.set(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, JSON.stringify(files), true);
+  } catch(e){
+    input.value = '';
+    poa_showToast('Could not save your upload — please try again.');
+    return;
+  }
+
+  input.value = '';
+  poa_showToast(`${label} uploaded — please enter the Licence Number and Expiry Date below and save.`);
+  renderMmNoise();
+}
+window.mmAnnualOtherLicenseFileChosen = mmAnnualOtherLicenseFileChosen;
+
+async function mmAnnualSaveOtherLicenseDetails(key){
+  const jcfApp = currentLinkedJcfApp;
+  if(!jcfApp || !jcfApp.jcfAppNumber || !window.storage) return;
+  const numberEl = document.getElementById(`mmAnnualOl_${key}_number`);
+  const expiryEl = document.getElementById(`mmAnnualOl_${key}_expiry`);
+  const licenceNumber = numberEl ? numberEl.value.trim() : '';
+  const expiryDate = expiryEl ? expiryEl.value : '';
+  if(!licenceNumber || !expiryDate){
+    poa_showToast('Please enter both the Licence Number and Expiry Date.');
+    return;
+  }
+  try{
+    jcfApp.otherLicenses = jcfApp.otherLicenses || {};
+    jcfApp.otherLicenses[key] = jcfApp.otherLicenses[key] || {};
+    jcfApp.otherLicenses[key].licenceNumber = licenceNumber;
+    jcfApp.otherLicenses[key].expiryDate = expiryDate;
+    await window.storage.set(`jcfApplication:${jcfApp.jcfAppNumber}`, JSON.stringify(jcfApp), true);
+  } catch(e){
+    poa_showToast('Could not save — please try again.');
+    return;
+  }
+  poa_showToast(`${MM_JCF_OTHER_LICENSE_LABELS[key] || key} licence details saved.`);
+  renderMmNoise();
+}
+window.mmAnnualSaveOtherLicenseDetails = mmAnnualSaveOtherLicenseDetails;
+
 function renderMmNoise(){
   const notStarted = document.getElementById('mmNoiseNotStarted');
   const submitted = document.getElementById('mmNoiseSubmitted');
@@ -20217,6 +20440,14 @@ function renderMmNoise(){
       html += mmDetailRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || jcfApp.poaAppNumber || 'N/A'}`);
     }
     Object.keys(MM_JCF_OTHER_LICENSE_LABELS).forEach(key => {
+      // JAMMS/JCAP are addable/re-uploadable from here at any time (see
+      // mmAnnualOtherLicenseWidget above) — the other 4 stay the original
+      // read-only summary row, unchanged, shown only once checked at
+      // submission.
+      if(key === 'jamms' || key === 'jacap'){
+        html += mmAnnualOtherLicenseWidget(key, ol[key]);
+        return;
+      }
       const item = ol[key];
       if(!item || !item.checked) return;
       html += mmDetailRow(MM_JCF_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'} · ${item.fileName || 'Not uploaded'}`);
