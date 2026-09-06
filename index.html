@@ -3933,6 +3933,46 @@
       return res.data || { ok: false };
     },
 
+    // Safety-net twin of submitPendingVenue above, called from the JCF
+    // Annual Noise Abatement filing (jcfAnnual_submitApp()) right after its
+    // own submission — a JCF Annual filing always references a Premises ID
+    // that the LINKED POA application's own submission is supposed to have
+    // already registered (see submitApp()'s own best-effort pending-venue
+    // write), but that write is itself best-effort and can silently fail
+    // (a network hiccup, a clock-skew retry that ran out, etc.), leaving
+    // the venue permanently invisible to the CEO's "Venues Pending Review"
+    // panel with no second chance. Unlike submitPendingVenue, this is
+    // strictly idempotent and non-destructive server-side (Fix #52,
+    // backend/fix52_ensure_pending_venue.sql, atd_ensure_pending_venue): if
+    // the venue already exists — pending, accepted, or rejected — it is
+    // left completely alone except for filling in owner name/address/phone
+    // when the existing row has none on file yet (a brand-new venue has no
+    // owner info at POA-submission time — see buildApplicationRecord's own
+    // venue.ownerName comment), which the JCF wizard's own Property Owner
+    // step collects. Only creates a new pending entry when nothing with
+    // this id exists at all.
+    ensurePendingVenue: async function (opts) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_ensure_pending_venue', {
+          p_id: opts.id,
+          p_muni_number: opts.muniNumber,
+          p_source_app_number: opts.sourceAppNumber,
+          p_name: opts.name,
+          p_addr1: opts.addr1 || '',
+          p_addr2: opts.addr2 || '',
+          p_district: opts.district || '',
+          p_max_cap: opts.maxCap ? parseInt(opts.maxCap, 10) : null,
+          p_max_parking: opts.maxParking ? parseInt(opts.maxParking, 10) : null,
+          p_owner_name: opts.ownerName || '',
+          p_owner_address: opts.ownerAddress || '',
+          p_owner_phone: opts.ownerPhone || ''
+        });
+      });
+      if (res.error) { window.atdShowDebugError('ensurePendingVenue(' + opts.id + ')', res.error); return { ok: false, error: res.error.message }; }
+      return res.data || { ok: false };
+    },
+
     // Applicant wallet (Credit Notes) — RLS already scopes this to the
     // caller's own rows ("kv_store: poa reads own wallet transactions" in
     // fix22_wallet.sql), so this is a plain filtered read, one query instead
@@ -7820,6 +7860,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <span style="font-size:14px; font-weight:600;" id="venueActiveLabel">Active</span>
     </div>
 
+    <!-- Hidden for "Add venue" (no id exists until the venue is first
+         saved — see openVenueModal()/saveVenue()) and shown read-only when
+         editing an existing one, same id the View modal already shows and
+         the one every permit/premises-id reference elsewhere in the system
+         (JCF filings, other applications at this venue) uses to link back
+         here. -->
+    <div class="field-group hidden" id="venueEditIdRow">
+      <label for="venueFormId">Venue ID</label>
+      <input type="text" id="venueFormId" disabled>
+    </div>
+
     <div class="field-group">
       <label for="venueFormName">Venue name</label>
       <input type="text" id="venueFormName" placeholder="e.g. Ranny Williams Entertainment Centre">
@@ -7875,6 +7926,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <input type="text" id="venueFormOwnerPhone" placeholder="Phone number">
       </div>
     </div>
+
+    <!-- Hidden for "Add venue" — same reasoning as the Venue ID row above,
+         a permit can only ever attach to a venue that already exists (see
+         addManualVenuePermit()'s own guard). Populated by
+         muni_renderVenueEditPermits() every time this modal opens in Edit
+         mode, and re-rendered after every add/remove so it always reflects
+         what's actually saved. -->
+    <div class="hidden" id="venueEditPermitsSection"></div>
 
     <div class="modal-actions">
       <button class="btn" onclick="closeVenueModal()">Cancel</button>
@@ -19162,7 +19221,14 @@ async function submitApp(){
             appNumber);
         }
       } catch(venueErr){
-        // non-critical — ignore, see comment above
+        // non-critical for the applicant — the application itself already
+        // saved successfully — but this used to fail completely silently,
+        // which made a missing venue on the CEO's dashboard undiagnosable.
+        // Logged so it shows up the same way any other backend error does
+        // (see window.atdShowDebugError, already used by the RPC call just
+        // above for the non-throwing "res.error" case — this catches the
+        // throwing case, e.g. a network failure before a response came back).
+        console.error(`Could not register the venue for ${appNumber}:`, venueErr);
       }
     }
 
@@ -22807,15 +22873,29 @@ function venueStatusBadge(v){
   return v.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Inactive</span>';
 }
 
+// Same 6 keys/labels as JCFANNUAL_OTHER_LICENSE_KEYS/JCFD_OTHER_LICENSE_LABELS/
+// MM_JCF_OTHER_LICENSE_LABELS elsewhere in this file — this portal has never
+// needed its own copy before now (see muni_collectVenuePermits below, the
+// first place the Municipal officer portal surfaces these).
+const MUNI_JCF_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
+
 // "Show every permit connected to this venue, valid in green with its
 // expiration date, expired in red" — surfaced on the venue record itself
-// (Venues page "View" modal), not just from inside one application's own
-// detail view the way muni_venuePermitsPanelHtml already does. Collects
-// BOTH kinds of permit a venue can carry: the Places of Amusement permit
-// itself (Special or Annual, from this Municipal Corporation's own
-// `applications` list) and, for an Annual filing, its linked JCF Annual
-// Noise Abatement Permit (a separate storage record this portal doesn't
-// otherwise load in bulk — fetched here per matching application).
+// (Venues page "View" and "Edit" modals), not just from inside one
+// application's own detail view the way muni_venuePermitsPanelHtml already
+// does. Collects every kind of permit a venue can carry:
+//   1. The Places of Amusement permit itself (Special or Annual, from this
+//      Municipal Corporation's own `applications` list).
+//   2. For an Annual filing, its linked JCF Annual Noise Abatement Permit
+//      (a separate storage record this portal doesn't otherwise load in
+//      bulk — fetched here per matching application).
+//   3. That same JCF Annual filing's own Other Licenses (Trade/Liquor/Fire/
+//      Health/JAMMS/JACAP) once a JCF officer has Approved them — these are
+//      regulatory licences tied to the premises itself, not just to one
+//      permit, so they belong on the venue's own record too.
+//   4. Permits an officer has typed in directly on this venue (see
+//      addManualVenuePermit()) — for anything not captured by an
+//      application at all (e.g. a licence predating this system).
 async function muni_collectVenuePermits(venueId){
   const list = [];
   if(!venueId) return list;
@@ -22847,10 +22927,30 @@ async function muni_collectVenuePermits(venueId){
               applicant: a.applicant
             });
           }
+          const ol = jcfRec.otherLicenses || {};
+          Object.keys(MUNI_JCF_OTHER_LICENSE_LABELS).forEach(key => {
+            const item = ol[key];
+            if(item && item.checked && item.status === 'Approved'){
+              list.push({
+                label: MUNI_JCF_OTHER_LICENSE_LABELS[key],
+                number: item.licenceNumber || '',
+                expiresDate: item.expiryDate || '',
+                appNumber: a.appNumber,
+                applicant: a.applicant
+              });
+            }
+          });
         }
       } catch(e){ /* skip unreadable */ }
     }
   }
+  const v = venues.find(v => v.id === venueId);
+  (( v && v.manualPermits) || []).forEach(p => {
+    list.push({
+      label: p.name, number: p.permitNumber || '', expiresDate: p.expiryDate || '',
+      manual: true, id: p.id, addedBy: p.addedBy, addedDate: p.addedDate
+    });
+  });
   return list;
 }
 
@@ -22864,19 +22964,91 @@ function muni_permitValidityBadgeHtml(expiresDate){
     : `<span class="badge badge-green">Valid until ${muni_escapeHtml(muni_formatLongDate(expiresDate))}</span>`;
 }
 
-function muni_venuePermitsSectionHtml(permits){
+// `editable` (Edit venue modal only — the View modal always passes plain
+// read-only rows) adds a Remove button on manually-added permits, since
+// those are the only ones this portal itself owns; a permit pulled in from
+// an application/JCF filing can only ever be edited from that application.
+function muni_venuePermitsSectionHtml(permits, editable){
   let html = `<hr class="section-divider"><div class="modal-section-title">Permits &amp; Certifications</div>`;
   if(!permits.length){
     html += `<p class="no-permission-note">No permits on file for this venue yet.</p>`;
-    return html;
+  } else {
+    html += permits.map(p => `
+      <div class="detail-row">
+        <div class="dr-label">${muni_escapeHtml(p.label)}${p.number ? ' — ' + muni_escapeHtml(p.number) : ''}${p.manual ? ' <span class="cell-sub">(added manually)</span>' : ''}</div>
+        <div class="dr-value">
+          ${muni_permitValidityBadgeHtml(p.expiresDate)}
+          ${editable && p.manual ? ` <button type="button" class="icon-btn" title="Remove" onclick='removeManualVenuePermit(${JSON.stringify(p.id)})'>&times;</button>` : ''}
+        </div>
+      </div>
+    `).join('');
   }
-  html += permits.map(p => `
-    <div class="detail-row">
-      <div class="dr-label">${muni_escapeHtml(p.label)}${p.number ? ' — ' + muni_escapeHtml(p.number) : ''}</div>
-      <div class="dr-value">${muni_permitValidityBadgeHtml(p.expiresDate)}</div>
-    </div>
-  `).join('');
+  if(editable){
+    html += `
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-group"><label for="venuePermitNameInput">Permit / certification name</label><input type="text" id="venuePermitNameInput" placeholder="e.g. Fire Certificate"></div>
+        <div class="field-group"><label for="venuePermitNumberInput">Permit number</label><input type="text" id="venuePermitNumberInput" placeholder="e.g. FC-2026-014"></div>
+        <div class="field-group"><label for="venuePermitExpiryInput">Expiry date</label><input type="date" id="venuePermitExpiryInput"></div>
+        <div class="field-group" style="justify-content:flex-end;"><button type="button" class="btn btn-sm" onclick="addManualVenuePermit()">Add permit</button></div>
+      </div>`;
+  }
   return html;
+}
+
+// Manually recorded on the venue itself (not tied to any application) —
+// for a permit/certification this system never generated, e.g. one issued
+// before this platform existed. Persists immediately (same "don't make the
+// officer press a separate Save" pattern as Flag/Unflag venue below) rather
+// than waiting on the Edit modal's own "Save venue" button.
+async function addManualVenuePermit(){
+  if(!editingVenueId){
+    muni_showToast('Save this venue before adding permits to it.');
+    return;
+  }
+  const name = document.getElementById('venuePermitNameInput').value.trim();
+  const permitNumber = document.getElementById('venuePermitNumberInput').value.trim();
+  const expiryDate = document.getElementById('venuePermitExpiryInput').value;
+  if(!name || !expiryDate){
+    muni_showToast('Please enter a permit name and expiry date.');
+    return;
+  }
+  const v = venues.find(v => v.id === editingVenueId);
+  if(!v) return;
+  v.manualPermits = v.manualPermits || [];
+  v.manualPermits.push({
+    id: `permit-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+    name, permitNumber, expiryDate,
+    addedBy: currentUser.name, addedDate: new Date().toISOString().slice(0,10)
+  });
+  await persistVenue(v);
+  document.getElementById('venuePermitNameInput').value = '';
+  document.getElementById('venuePermitNumberInput').value = '';
+  document.getElementById('venuePermitExpiryInput').value = '';
+  muni_showToast(`${name} added.`);
+  await muni_renderVenueEditPermits(editingVenueId);
+}
+window.addManualVenuePermit = addManualVenuePermit;
+
+async function removeManualVenuePermit(permitId){
+  if(!editingVenueId) return;
+  const v = venues.find(v => v.id === editingVenueId);
+  if(!v || !v.manualPermits) return;
+  v.manualPermits = v.manualPermits.filter(p => p.id !== permitId);
+  await persistVenue(v);
+  muni_showToast('Permit removed.');
+  await muni_renderVenueEditPermits(editingVenueId);
+}
+window.removeManualVenuePermit = removeManualVenuePermit;
+
+// Shared by openVenueModal() (initial render) and both add/remove handlers
+// above (re-render after a change) — keeps the Edit modal's own permits
+// section in sync the same way openVenueViewModal's async fill-in already
+// works for the View modal.
+async function muni_renderVenueEditPermits(venueId){
+  const section = document.getElementById('venueEditPermitsSection');
+  if(!section) return;
+  const permits = await muni_collectVenuePermits(venueId);
+  section.innerHTML = muni_venuePermitsSectionHtml(permits, true);
 }
 
 // A venue an applicant manually typed in on their own application, still
@@ -22990,6 +23162,8 @@ function openVenueModal(id){
   editingVenueId = id || null;
   const title = document.getElementById('venueModalTitle');
 
+  const idRow = document.getElementById('venueEditIdRow');
+  const permitsSection = document.getElementById('venueEditPermitsSection');
   if(id){
     const v = venues.find(v => v.id === id);
     title.textContent = 'Edit venue';
@@ -23005,6 +23179,15 @@ function openVenueModal(id){
     document.getElementById('venueFormOwnerName').value = v.ownerName || '';
     document.getElementById('venueFormOwnerAddress').value = v.ownerAddress || '';
     document.getElementById('venueFormOwnerPhone').value = v.ownerPhone || '';
+    if(idRow){
+      idRow.classList.remove('hidden');
+      document.getElementById('venueFormId').value = v.id;
+    }
+    if(permitsSection){
+      permitsSection.classList.remove('hidden');
+      permitsSection.innerHTML = muni_venuePermitsSectionHtml([], true);
+      muni_renderVenueEditPermits(id);
+    }
   } else {
     title.textContent = 'Add venue';
     document.getElementById('venueActiveToggle').checked = true;
@@ -23012,6 +23195,12 @@ function openVenueModal(id){
     ['venueFormName','venueFormStreetNumber','venueFormStreetName','venueFormDistrict','venueFormCost','venueFormMaxCap','venueFormMaxParking','venueFormOwnerName','venueFormOwnerAddress','venueFormOwnerPhone'].forEach(id=>{
       document.getElementById(id).value = '';
     });
+    // A brand-new venue has no id yet (one is only generated once it's
+    // actually saved — see saveVenue()'s newVenue.id below), and no permits
+    // can be attached to it until it exists as a real record, so both
+    // sections stay hidden until this modal is reopened in Edit mode.
+    if(idRow) idRow.classList.add('hidden');
+    if(permitsSection){ permitsSection.classList.add('hidden'); permitsSection.innerHTML = ''; }
   }
   document.getElementById('venueModal').classList.remove('hidden');
 }
@@ -32799,6 +32988,64 @@ async function jcfAnnual_submitApp(){
         } catch(fileErr){ /* non-critical — the JCF application itself was submitted fine */ }
       }
     }
+
+    // Safety net: guarantee the linked venue actually exists in the
+    // municipality's venue database by the time this filing completes, in
+    // case the linked POA application's OWN best-effort registration (see
+    // submitApp()'s pending-venue block) silently failed — see
+    // ATDBackend.ensurePendingVenue's own comment for the full reasoning.
+    // Skipped for an auto-rejected (watch list match) filing — nothing to
+    // register for a filing that isn't going anywhere.
+    if(!watchlistHit && poaData && poaData.venueIsNew && record.premisesVenueId && record.muniId != null && record.premisesInfo.businessName){
+      try{
+        const ownerDetail = {
+          id: record.premisesVenueId,
+          muniNumber: record.muniId,
+          sourceAppNumber: record.poaAppNumber || number,
+          name: record.premisesInfo.businessName,
+          addr1: poaData.venueAddr1 || '',
+          addr2: poaData.venueAddr2 || '',
+          district: poaData.venueDistrict || '',
+          ownerName: (record.premisesInfo.propertyOwner && record.premisesInfo.propertyOwner.name) || '',
+          ownerAddress: '',
+          ownerPhone: (record.premisesInfo.propertyOwner && record.premisesInfo.propertyOwner.phone) || ''
+        };
+        if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.ensurePendingVenue){
+          await window.ATDBackend.ensurePendingVenue(ownerDetail);
+        } else if(window.storage){
+          // Local/dev fallback has no RLS to work around, so it can safely
+          // check for the row's existence itself rather than needing a
+          // dedicated idempotent RPC the way the real backend does.
+          const existing = await window.storage.get(`venue:${ownerDetail.id}`, true);
+          if(existing && existing.value){
+            const v = JSON.parse(existing.value);
+            if(!v.ownerName && ownerDetail.ownerName){
+              v.ownerName = ownerDetail.ownerName;
+              v.ownerPhone = ownerDetail.ownerPhone;
+              await window.storage.set(`venue:${ownerDetail.id}`, JSON.stringify(v), true);
+            }
+          } else {
+            await window.storage.set(`venue:${ownerDetail.id}`, JSON.stringify({
+              id: ownerDetail.id, muniId: record.muniId, name: ownerDetail.name,
+              streetNumber: '', streetName: [ownerDetail.addr1, ownerDetail.addr2].filter(Boolean).join(', '),
+              district: ownerDetail.district, cost: 0, maxCap: 0, maxParking: 0,
+              ownerName: ownerDetail.ownerName, ownerAddress: '', ownerPhone: ownerDetail.ownerPhone,
+              active: false, flagged: false, flagReason: '',
+              pendingApproval: true, rejected: false,
+              sourceAppNumber: ownerDetail.sourceAppNumber,
+              createdBy: `Applicant (via ${ownerDetail.sourceAppNumber})`,
+              created: todayIso
+            }), true);
+            window.atdNotify(record.muniId, 'manageVenues', 'venue_pending_review',
+              `New venue "${ownerDetail.name}" submitted on ${ownerDetail.sourceAppNumber} needs review before it can be added to the venue database.`,
+              ownerDetail.sourceAppNumber);
+          }
+        }
+      } catch(venueErr){
+        console.error(`Could not verify/register the venue for JCF filing ${number}:`, venueErr);
+      }
+    }
+
     document.getElementById('jcfAnnual_applicationFlow').classList.add('hidden');
     document.getElementById('confirmPage').classList.remove('hidden');
     document.getElementById('confirmAppNumber').textContent = number;
