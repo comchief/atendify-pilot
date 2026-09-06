@@ -6934,11 +6934,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="category-tab" data-category="Approved" onclick="setAppCategory('Approved')">Approved <span class="category-tab-count" id="catCountApproved">0</span></button>
           <button class="category-tab" data-category="Rejected" onclick="setAppCategory('Rejected')">Rejected <span class="category-tab-count" id="catCountRejected">0</span></button>
         </div>
+      </div>
 
+      <!-- Annual and Special Event applications have different shapes (a
+           premises/business type vs. a venue/event/event date), so a single
+           shared table always showed one or the other as a generic "Business
+           / Event" cell. Split into two tables, each with columns that
+           actually apply to that license type -- mirrors the same split
+           already done for the JCF Officer Portal's Applications page. The
+           search box, status filter, and category tabs above stay shared:
+           both tables are filtered from the same underlying list. -->
+      <div class="panel">
+        <div class="panel-head"><h3 style="font-size:15px; margin:0;">Special Event Applications</h3></div>
         <div style="overflow-x:auto;">
           <table>
-            <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>License type</th><th>Business / Event</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
-            <tbody id="muni_applicationsBody"></tbody>
+            <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>Venue</th><th>Event</th><th>Event Date</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
+            <tbody id="muni_applicationsBodySpecial"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3 style="font-size:15px; margin:0;">Annual Applications</h3></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>Premises</th><th>Business Type</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
+            <tbody id="muni_applicationsBodyAnnual"></tbody>
           </table>
         </div>
       </div>
@@ -25093,7 +25114,9 @@ function setAppCategory(category){
 }
 
 function muni_renderApplications(){
-  const body = document.getElementById('muni_applicationsBody');
+  const specialBody = document.getElementById('muni_applicationsBodySpecial');
+  const annualBody = document.getElementById('muni_applicationsBodyAnnual');
+  if(!specialBody || !annualBody) return;
   const search = document.getElementById('muni_appSearch').value.trim().toLowerCase();
   const statusFilter = document.getElementById('muni_appStatusFilter').value;
   const all = myApplications();
@@ -25111,23 +25134,47 @@ function muni_renderApplications(){
   });
   list.sort((a,b)=> b.submitted.localeCompare(a.submitted));
 
-  if(!list.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No applications match your filters.</td></tr>`;
-    return;
+  // Annual and Special Event applications have different shapes -- see the
+  // comment above the two tables in the HTML -- so each is rendered into
+  // its own tbody rather than one shared table showing "N/A" columns.
+  const specialVisible = list.filter(a => a.licenseType !== 'Annual');
+  const annualVisible = list.filter(a => a.licenseType === 'Annual');
+  const venueNameOf = a => (a.raw && a.raw.venue && a.raw.venue.name) || 'N/A';
+
+  if(!specialVisible.length){
+    specialBody.innerHTML = `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>`;
+  } else {
+    specialBody.innerHTML = specialVisible.map(a => `
+      <tr>
+        <td class="cell-primary">${a.appNumber}</td>
+        <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+        <td>${muni_escapeHtml(a.applicant)}</td>
+        <td>${muni_escapeHtml(venueNameOf(a))}</td>
+        <td>${muni_escapeHtml(a.businessOrEvent)}</td>
+        <td>${a.date}</td>
+        <td>${a.submitted}</td>
+        <td>${muni_statusBadge(a.status)}</td>
+        <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
+      </tr>
+    `).join('');
   }
 
-  body.innerHTML = list.map(a => `
-    <tr>
-      <td class="cell-primary">${a.appNumber}</td>
-      <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
-      <td>${muni_escapeHtml(a.applicant)}</td>
-      <td>${a.licenseType}</td>
-      <td>${muni_escapeHtml(a.businessOrEvent)}<div class="cell-sub">${a.date}</div></td>
-      <td>${a.submitted}</td>
-      <td>${muni_statusBadge(a.status)}</td>
-      <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
-    </tr>
-  `).join('');
+  if(!annualVisible.length){
+    annualBody.innerHTML = `<tr><td colspan="8" class="table-empty">No Annual applications match your filters.</td></tr>`;
+  } else {
+    annualBody.innerHTML = annualVisible.map(a => `
+      <tr>
+        <td class="cell-primary">${a.appNumber}</td>
+        <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+        <td>${muni_escapeHtml(a.applicant)}</td>
+        <td>${muni_escapeHtml(venueNameOf(a))}</td>
+        <td>${muni_escapeHtml(a.businessOrEvent)}</td>
+        <td>${a.submitted}</td>
+        <td>${muni_statusBadge(a.status)}</td>
+        <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
+      </tr>
+    `).join('');
+  }
 }
 
 function renderUsers(){
