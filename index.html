@@ -18036,7 +18036,17 @@ function computeCosts(){
       venueCostGross = 0;
       venueLabel = 'Registration of Use / Venue Capacity fee — select a Registration of Use and enter its capacity to calculate';
     }
-    venueIsNew = false;
+    // Bug fix: this used to be hardcoded false for every Annual application,
+    // on the reasoning that Annual has no venue-database search step (see
+    // venueDatabaseSearchSection being hidden for Annual above) — true, but
+    // that also silently meant an Annual applicant's manually-entered
+    // premises (poa_venueName, always the only path here) was NEVER queued
+    // into the municipality's Pending Venues review panel (see submitApp's
+    // own `if(record.costs && record.costs.venueIsNew ...)` gate below),
+    // even though the applicant just added a brand-new venue the CEO has
+    // never seen. An Annual filing has no "select an existing db venue"
+    // option at all, so a filled-in venue name here is always a new one.
+    venueIsNew = !!venueNameVal;
     venueFromDb = false;
   } else if(venueSearchVal && venueSearchVal.startsWith('db-')){
     // A venue selected from the municipality's own database already has an
@@ -22797,6 +22807,78 @@ function venueStatusBadge(v){
   return v.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Inactive</span>';
 }
 
+// "Show every permit connected to this venue, valid in green with its
+// expiration date, expired in red" — surfaced on the venue record itself
+// (Venues page "View" modal), not just from inside one application's own
+// detail view the way muni_venuePermitsPanelHtml already does. Collects
+// BOTH kinds of permit a venue can carry: the Places of Amusement permit
+// itself (Special or Annual, from this Municipal Corporation's own
+// `applications` list) and, for an Annual filing, its linked JCF Annual
+// Noise Abatement Permit (a separate storage record this portal doesn't
+// otherwise load in bulk — fetched here per matching application).
+async function muni_collectVenuePermits(venueId){
+  const list = [];
+  if(!venueId) return list;
+  const linkedApps = applications.filter(a => a.venueRegistryVenueId === venueId);
+  linkedApps.forEach(a => {
+    if(a.permitGenerated && a.permit){
+      list.push({
+        label: a.licenseType === 'Annual' ? 'Annual Places of Amusement Permit' : 'Special Event Places of Amusement Permit',
+        number: a.permit.number || '',
+        expiresDate: a.permit.expiresDate || '',
+        appNumber: a.appNumber,
+        applicant: a.applicant
+      });
+    }
+  });
+  if(window.storage){
+    for(const a of linkedApps){
+      if(a.licenseType !== 'Annual') continue;
+      try{
+        const r = await window.storage.get(`jcfApplication:${a.appNumber}`, true);
+        if(r && r.value){
+          const jcfRec = JSON.parse(r.value);
+          if(jcfRec.permitGenerated && jcfRec.permit){
+            list.push({
+              label: 'JCF Annual Noise Abatement Permit',
+              number: jcfRec.permit.number || '',
+              expiresDate: jcfRec.permit.expiresDate || '',
+              appNumber: a.appNumber,
+              applicant: a.applicant
+            });
+          }
+        }
+      } catch(e){ /* skip unreadable */ }
+    }
+  }
+  return list;
+}
+
+// Green + expiry date while still valid, red + expiry date once past —
+// same badge classes venueStatusBadge above already uses.
+function muni_permitValidityBadgeHtml(expiresDate){
+  if(!expiresDate) return '<span class="badge badge-gray">No expiration on file</span>';
+  const expired = expiresDate < new Date().toISOString().slice(0, 10);
+  return expired
+    ? `<span class="badge badge-red">Expired ${muni_escapeHtml(muni_formatLongDate(expiresDate))}</span>`
+    : `<span class="badge badge-green">Valid until ${muni_escapeHtml(muni_formatLongDate(expiresDate))}</span>`;
+}
+
+function muni_venuePermitsSectionHtml(permits){
+  let html = `<hr class="section-divider"><div class="modal-section-title">Permits &amp; Certifications</div>`;
+  if(!permits.length){
+    html += `<p class="no-permission-note">No permits on file for this venue yet.</p>`;
+    return html;
+  }
+  html += permits.map(p => `
+    <div class="detail-row">
+      <div class="dr-label">${muni_escapeHtml(p.label)}${p.number ? ' — ' + muni_escapeHtml(p.number) : ''}</div>
+      <div class="dr-value">${muni_permitValidityBadgeHtml(p.expiresDate)}</div>
+    </div>
+  `).join('');
+  return html;
+}
+
 // A venue an applicant manually typed in on their own application, still
 // awaiting a reviewing officer's Accept/Reject decision — see the "Venues
 // Pending Review" panel above the main registered-venues table. Kept out of
@@ -23004,13 +23086,14 @@ async function persistVenue(v){
   }
 }
 
-function openVenueViewModal(id){
+async function openVenueViewModal(id){
   const v = venues.find(v => v.id === id);
   if(!v) return;
   document.getElementById('venueViewTitle').textContent = v.name;
   document.getElementById('venueViewSub').textContent = venueStatusBadge(v).replace(/<[^>]+>/g,'');
 
   const rows = [
+    ['Venue ID', v.id],
     ['Status', v.flagged ? `Flagged — ${v.flagReason}` : (v.active ? 'Active' : 'Inactive')],
     ['Address', [v.streetNumber, v.streetName, v.district].filter(Boolean).join(', ') || 'N/A'],
     ['Cost', muni_formatCurrency(v.cost)],
@@ -23023,9 +23106,17 @@ function openVenueViewModal(id){
   ];
   document.getElementById('venueViewBody').innerHTML = rows.map(([label,value])=>
     `<div class="detail-row"><div class="dr-label">${muni_escapeHtml(label)}</div><div class="dr-value">${muni_escapeHtml(String(value))}</div></div>`
-  ).join('');
+  ).join('') + `<div id="venueViewPermitsSection">${muni_venuePermitsSectionHtml([])}</div>`;
 
   document.getElementById('venueViewModal').classList.remove('hidden');
+
+  // Permits (and the linked JCF permit lookup in particular) need a storage
+  // round-trip per application at this venue — rendered as "No permits on
+  // file yet" above until this resolves, then filled in, rather than
+  // blocking the modal from opening at all.
+  const permits = await muni_collectVenuePermits(v.id);
+  const section = document.getElementById('venueViewPermitsSection');
+  if(section) section.innerHTML = muni_venuePermitsSectionHtml(permits);
 }
 function closeVenueViewModal(){
   document.getElementById('venueViewModal').classList.add('hidden');
