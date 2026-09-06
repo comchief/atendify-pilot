@@ -2544,6 +2544,24 @@
   .watch-receipt input{ margin-top:2px; accent-color: var(--blue); width:18px; height:18px; flex-shrink:0; }
   .watch-receipt .wr-text{ font-size: 13.5px; font-weight: 700; letter-spacing:0.01em; }
 
+  /* Sequential video-loader checklist (JCF Annual Step 6) — a horizontal
+     row of the three briefing videos, showing which is done, which is
+     playing now, and which is still ahead. */
+  .video-loader-checklist{ display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+  .video-loader-item{
+    display:flex; align-items:center; gap:8px; padding:10px 14px;
+    border:1px solid var(--border); border-radius: var(--radius);
+    font-size:13px; font-weight:600; color: var(--text-muted);
+  }
+  .video-loader-item .vl-check{
+    width:20px; height:20px; border-radius:50%; border:2px solid var(--border); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:12px; color:transparent;
+  }
+  .video-loader-item.current{ border-color: var(--blue); color: var(--blue); }
+  .video-loader-item.current .vl-check{ border-color: var(--blue); }
+  .video-loader-item.done{ border-color: var(--green); color: var(--green); background: var(--green-tint); }
+  .video-loader-item.done .vl-check{ background: var(--green); border-color: var(--green); color:#fff; }
+
   .flyer-upload-box{
     width: 210px; border: 2px dashed var(--border); border-radius: var(--radius);
     padding: 30px 14px; text-align:center; cursor:pointer;
@@ -4686,7 +4704,11 @@
     el.setAttribute('placeholder', '000-000-000');
     el.setAttribute('maxlength', '11');
     el.setAttribute('inputmode', 'numeric');
-    el.addEventListener('input', ()=>{
+    // Reformats once the applicant leaves the field (not on every keystroke
+    // — reformatting mid-typing was reported as making entry feel slow/
+    // fighting the cursor) so the field shows raw digits while being typed
+    // and only snaps to NNN-NNN-NNN once typing is actually done.
+    el.addEventListener('blur', ()=>{
       const digits = el.value.replace(/\D/g, '');
       el.value = window.atdFormatTrnValue(digits);
     });
@@ -4704,7 +4726,9 @@
     el.setAttribute('placeholder', '(000) 000-0000');
     el.setAttribute('maxlength', '14');
     el.setAttribute('inputmode', 'tel');
-    el.addEventListener('input', ()=>{
+    // Reformats once the field loses focus rather than on every keystroke —
+    // see atdAttachTrnFormatter above for why.
+    el.addEventListener('blur', ()=>{
       const digits = el.value.replace(/\D/g, '');
       el.value = window.atdFormatPhoneValue(digits);
     });
@@ -4716,10 +4740,20 @@
   // NOT static — acct_renderProfile() rebuilds it via innerHTML on every
   // open — so those two are attached from inside that function instead,
   // right after it sets its innerHTML, not here.
-  ['wlPhone','venueFormOwnerPhone','userPhone','agencyPhone','profilePhoneInput']
-    .forEach(id => { if(document.getElementById(id)) window.atdAttachPhoneFormatter(id); });
-  ['wlTrn','jcfd_wlTrn']
-    .forEach(id => { if(document.getElementById(id)) window.atdAttachTrnFormatter(id); });
+  // NOTE: this script tag runs inline, during initial HTML parsing, and
+  // every one of these field ids lives further down in the document than
+  // this script tag — so calling document.getElementById() for them here,
+  // synchronously, always returned null and silently skipped attaching
+  // (found while auditing every phone/TRN/email handler for the
+  // input->blur change below). Deferring to DOMContentLoaded is the fix:
+  // by then the whole document has been parsed and every one of these
+  // fields actually exists.
+  document.addEventListener('DOMContentLoaded', function(){
+    ['wlPhone','venueFormOwnerPhone','userPhone','agencyPhone','profilePhoneInput']
+      .forEach(id => { if(document.getElementById(id)) window.atdAttachPhoneFormatter(id); });
+    ['wlTrn','jcfd_wlTrn']
+      .forEach(id => { if(document.getElementById(id)) window.atdAttachTrnFormatter(id); });
+  });
 
   // ---- Shared "logged in as" nav treatment (public landing + POA header) ----
   // Both the public landing page and the pre-login POA wizard header show
@@ -6820,7 +6854,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="panel">
         <div class="panel-head">
           <h2>Recent applications</h2>
-          <button class="btn btn-sm" onclick="muni_goPage('applications')">View all</button>
+          <div class="panel-tools">
+            <button class="btn btn-sm" id="muni_dashboardRefreshBtn" onclick="loadSubmittedApplications(false, 'muni_dashboardRefreshBtn')">↻ Refresh</button>
+            <button class="btn btn-sm" onclick="muni_goPage('applications')">View all</button>
+          </div>
         </div>
         <div style="overflow-x:auto;">
           <table>
@@ -7302,7 +7339,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </label>
           <span style="font-size:14px; font-weight:600;">Auto-reject application if JCF rejects the linked JCF application</span>
         </div>
-        <p style="font-size:13px; color:var(--text-muted); margin:0;">When on, if the Jamaica Constabulary Force rejects an applicant's JCF Noise Abatement Permit application, the linked Places of Amusement application here is automatically marked Rejected as well.</p>
+        <p style="font-size:13px; color:var(--text-muted); margin:0 0 14px;">When on, if the Jamaica Constabulary Force rejects an applicant's JCF Noise Abatement Permit application, the linked Places of Amusement application here is automatically marked Rejected as well.</p>
+        <div class="toggle-row" style="margin-bottom:14px;">
+          <label class="toggle-switch">
+            <input type="checkbox" id="settingsRequireJcfPermitToggle" onchange="saveMuniSettings()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span style="font-size:14px; font-weight:600;">Require the corresponding JCF Annual Noise Abatement Permit to already be issued before an Annual Places of Amusement permit can be approved</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin:0;">Applies to Annual applications only. When on, the CEO cannot approve an Annual application here until its linked JCF Noise Abatement application has been fully approved and its permit generated — independent of whether "Police Approval (apply online)" happens to be one of this business type's own required documents.</p>
       </div>
       <div class="panel">
         <div class="panel-head"><h2 style="font-size:18px;">Municipal Fee Payment Timing</h2></div>
@@ -9810,7 +9855,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div class="field-group">
           <label for="jcfAnnual_ownershipStatus">Ownership Status <span class="required-mark">*</span></label>
-          <select id="jcfAnnual_ownershipStatus" aria-required="true">
+          <select id="jcfAnnual_ownershipStatus" aria-required="true" onchange="jcfAnnual_onOwnershipStatusChange()">
             <option value="">Select an option</option>
             <option>Owned</option>
             <option>Leased</option>
@@ -9823,7 +9868,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="field-group">
           <label>Registered Property Owner</label>
           <div id="jcfAnnual_propertyOwnerSummary" class="readback-row">Not provided.</div>
-          <button class="btn" type="button" style="margin-top:8px;" onclick="jcfAnnual_openPropertyOwnerModal()">+ Add Property Owner Details</button>
+          <button class="btn" type="button" id="jcfAnnual_propertyOwnerBtn" style="margin-top:8px;" onclick="jcfAnnual_openPropertyOwnerModal()">+ Add Property Owner Details</button>
         </div>
 
         <div class="btn-row">
@@ -9978,23 +10023,37 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="grid">
       <div>
         <div class="col-title">Noise Abatement Act — eBriefing</div>
-        <div class="col-desc">Watch the briefing below before continuing.</div>
+        <div class="col-desc">Watch all three briefing videos below, one at a time — checking off the video on screen automatically loads the next one. You'll stay on this step until all three are complete.</div>
+        <div class="video-loader-checklist" id="jcfAnnual_videoChecklist">
+          <div class="video-loader-item" id="jcfAnnual_videoChecklistItem_noise">
+            <span class="vl-check">✓</span>
+            <span>1. Noise Abatement</span>
+          </div>
+          <div class="video-loader-item" id="jcfAnnual_videoChecklistItem_loudspeakers">
+            <span class="vl-check">✓</span>
+            <span>2. Loudspeakers</span>
+          </div>
+          <div class="video-loader-item" id="jcfAnnual_videoChecklistItem_charges">
+            <span class="vl-check">✓</span>
+            <span>3. Charges for Breaches</span>
+          </div>
+        </div>
       </div>
       <div>
-        <div class="section-title">Noise Abatement Act — eBriefing</div>
+        <div class="section-title" id="jcfAnnual_currentVideoStepTitle">Noise Abatement Act — eBriefing</div>
         <div class="video-embed">
           <div class="video-embed-head">
             <img src="" alt="" class="app-logo-img">
             <div>
-              <div class="video-embed-title">JCF Noise Abatement Act Briefing</div>
+              <div class="video-embed-title" id="jcfAnnual_currentVideoName">JCF Noise Abatement Act Briefing</div>
               <div class="video-embed-sub">Jamaica Constabulary Force</div>
             </div>
           </div>
-          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_noise"></div>
+          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_current"></div>
           <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
         </div>
         <label class="watch-receipt">
-          <input type="checkbox" id="jcfAnnual_watchNoise">
+          <input type="checkbox" id="jcfAnnual_currentVideoWatch" onchange="jcfAnnual_onVideoWatchedToggle()">
           <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
         </label>
 
@@ -10011,45 +10070,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="grid">
       <div>
         <div class="col-title">Application Review &amp; Declaration</div>
-        <div class="col-desc">Watch each briefing below, review everything you've entered, then sign and submit.</div>
+        <div class="col-desc">Review everything you've entered, then sign and submit.</div>
       </div>
       <div>
-        <div class="section-title">Playing of Loud Speakers — eBriefing</div>
-        <div class="video-embed">
-          <div class="video-embed-head">
-            <img src="" alt="" class="app-logo-img">
-            <div>
-              <div class="video-embed-title">JCF Enforcement Briefing on Loudspeaker Use</div>
-              <div class="video-embed-sub">Jamaica Constabulary Force</div>
-            </div>
-          </div>
-          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_loudspeakers"></div>
-          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
-        </div>
-        <label class="watch-receipt">
-          <input type="checkbox" id="jcfAnnual_watchLoudspeakers">
-          <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
-        </label>
-
-        <div class="section-title">Charges for Breaches — eBriefing</div>
-        <div class="video-embed">
-          <div class="video-embed-head">
-            <img src="" alt="" class="app-logo-img">
-            <div>
-              <div class="video-embed-title">JCF Charges and Penalties Briefing</div>
-              <div class="video-embed-sub">Jamaica Constabulary Force</div>
-            </div>
-          </div>
-          <div class="video-embed-frame" id="jcfAnnual_jcfVideoFrame_charges"></div>
-          <div class="video-embed-foot">Video managed by Atendify Admin — Application Forms</div>
-        </div>
-        <label class="watch-receipt">
-          <input type="checkbox" id="jcfAnnual_watchCharges">
-          <span class="wr-text">CONFIRM YOU HAVE WATCHED AND UNDERSTOOD THE INFORMATION BEFORE PROCEEDING</span>
-        </label>
-
-        <hr class="divider">
-
         <div class="review-section-title">Applicant Information</div>
         <div id="jcfAnnual_revApplicant"></div>
         <div class="review-section-title">Premises Information</div>
@@ -10441,6 +10464,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <!-- ===== DASHBOARD PAGE ===== -->
       <div class="page" id="jcfd_page-dashboard">
+        <div class="panel-head" style="margin-bottom:14px;">
+          <h2>Dashboard</h2>
+          <button class="btn btn-sm" id="jcfd_dashboardRefreshBtn" onclick="jcfd_renderDashboard()">↻ Refresh</button>
+        </div>
         <div id="jcfd_dashboardNotices"></div>
         <div class="stat-grid" id="jcfd_statGrid"></div>
         <div class="panel" style="margin-top:20px;">
@@ -11427,7 +11454,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }).catch(function(){ return null; });
     }));
 
-    let html = '<h2>Dashboard</h2>';
+    let html = '<div class="panel-head"><h2>Dashboard</h2><button class="btn btn-sm" onclick="acct_renderDashboard()">↻ Refresh</button></div>';
 
     if(upcomingEvents.length){
       html += '<div class="section-title" style="margin-top:8px;">Your Upcoming Events</div>' +
@@ -12973,6 +13000,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   async function jcfd_renderDashboard(){
     const grid = document.getElementById('jcfd_statGrid');
     if(!grid) return;
+    const refreshBtn = document.getElementById('jcfd_dashboardRefreshBtn');
+    if(refreshBtn){ refreshBtn.disabled = true; refreshBtn.textContent = 'Refreshing…'; }
     grid.innerHTML = '<div class="stat-card"><div class="sc-value">' + window.atdLoadingHtml('', 16) + '</div><div class="sc-label">Loading</div></div>';
     const all = await jcfd_findJurisdictionApplications();
     const visible = jcfd_visibleApplications(all);
@@ -13004,7 +13033,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     jcfd_renderDashboardNotices(visible);
     jcfd_renderCommentedTable(visible);
+    if(refreshBtn){ refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh'; }
   }
+  // Exposed so the Dashboard page's own "↻ Refresh" button (plain inline
+  // onclick markup, evaluated in global scope) can call back into this
+  // otherwise closure-private function.
+  window.jcfd_renderDashboard = jcfd_renderDashboard;
 
   // Assigned-but-not-yet-commented-on applications are "unactioned". A
   // recently assigned one (<12h since jcfd_assignOfficer() stamped
@@ -13423,7 +13457,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     html += jcfd_detailRow('Existing Noise Abatement Notices/conditions', ci.existingNotices);
     if(ci.existingNotices === 'Yes'){
-      html += jcfd_detailRowAction('Documentation', ci.noiseNoticeFileName || 'Not uploaded', 'noiseNotice', !!ci.noiseNoticeFileName);
+      html += jcfd_detailRowDoc('Documentation', ci.noiseNoticeFileName, ci.noiseNoticeStatus, 'noiseNotice');
     }
     html += `</div>`;
 
@@ -13435,7 +13469,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const item = ol[key];
       if(!item || !item.checked) return;
       html += jcfd_detailRow(JCFD_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'}`);
-      html += jcfd_detailRowAction(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName || 'Not uploaded', 'otherLicense_' + key, !!item.fileName);
+      html += jcfd_detailRowDoc(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName, item.status, 'otherLicense_' + key);
     });
     if(!(ol.poa && ol.poa.checked) && !Object.keys(JCFD_OTHER_LICENSE_LABELS).some(k => ol[k] && ol[k].checked)){
       html += jcfd_detailRow('Licenses/approvals on file', 'None declared');
@@ -13443,7 +13477,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Declaration</div>`;
-    html += jcfd_detailRow('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No');
+    const sigFileNameForDisplay = rec.signature
+      ? (rec.signature.type === 'text' ? (rec.signature.value ? 'Typed signature' : '') : (rec.signature.fileName || (rec.signature.value ? 'Drawn signature' : '')))
+      : '';
+    html += jcfd_detailRowDoc('Signature on file', sigFileNameForDisplay, rec.signature && rec.signature.status, 'signature');
     html += `</div>`;
 
     col.innerHTML = html;
@@ -14764,10 +14801,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   // Reviewable document kinds — Photo ID (Promoter Identity Verified),
   // Proof of Ownership/Authorization (renamed from "Venue Use Letter
-  // Submitted"), and the two carried-over-from-POA approvals, JAMMS and
-  // JCAP. Event Flyer and Signature on File stay view-only, as before —
-  // nothing in this request asked for those to be approved/rejected.
-  const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'jams', 'jcap'];
+  // Submitted"), the two carried-over-from-POA approvals (JAMMS and JCAP),
+  // the Noise Abatement Notice/Conditions upload, each of the six Other
+  // Licenses uploads (Trade/Liquor/Fire/Health/JAMMS/JACAP licence
+  // documents — not to be confused with the JAMMS/JCAP approvals above),
+  // and the applicant's signature. Event Flyer alone stays view-only —
+  // every uploaded document EXCEPT that one is now subject to Approve/
+  // Reject, per an explicit audit of every JCF-side view-only upload.
+  // JCFD_OTHER_LICENSE_LABELS (defined a little further down) is the single
+  // source of truth for the six otherLicense_<key> kind strings, so this
+  // list can never drift out of sync with it.
+  const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'jams', 'jcap', 'noiseNotice', 'signature']
+    .concat(Object.keys(JCFD_OTHER_LICENSE_LABELS).map(k => 'otherLicense_' + k));
   let jcfdActiveDocKind = null;
 
   function jcfd_docStatusBadgeClass(status){
@@ -14808,11 +14853,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_docModalActions').innerHTML = '';
 
     let dataUrl = '', fileName = '', title = '';
-    // Annual variant's own two file-carrying kinds — Community Impact's
+    let status = 'Not Uploaded', officerNote = '';
+    // subElOverride/previewHtmlOverride let a kind fully control its own
+    // subtitle/preview (used by the typed-signature case below, which has
+    // no dataUrl to preview) while still falling through to the shared
+    // status-badge/Approve-Reject rendering further down, instead of early-
+    // returning and duplicating that block.
+    let subElOverride = null, previewHtmlOverride = null;
+    // Annual variant's own file-carrying kinds — Community Impact's
     // noise-notice upload (a single flat field, same shape as
-    // photoId/flyer/etc. above) and Other Licenses & Approvals' up-to-six
+    // photoId/flyer/etc. below) and Other Licenses & Approvals' up-to-six
     // per-license uploads (kind arrives as 'otherLicense_<key>', matching
-    // jcfd_renderAnnualSubmissionColumn's own button wiring below).
+    // jcfd_renderAnnualSubmissionColumn's own button wiring). Both used to
+    // be view-only (early-returning before the reviewable-kind block below)
+    // — they're now reviewable like everything else, so instead they just
+    // populate status/officerNote and fall through like every other kind.
     if(kind === 'noiseNotice' || kind.indexOf('otherLicense_') === 0){
       const olKey = kind.indexOf('otherLicense_') === 0 ? kind.slice('otherLicense_'.length) : null;
       title = kind === 'noiseNotice' ? 'Noise Abatement Notice/Conditions Documentation' : (JCFD_OTHER_LICENSE_LABELS[olKey] || olKey);
@@ -14824,26 +14879,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         } else {
           const olFile = files.otherLicenseFiles && files.otherLicenseFiles[olKey];
           dataUrl = olFile ? olFile.fileData : '';
-          fileName = olFile ? (olFile.fileName || '') : '';
         }
       } catch(e){ /* leave dataUrl empty */ }
       if(kind === 'noiseNotice'){
         fileName = (rec.communityImpact && rec.communityImpact.noiseNoticeFileName) || '';
+        status = (rec.communityImpact && rec.communityImpact.noiseNoticeStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+        officerNote = (rec.communityImpact && rec.communityImpact.noiseNoticeOfficerNote) || '';
+      } else {
+        const olItem = (rec.otherLicenses && rec.otherLicenses[olKey]) || {};
+        fileName = olItem.fileName || '';
+        status = olItem.status || (fileName ? 'Submitted' : 'Not Uploaded');
+        officerNote = olItem.officerNote || '';
       }
-      titleEl.textContent = title;
-      subEl.textContent = fileName || '';
-      if(!dataUrl){
-        box.innerHTML = '<div class="doc-preview-placeholder">Not uploaded.</div>';
-        return;
-      }
-      const olMime = jcfd_guessMime(dataUrl);
-      box.innerHTML = olMime === 'application/pdf'
-        ? `<iframe src="${dataUrl}" style="width:100%; height:60vh; border:none;"></iframe>`
-        : `<img src="${dataUrl}" alt="${acctEscapeHtml(title)}" style="max-width:100%; border-radius:8px;">`;
-      return;
-    }
-    let status = 'Not Uploaded', officerNote = '';
-    if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
+    } else if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
       title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
         : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
         : kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
@@ -14905,20 +14953,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
     } else if(kind === 'signature'){
       title = 'Signature on File';
+      status = (rec.signature && rec.signature.status) || (rec.signature ? 'Submitted' : 'Not Uploaded');
+      officerNote = (rec.signature && rec.signature.officerNote) || '';
       if(rec.signature && rec.signature.type === 'text'){
-        titleEl.textContent = title;
-        subEl.textContent = 'Typed signature';
-        box.innerHTML = `<div style="padding:40px; text-align:center; font-family:cursive; font-size:32px;">${acctEscapeHtml(rec.signature.value || '')}</div>`;
-        return;
-      }
-      if(rec.signature){
+        // A typed signature has no file to preview — render its own custom
+        // preview and subtitle, but (unlike before this feature) still fall
+        // through to the shared status-badge/Approve-Reject block below
+        // rather than early-returning, so a typed signature can be reviewed
+        // exactly like a drawn or uploaded one.
+        subElOverride = 'Typed signature';
+        previewHtmlOverride = `<div style="padding:40px; text-align:center; font-family:cursive; font-size:32px;">${acctEscapeHtml(rec.signature.value || '')}</div>`;
+      } else if(rec.signature){
         dataUrl = rec.signature.value;
         fileName = rec.signature.fileName || '';
       }
     }
 
     titleEl.textContent = title;
-    subEl.textContent = fileName || '';
+    subEl.textContent = subElOverride || fileName || '';
 
     if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind)){
       document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${status}</span>` +
@@ -14927,7 +14979,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       document.getElementById('jcfd_docNoteGroup').classList.remove('hidden');
       document.getElementById('jcfd_docNoteInput').value = officerNote || '';
       const actions = document.getElementById('jcfd_docModalActions');
-      if(canReviewDoc && dataUrl){
+      // previewHtmlOverride covers the typed-signature case: there's no
+      // dataUrl (no literal file), but there IS reviewable content, so it
+      // counts the same as having one for gating Approve/Reject here.
+      if(canReviewDoc && (dataUrl || previewHtmlOverride)){
         actions.innerHTML = `
           <button class="btn btn-success btn-sm" onclick="jcfd_approveDoc()">✔ Approve document</button>
           <button class="btn btn-danger btn-sm" onclick="jcfd_rejectDoc()">✖ Reject &amp; require re-upload</button>
@@ -14939,6 +14994,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
     }
 
+    if(previewHtmlOverride){
+      box.innerHTML = previewHtmlOverride;
+      return;
+    }
     if(!dataUrl){
       box.innerHTML = '<div class="doc-preview-placeholder">Not uploaded.</div>';
       return;
@@ -14971,20 +15030,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return rec.ownerEmail || null;
   }
 
-  const JCFD_DOC_REVIEW_LABELS = { photoId: 'Photo ID', permissionLetter: 'Proof of Ownership/Authorization', jams: 'JAMMS Approval', jcap: 'JCAP Approval' };
+  const JCFD_DOC_REVIEW_LABELS = { photoId: 'Photo ID', permissionLetter: 'Proof of Ownership/Authorization', jams: 'JAMMS Approval', jcap: 'JCAP Approval', noiseNotice: 'Noise Abatement Notice/Conditions Documentation', signature: 'Signature on File' };
 
-  // Shared save path for Approve/Reject/Save-note-only on one of the four
+  // Shared save path for Approve/Reject/Save-note-only on any of
   // JCFD_REVIEWABLE_DOC_KINDS. JAMMS/JCAP live on the linked POA
   // application's own jcfDocuments (see jcfd_openDocModal's own comment on
   // why — they're uploaded/re-uploaded there, not on this filing) so their
-  // status/note is written back there instead of onto this record.
+  // status/note is written back there instead of onto this record; Noise
+  // Notice/Other Licenses/Signature each write status/officerNote onto
+  // their own existing object on this record, same shape as photoId/
+  // permissionLetter below.
   async function jcfd_updateDocStatus(newStatus){
     const kind = jcfdActiveDocKind;
     if(!kind) return;
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
     const note = document.getElementById('jcfd_docNoteInput').value.trim();
-    const label = JCFD_DOC_REVIEW_LABELS[kind] || kind;
+    const isOtherLicense = kind.indexOf('otherLicense_') === 0;
+    const label = JCFD_DOC_REVIEW_LABELS[kind] || (isOtherLicense ? (JCFD_OTHER_LICENSE_LABELS[kind.slice('otherLicense_'.length)] || kind) : kind);
 
     if(kind === 'jams' || kind === 'jcap'){
       if(!rec.poaAppNumber){
@@ -15006,6 +15069,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         jcfd_showToast('Could not save — please try again.');
         return;
       }
+    } else if(kind === 'noiseNotice'){
+      rec.communityImpact = rec.communityImpact || {};
+      rec.communityImpact.noiseNoticeStatus = newStatus;
+      rec.communityImpact.noiseNoticeOfficerNote = note;
+      await jcfd_saveActiveApp(rec);
+    } else if(isOtherLicense){
+      const olKey = kind.slice('otherLicense_'.length);
+      rec.otherLicenses = rec.otherLicenses || {};
+      rec.otherLicenses[olKey] = rec.otherLicenses[olKey] || {};
+      rec.otherLicenses[olKey].status = newStatus;
+      rec.otherLicenses[olKey].officerNote = note;
+      await jcfd_saveActiveApp(rec);
+    } else if(kind === 'signature'){
+      rec.signature = rec.signature || {};
+      rec.signature.status = newStatus;
+      rec.signature.officerNote = note;
+      await jcfd_saveActiveApp(rec);
     } else {
       const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
       const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
@@ -16866,7 +16946,9 @@ function poa_attachTrnFormatter(id){
   el.setAttribute('placeholder', '000-000-000');
   el.setAttribute('maxlength', '11');
   el.setAttribute('inputmode', 'numeric');
-  el.addEventListener('input', ()=>{
+  // Reformats once the field loses focus rather than on every keystroke —
+  // see atdAttachTrnFormatter (shared shim) for why.
+  el.addEventListener('blur', ()=>{
     poa_reformatPreservingCaret(el, poa_formatTrnValue);
   });
 }
@@ -16884,7 +16966,9 @@ function poa_attachPhoneFormatter(id){
   el.setAttribute('placeholder', '(000) 000-0000');
   el.setAttribute('maxlength', '14');
   el.setAttribute('inputmode', 'tel');
-  el.addEventListener('input', ()=>{
+  // Reformats once the field loses focus rather than on every keystroke —
+  // see atdAttachTrnFormatter (shared shim) for why.
+  el.addEventListener('blur', ()=>{
     poa_reformatPreservingCaret(el, poa_formatPhoneValue);
   });
 }
@@ -16913,10 +16997,10 @@ function attachEmailValidation(id){
       errorEl.classList.add('hidden');
     }
   };
+  // Validates once the field loses focus rather than on every keystroke
+  // (including the "already showing an error" re-check that used to fire on
+  // input) — see atdAttachTrnFormatter (shared shim) for why.
   el.addEventListener('blur', validate);
-  el.addEventListener('input', ()=>{
-    if(errorEl && !errorEl.classList.contains('hidden')) validate();
-  });
 }
 
 ['trn','directorTrn'].forEach(poa_attachTrnFormatter);
@@ -21212,7 +21296,17 @@ const POLICE_APPROVAL_DOC_NAME = 'Police Approval (apply online)';
 // unsatisfied even once every document genuinely was. Recomputing this live,
 // from the same one function, everywhere it's needed removes that gap
 // entirely instead of chasing each place it could reappear.
-function muni_computeDocBreakdown(a){
+// strict=false (default) is the long-standing "submitted" bar used by the
+// CEO's own Final Decision gate (setFinalStatus): a document merely having
+// been uploaded (or explicitly marked Not Applicable) counts as satisfied,
+// even if no officer has actually opened and approved it yet. strict=true is
+// the stricter bar the new "Recommend for Approval" button (a Supervisor-
+// level action, earlier in the workflow than the CEO's decision) is gated
+// on: every document must have an explicit Approved decision (or Not
+// Applicable, which has nothing to approve) — merely "Submitted"/uploaded is
+// not enough. Both share this one function so the two gates can never
+// silently drift apart on what "required documents" even means.
+function muni_computeDocBreakdown(a, strict){
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
   const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
   const breakdown = [];
@@ -21222,11 +21316,46 @@ function muni_computeDocBreakdown(a){
         breakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
       } else {
         const d = regDocs[name];
-        breakdown.push([name, !!(d && (d.status === 'Submitted' || d.status === 'Approved' || d.status === 'Not Applicable'))]);
+        const ok = strict
+          ? !!(d && (d.status === 'Approved' || d.status === 'Not Applicable'))
+          : !!(d && (d.status === 'Submitted' || d.status === 'Approved' || d.status === 'Not Applicable'));
+        breakdown.push([name, ok]);
       }
     });
   }
+  // Fixed-slot documents (Photo ID, Company Logo, Business Registration
+  // Document, Event Flier, Proof of Ownership) — not part of the admin-
+  // configured regulatoryDocList, but reviewed through the same Approve/
+  // Reject workflow (see muni_fixedDoc/MUNI_FIXED_DOC_META below), so they
+  // must count toward "required documents submitted" the same way
+  // everything in regulatoryDocList already does — this closes exactly the
+  // gap that let Business Registration Document sit un-reviewed forever on
+  // Annual applications. Uses whichever of a.raw / a itself actually has the
+  // applicant/amusement info, matching the fallback pattern above.
+  const rawForFixedDocs = a.raw || a;
+  if(rawForFixedDocs && rawForFixedDocs.applicant && rawForFixedDocs.amusement && typeof muni_fixedDoc === 'function'){
+    const isCompanyForDocs = rawForFixedDocs.applicant.type === 'Company';
+    const isAnnualForDocs = rawForFixedDocs.amusement.licenseType === 'Annual';
+    const fixedDocApplicability = {
+      photoId: !isCompanyForDocs,
+      bizRegistration: isAnnualForDocs,
+      flier: !isAnnualForDocs,
+      logo: isCompanyForDocs,
+      ownership: !isAnnualForDocs
+    };
+    Object.keys(fixedDocApplicability).forEach(key => {
+      if(!fixedDocApplicability[key]) return;
+      const d = muni_fixedDoc(rawForFixedDocs, key);
+      const ok = strict ? d.status === 'Approved' : (d.status === 'Submitted' || d.status === 'Approved');
+      breakdown.push([MUNI_FIXED_DOC_META[key].label, ok]);
+    });
+  }
   return breakdown;
+}
+// Strict variant used to gate the "Recommend for Approval" button — see the
+// comment on muni_computeDocBreakdown above.
+function muni_computeAllDocsApproved(a){
+  return muni_computeDocBreakdown(a, true).every(([, ok]) => ok);
 }
 function muni_computeRequiredDocumentsSubmitted(a){
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
@@ -21745,6 +21874,7 @@ async function loadMuniSettings(){
   if(!currentUser) return;
   const autoRejectEl = document.getElementById('settingsAutoRejectToggle');
   const deferPaymentEl = document.getElementById('settingsDeferMunicipalPaymentToggle');
+  const requireJcfPermitEl = document.getElementById('settingsRequireJcfPermitToggle');
   let settings = {};
   if(window.storage){
     try{
@@ -21754,6 +21884,7 @@ async function loadMuniSettings(){
   }
   autoRejectEl.checked = !!settings.autoRejectOnJcfReject;
   deferPaymentEl.checked = !!settings.allowDeferredMunicipalPayment;
+  requireJcfPermitEl.checked = !!settings.requireJcfPermitForAnnualApproval;
 
   const rules = normalizeSlaRules(settings);
   document.getElementById('slaPaymentVerificationToggle').checked = rules.paymentVerification.enabled;
@@ -21785,6 +21916,7 @@ async function saveMuniSettings(){
   const settings = {
     autoRejectOnJcfReject: document.getElementById('settingsAutoRejectToggle').checked,
     allowDeferredMunicipalPayment: document.getElementById('settingsDeferMunicipalPaymentToggle').checked,
+    requireJcfPermitForAnnualApproval: document.getElementById('settingsRequireJcfPermitToggle').checked,
     slaRules
   };
 
@@ -24913,90 +25045,52 @@ function renderSubmissionColumn(a){
   html += `<div class="panel"><div class="detail-section-title">Uploaded Documents</div>`;
   html += `<div class="doc-review-list">`;
 
-  if(!isCompany){
-    const photoIdUploaded = !!(r.documents && r.documents.photoId);
-    const photoIdFileName = (r.applicant && r.applicant.photoIdFileName) || 'Uploaded file';
-    html += `
+  // Fixed-slot documents (Photo ID, Business Registration Document, Event
+  // Flier, Company Logo, Proof of Ownership) — now go through the same
+  // Approve/Reject review workflow as everything in regulatoryDocList (see
+  // muni_fixedDoc/openFixedDocModal above renderAppDetail), not just a
+  // view-only preview.
+  function muni_renderFixedDocRow(key, fileNameFallback){
+    const meta = MUNI_FIXED_DOC_META[key];
+    const d = muni_fixedDoc(r, key);
+    const fileName = meta.fileNameOf(r) || fileNameFallback;
+    const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
+    return `
       <div class="doc-review-row">
         <div>
-          <div class="cell-primary">Photo ID</div>
-          <div class="cell-sub">${photoIdUploaded ? muni_escapeHtml(photoIdFileName) : 'Not yet uploaded'}</div>
+          <div class="cell-primary">${muni_escapeHtml(meta.label)}</div>
+          <div class="cell-sub">${d.uploaded ? muni_escapeHtml(fileName) : 'Not yet uploaded'}</div>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${photoIdUploaded ? 'badge-blue' : 'badge-gray'}">${photoIdUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-          <button class="btn btn-sm" ${photoIdUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('photoId')">View</button>
+          <span class="badge ${statusClass}">${d.status}</span>
+          <button class="btn btn-sm" ${d.uploaded ? '' : 'disabled'} onclick="openFixedDocModal('${key}')">View</button>
         </div>
       </div>`;
+  }
+
+  if(!isCompany){
+    html += muni_renderFixedDocRow('photoId', 'Uploaded file');
   }
 
   // Event Flier (Special) and Business Registration Document (Annual) are
   // separate uploads (see specialOnlyDocsSection/bizRegSection on the
   // applicant side) — only the one applicable to this application shows here.
   if(isAnnual){
-    const bizRegUploaded = !!(r.documents && r.documents.bizRegistration);
-    const bizRegFileName = (r.amusement && r.amusement.bizRegFileName) || 'Uploaded file';
-    html += `
-      <div class="doc-review-row">
-        <div>
-          <div class="cell-primary">Business Registration Document</div>
-          <div class="cell-sub">${bizRegUploaded ? muni_escapeHtml(bizRegFileName) : 'Not yet uploaded'}</div>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${bizRegUploaded ? 'badge-blue' : 'badge-gray'}">${bizRegUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-          <button class="btn btn-sm" ${bizRegUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('bizReg')">View</button>
-        </div>
-      </div>`;
+    html += muni_renderFixedDocRow('bizRegistration', 'Uploaded file');
   } else {
-    const flierUploaded = !!(r.documents && r.documents.flier);
-    const flierFileName = (r.amusement && r.amusement.flierFileName) || 'Uploaded file';
-    html += `
-      <div class="doc-review-row">
-        <div>
-          <div class="cell-primary">Event Flier</div>
-          <div class="cell-sub">${flierUploaded ? muni_escapeHtml(flierFileName) : 'Not yet uploaded'}</div>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${flierUploaded ? 'badge-blue' : 'badge-gray'}">${flierUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-          <button class="btn btn-sm" ${flierUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('flier')">View</button>
-        </div>
-      </div>`;
+    html += muni_renderFixedDocRow('flier', 'Uploaded file');
   }
 
   if(isCompany){
-    const logoUploaded = !!(r.documents && r.documents.logo);
-    const logoFileName = (r.applicant && r.applicant.logoFileName) || 'Uploaded file';
-    html += `
-      <div class="doc-review-row">
-        <div>
-          <div class="cell-primary">Company Logo</div>
-          <div class="cell-sub">${logoUploaded ? muni_escapeHtml(logoFileName) : 'Not yet uploaded'}</div>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${logoUploaded ? 'badge-blue' : 'badge-gray'}">${logoUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-          <button class="btn btn-sm" ${logoUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('logo')">View</button>
-        </div>
-      </div>`;
+    html += muni_renderFixedDocRow('logo', 'Uploaded file');
   }
 
   // Not collected on the Annual path at all (dropped per the pilot
   // contact's explicit instruction — an ongoing business doesn't need to
   // prove authorization to use someone else's venue for a single event).
   if(!isAnnual){
-    const ownershipUploaded = !!(r.documents && r.documents.ownership);
-    const ownershipFileName = (r.venue && r.venue.ownershipFileName) || 'Uploaded file';
-    html += `
-      <div class="doc-review-row">
-        <div>
-          <div class="cell-primary">Proof of Ownership/Authorization</div>
-          <div class="cell-sub">${ownershipUploaded ? muni_escapeHtml(ownershipFileName) : 'Not yet uploaded'}</div>
-        </div>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${ownershipUploaded ? 'badge-blue' : 'badge-gray'}">${ownershipUploaded ? 'Submitted' : 'Not Uploaded'}</span>
-          <button class="btn btn-sm" ${ownershipUploaded ? '' : 'disabled'} onclick="openApplicantFileModal('ownership')">View</button>
-        </div>
-      </div>`;
+    html += muni_renderFixedDocRow('ownership', 'Uploaded file');
   }
-
   if(!docList.length){
     html += `<p class="col-desc" style="margin:8px 0 0;">No additional regulatory documents are required for this application.</p>`;
   } else {
@@ -25429,12 +25523,21 @@ async function renderAppDetail(){
     if(a.status === 'Payment Received'){
       statusButtons.push(`<button class="btn btn-sm" onclick="advanceStatus('Processing')">Start processing</button>`);
     }
-    if(a.status === 'Processing'){
-      statusButtons.push(`<button class="btn btn-sm" onclick="advanceStatus('Pending Approval')">Send for approval</button>`);
-    }
     if(statusButtons.length){
       cardsHtml += `<div class="action-btn-row">${statusButtons.join('')}</div>`;
     }
+
+    // "Send for approval" and "Recommend approve" used to be two separate
+    // actions — a Supervisor could advance the status without ever picking
+    // a recommendation, or pick a recommendation without the application
+    // ever reaching the CEO's decision screen unless someone separately
+    // clicked "Send for approval". Merged into one "Recommend for Approval"
+    // button (muni_recommendForApproval) that sets the recommendation AND
+    // advances the status to Pending Approval in one action — and gated so
+    // it can't be used until every required document (including the fixed-
+    // slot docs — see muni_computeAllDocsApproved) is explicitly Approved
+    // or Not Applicable, not merely uploaded/Submitted.
+    const allDocsApprovedForRec = muni_computeAllDocsApproved(a);
 
     if(isCeo){
       if(a.recommendation){
@@ -25450,9 +25553,10 @@ async function renderAppDetail(){
     } else {
       if(!a.recommendation && (a.status === 'Processing' || a.status === 'Pending Approval')){
         cardsHtml += `<div class="action-btn-row" style="margin-top:${statusButtons.length ? '10px' : '0'};">
-          <button class="btn btn-success btn-sm" onclick="setRecommendation('Recommend Approve')">Recommend approve</button>
+          <button class="btn btn-success btn-sm" onclick="muni_recommendForApproval()" ${allDocsApprovedForRec ? '' : 'disabled title="Every required document must be Approved (or marked Not Applicable) before this application can be recommended for approval."'}>Recommend for Approval</button>
           <button class="btn btn-outline-danger btn-sm" onclick="setRecommendation('Recommend Reject')">Recommend reject</button>
-        </div>`;
+        </div>
+        ${allDocsApprovedForRec ? '' : '<p class="recommendation-note" style="margin-top:6px;">All uploaded documents must be Approved (or Not Applicable) under the Document Check card before this application can be recommended for approval.</p>'}`;
       } else if(a.recommendation && !a.recommendationWithdrawalRequested){
         cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="requestRecommendationWithdrawal()">Request withdrawal of recommendation</button></div>`;
       } else if(!a.recommendation && !statusButtons.length){
@@ -25479,6 +25583,9 @@ async function renderAppDetail(){
       else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
       if(!liveRequiredDocsSubmitted) missingItems.push('required documents have not all been uploaded');
       if(!a.venueApproved) missingItems.push('the venue has not been approved');
+      if(a.licenseType === 'Annual' && await muniRequiresJcfPermitForAnnual(a.muniId)){
+        if(!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)) missingItems.push('the corresponding JCF Annual Noise Abatement Permit has not yet been issued');
+      }
       if(missingItems.length){
         cardsHtml += `<div class="status-banner warn">Cannot approve yet — ${muni_escapeHtml(missingItems.join('; '))}.</div>`;
       }
@@ -25721,6 +25828,7 @@ function openDocModal(docName){
 function closeDocModal(){
   document.getElementById('docModal').classList.add('hidden');
   activeDocName = null;
+  activeFixedDocKey = null;
 }
 
 // View-only preview for the applicant's Photo ID / Event Flier — these are
@@ -25945,6 +26053,157 @@ async function saveDocNote(){
   return updateDocStatus(d.status, 'Note saved.');
 }
 
+// ==================== Fixed-slot documents (Photo ID, Company Logo,
+// Business Registration Document, Event Flier, Proof of Ownership) ====================
+// These five aren't part of the admin-configured regulatoryDocList — they're
+// a fixed handful of uploads the applicant wizard always asks for depending
+// on license type/applicant type — so unlike everything in regulatoryDocList
+// they were historically just a bare true/false/null on r.documents.<key>,
+// previewed read-only via openApplicantFileModal with no Approve/Reject at
+// all (Business Registration Document, specifically, was reported as never
+// having been subject to review for Annual applications). This section
+// folds all five into the exact same review workflow as regulatoryDocList
+// items (status badge, View → Approve/Reject/Save note), without requiring
+// a backend migration of already-submitted applications: muni_fixedDoc()
+// below lazily normalizes a legacy boolean/null value into the same
+// {uploaded, status, officerNote} shape regulatoryDocuments entries already
+// use, computed fresh on every read rather than needing a one-time rewrite
+// of every stored record.
+const MUNI_FIXED_DOC_META = {
+  photoId: { label: 'Photo ID', storageKey: a => `applicationPhotoId:${a.appNumber}`, fileNameOf: r => (r.applicant && r.applicant.photoIdFileName) || '' },
+  logo: { label: 'Company Logo', storageKey: a => `applicationLogo:${a.appNumber}`, fileNameOf: r => (r.applicant && r.applicant.logoFileName) || '' },
+  bizRegistration: { label: 'Business Registration Document', storageKey: a => `applicationBizReg:${a.appNumber}`, fileNameOf: r => (r.amusement && r.amusement.bizRegFileName) || '' },
+  flier: { label: 'Event Flier', storageKey: a => `applicationFlier:${a.appNumber}`, fileNameOf: r => (r.amusement && r.amusement.flierFileName) || '' },
+  ownership: { label: 'Proof of Ownership/Authorization', storageKey: a => `applicationOwnership:${a.appNumber}`, fileNameOf: r => (r.venue && r.venue.ownershipFileName) || '' }
+};
+function muni_fixedDoc(r, key){
+  const raw = r && r.documents && r.documents[key];
+  if(raw && typeof raw === 'object') return raw;
+  return { uploaded: !!raw, status: raw ? 'Submitted' : 'Not Uploaded', officerNote: '' };
+}
+let activeFixedDocKey = null;
+
+async function openFixedDocModal(key){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a || !a.raw) return;
+  const r = a.raw;
+  const meta = MUNI_FIXED_DOC_META[key];
+  if(!meta) return;
+  const d = muni_fixedDoc(r, key);
+  if(!d.uploaded) return;
+
+  activeDocName = null;
+  activeFixedDocKey = key;
+  const fileName = meta.fileNameOf(r);
+
+  if(window.atdLogAudit && currentUser){
+    await window.atdLogAudit({
+      portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+      action: 'document.viewed',
+      details: `Viewed ${meta.label} for application ${a.appNumber}.`,
+      muniId: currentUser.muniId
+    });
+  }
+
+  document.getElementById('docNoteGroup').classList.remove('hidden');
+  document.getElementById('docModalTitle').textContent = meta.label;
+  document.getElementById('docModalSub').textContent = fileName || 'Uploaded file';
+  document.getElementById('docPreviewBox').innerHTML = `<div class="doc-preview-placeholder">${window.atdLoadingHtml('Loading preview…')}</div>`;
+
+  const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
+  document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${d.status}</span>` +
+    (d.status === 'Rejected' && d.officerNote ? `<div class="readback-row">Previous note: ${muni_escapeHtml(d.officerNote)}</div>` : '');
+  document.getElementById('docNoteInput').value = d.officerNote || '';
+
+  const actions = document.getElementById('docModalActions');
+  if(hasPerm('review')){
+    actions.innerHTML = `
+      <button class="btn btn-success btn-sm" onclick="approveFixedDoc()">✔ Approve document</button>
+      <button class="btn btn-danger btn-sm" onclick="rejectFixedDoc()">✖ Reject &amp; notify applicant</button>
+      <button class="btn btn-sm" onclick="saveFixedDocNote()">Save note only</button>`;
+  } else {
+    actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>`;
+  }
+
+  document.getElementById('docModal').classList.remove('hidden');
+
+  let fileData = null;
+  if(window.storage){
+    try{
+      const result = await window.storage.get(meta.storageKey(a), true);
+      if(result && result.value) fileData = JSON.parse(result.value).fileData || null;
+    } catch(err){ /* no separately-stored file data available for this application */ }
+  }
+  // Bail out if the modal was closed or switched to a different document
+  // while the fetch was in flight (mirrors openApplicantFileModal).
+  if(document.getElementById('docModal').classList.contains('hidden')) return;
+  renderApplicantFilePreview(meta.label, fileName, fileData);
+}
+
+async function updateFixedDocStatus(newStatus, toastMessage){
+  const a = applications.find(a => a.id === activeAppId);
+  const r = a.raw;
+  const key = activeFixedDocKey;
+  const meta = MUNI_FIXED_DOC_META[key];
+  const note = document.getElementById('docNoteInput').value.trim();
+
+  const prevRaw = r.documents ? r.documents[key] : undefined;
+  const prevRawRequiredDocs = r.requiredDocumentsSubmitted;
+  const prevRequiredDocs = a.requiredDocumentsSubmitted;
+
+  if(!r.documents) r.documents = {};
+  const existing = muni_fixedDoc(r, key);
+  r.documents[key] = Object.assign({}, existing, { uploaded: true, status: newStatus, officerNote: note });
+
+  const computed = muni_computeRequiredDocumentsSubmitted(a);
+  r.requiredDocumentsSubmitted = computed;
+  a.requiredDocumentsSubmitted = computed;
+
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    // Same rollback-on-failure protection updateDocStatus() has — see its
+    // own comment for why this matters.
+    r.documents[key] = prevRaw;
+    r.requiredDocumentsSubmitted = prevRawRequiredDocs;
+    a.requiredDocumentsSubmitted = prevRequiredDocs;
+    return;
+  }
+
+  muni_showToast(toastMessage);
+  closeDocModal();
+  renderAppDetail();
+  muni_renderAll();
+
+  if(newStatus === 'Rejected'){
+    const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+    const applicantName = a.raw && a.raw.applicant && a.raw.applicant.name;
+    if(applicantEmail){
+      window.atdSendEmail('document_rejected', applicantEmail, {
+        appNumber: a.appNumber, applicantName, documentName: meta.label, officerNote: note,
+        municipalityName: (a.raw && a.raw.municipalityName) || myMunicipalityName()
+      });
+      window.atdNotifyApplicant(applicantEmail, 'document_rejected',
+        `${meta.label} on your application ${a.appNumber} was rejected: "${note}". Please log in and re-upload.`, a.appNumber);
+    }
+  }
+}
+async function approveFixedDoc(){
+  return updateFixedDocStatus('Approved', `${MUNI_FIXED_DOC_META[activeFixedDocKey].label} approved.`);
+}
+async function rejectFixedDoc(){
+  const note = document.getElementById('docNoteInput').value.trim();
+  if(!note){
+    muni_showToast('Please add a note explaining why this document is being rejected.');
+    return;
+  }
+  return updateFixedDocStatus('Rejected', `${MUNI_FIXED_DOC_META[activeFixedDocKey].label} rejected. The applicant will see your note and be asked to re-upload.`);
+}
+async function saveFixedDocNote(){
+  const a = applications.find(a => a.id === activeAppId);
+  const d = muni_fixedDoc(a.raw, activeFixedDocKey);
+  return updateFixedDocStatus(d.status, 'Note saved.');
+}
+
 // Returns true only if the write to backend storage actually succeeded
 // (or there was nothing to persist). Most callers historically ignored the
 // return value — safe, since it used to be undefined either way — but
@@ -26160,9 +26419,16 @@ function setRecommendation(rec){
   a.recommendationWithdrawalRequestedDate = '';
   // Marks the start of the CEO's SLA clock (see computeSlaBreaches).
   a.recommendationMadeAt = new Date().toISOString();
-  muni_showToast(`Recommendation recorded: ${rec}.`);
+  // Either recommendation (approve OR reject) now moves the application to
+  // Pending Approval in the same action, so the CEO always sees it on their
+  // decision screen — previously a "Recommend Reject" pick never advanced
+  // the status on its own, unless someone separately used the old, now-
+  // removed "Send for approval" button.
+  const statusAdvanced = a.status !== 'Pending Approval';
+  if(statusAdvanced) a.status = 'Pending Approval';
+  muni_showToast(`Recommendation recorded: ${rec}.${statusAdvanced ? ' Application moved to Pending Approval.' : ''}`);
   persistIfFromStorage(a);
-  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.recommendation', details: `${a.appNumber}: ${rec}.`, muniId: currentUser.muniId });
+  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.recommendation', details: `${a.appNumber}: ${rec}.${statusAdvanced ? ' Moved to Pending Approval.' : ''}`, muniId: currentUser.muniId });
   // Notify the CEO (via the 'approve' permission) that a recommendation is
   // ready for their decision.
   window.atdNotify(a.muniId, 'approve', 'recommendation_made',
@@ -26171,6 +26437,23 @@ function setRecommendation(rec){
   renderAppDetail();
   muni_renderAll();
 }
+
+// Merges the old separate "Send for approval" and "Recommend approve"
+// actions into one: sets the recommendation AND advances the application to
+// Pending Approval in a single action, so the CEO can make a decision.
+// Gated on every required document (fixed-slot docs included — see
+// muni_computeAllDocsApproved) being explicitly Approved or Not Applicable;
+// the button itself is also disabled in the UI when this gate fails (see
+// renderAppDetail), this is the belt-and-suspenders runtime check.
+function muni_recommendForApproval(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!muni_computeAllDocsApproved(a)){
+    muni_showToast('Every required document must be Approved (or marked Not Applicable) before this application can be recommended for approval.');
+    return;
+  }
+  setRecommendation('Recommend Approve');
+}
+window.muni_recommendForApproval = muni_recommendForApproval;
 
 async function requestRecommendationWithdrawal(){
   const a = applications.find(a => a.id === activeAppId);
@@ -26416,7 +26699,24 @@ function muni_canDecideApp(a){
   return patrons !== null && patrons <= 500;
 }
 
-function setFinalStatus(status){
+// Returns whether this municipality has turned on "Require the corresponding
+// JCF Annual Noise Abatement Permit to already be issued before an Annual
+// Places of Amusement permit can be approved" (Settings → JCF Integration).
+// Deliberately independent of whether "Police Approval (apply online)"
+// happens to be one of this business type's own admin-configured
+// regulatoryDocList items — this is a platform-level Annual-only gate the
+// CEO can turn on/off regardless of that per-business-type configuration.
+async function muniRequiresJcfPermitForAnnual(muniId){
+  if(!window.storage || !muniId) return false;
+  try{
+    const result = await window.storage.get(`municipality:${muniId}:settings`, true);
+    const settings = (result && result.value) ? JSON.parse(result.value) : {};
+    return !!settings.requireJcfPermitForAnnualApproval;
+  } catch(e){ return false; }
+}
+window.muniRequiresJcfPermitForAnnual = muniRequiresJcfPermitForAnnual;
+
+async function setFinalStatus(status){
   const a = applications.find(a => a.id === activeAppId);
 
   if(!muni_canDecideApp(a)){
@@ -26446,6 +26746,9 @@ function setFinalStatus(status){
     else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
     if(!muni_computeRequiredDocumentsSubmitted(a)) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
+    if(a.licenseType === 'Annual' && await muniRequiresJcfPermitForAnnual(a.muniId)){
+      if(!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)) missingItems.push('the corresponding JCF Annual Noise Abatement Permit has not yet been issued');
+    }
     if(missingItems.length){
       muni_showToast(`Cannot approve — ${missingItems.join('; ')}.`);
       return;
@@ -26532,15 +26835,17 @@ function printPermit(){
 }
 
 // ==================== Load submitted applications from shared storage ====================
-async function loadSubmittedApplications(silent){
+async function loadSubmittedApplications(silent, btnId){
   if(!window.storage){
     return;
   }
   // silent=true is used by the 5-minute background auto-refresh below — it
   // should quietly pick up new/changed applications without flickering the
   // manual "↻ Refresh" button's label or popping a toast every 5 minutes
-  // regardless of whether anything actually changed.
-  const btn = silent ? null : document.getElementById('refreshAppsBtn');
+  // regardless of whether anything actually changed. btnId lets more than
+  // one "↻ Refresh" button (Applications page, Dashboard page) each show
+  // their own busy state instead of only ever the Applications page's.
+  const btn = silent ? null : document.getElementById(btnId || 'refreshAppsBtn');
   if(btn){ btn.disabled = true; btn.textContent = 'Refreshing…'; }
 
   try{
@@ -26878,6 +27183,12 @@ window.muni_goPage = muni_goPage;
 window.muni_logout = muni_logout;
 window.muni_computeDocBreakdown = muni_computeDocBreakdown;
 window.muni_computeRequiredDocumentsSubmitted = muni_computeRequiredDocumentsSubmitted;
+window.muni_computeAllDocsApproved = muni_computeAllDocsApproved;
+window.muni_fixedDoc = muni_fixedDoc;
+window.openFixedDocModal = openFixedDocModal;
+window.approveFixedDoc = approveFixedDoc;
+window.rejectFixedDoc = rejectFixedDoc;
+window.saveFixedDocNote = saveFixedDocNote;
 // Re-fetches MUNICIPALITIES/municipalUsers from the shared registry right
 // before someone reaches the login form, so an agency Admin just
 // created/suspended/reactivated in this same browser session shows up
@@ -29993,7 +30304,9 @@ function jcf_attachTrnFormatter(id){
   el.setAttribute('placeholder', '000-000-000');
   el.setAttribute('maxlength', '11');
   el.setAttribute('inputmode', 'numeric');
-  el.addEventListener('input', ()=>{
+  // Reformats once the field loses focus rather than on every keystroke —
+  // see atdAttachTrnFormatter (shared shim) for why.
+  el.addEventListener('blur', ()=>{
     const digits = el.value.replace(/\D/g, '');
     el.value = jcf_formatTrnValue(digits);
   });
@@ -30011,7 +30324,9 @@ function jcf_attachPhoneFormatter(id){
   el.setAttribute('placeholder', '(000) 000-0000');
   el.setAttribute('maxlength', '14');
   el.setAttribute('inputmode', 'tel');
-  el.addEventListener('input', ()=>{
+  // Reformats once the field loses focus rather than on every keystroke —
+  // see atdAttachTrnFormatter (shared shim) for why.
+  el.addEventListener('blur', ()=>{
     const digits = el.value.replace(/\D/g, '');
     el.value = jcf_formatPhoneValue(digits);
   });
@@ -31437,6 +31752,37 @@ const JCFANNUAL_STEP_NAMES = ['Applicant Information', 'Premises Information', '
 // inline fields, per the design spec.
 let jcfAnnualPropertyOwner = { name: '', phone: '', email: '' };
 
+// When Ownership Status is "Owned", the applicant IS the property owner —
+// asking them to separately fill in a Registered Property Owner name/phone/
+// email is redundant, so this auto-fills a plain sentinel name instead and
+// hides the "+ Add Property Owner Details" button entirely. Every other
+// ownership status (Leased/Rented/Managed on behalf of owner/Other) still
+// requires the applicant to enter the real owner's details via that button.
+// The sentinel name alone (phone/email left blank) is exactly what the
+// review page, Official Use column, Account History, and Main Menu already
+// render via their shared `[name, phone, email].filter(Boolean).join(' · ')`
+// pattern, so setting it here is the only change those views need.
+const JCFANNUAL_OWNED_BY_APPLICANT_TEXT = 'Property is Owned by Applicant';
+function jcfAnnual_onOwnershipStatusChange(){
+  const status = jcf_val('jcfAnnual_ownershipStatus');
+  const btn = document.getElementById('jcfAnnual_propertyOwnerBtn');
+  if(status === 'Owned'){
+    jcfAnnualPropertyOwner = { name: JCFANNUAL_OWNED_BY_APPLICANT_TEXT, phone: '', email: '' };
+    btn.classList.add('hidden');
+  } else {
+    // Only clear it back out if it's still exactly the auto-filled sentinel
+    // — an applicant who picked "Owned" by mistake, switched to it and back,
+    // or already entered real owner details before changing their mind
+    // should never have real, manually-entered details silently wiped.
+    if(jcfAnnualPropertyOwner.name === JCFANNUAL_OWNED_BY_APPLICANT_TEXT && !jcfAnnualPropertyOwner.phone && !jcfAnnualPropertyOwner.email){
+      jcfAnnualPropertyOwner = { name: '', phone: '', email: '' };
+    }
+    btn.classList.remove('hidden');
+  }
+  jcfAnnual_renderPropertyOwnerSummary();
+}
+window.jcfAnnual_onOwnershipStatusChange = jcfAnnual_onOwnershipStatusChange;
+
 // Section 3 — Entertainment Activities.
 const JCFANNUAL_ACTIVITIES = ['Live band','DJ','Sound system','Karaoke','Dancing','Live performances','Recorded music','Television/sports broadcasting','Cultural performances','Comedy','Theatre','Gaming/amusement machines','Outdoor entertainment','Other'];
 // Frequency is a plain <select> (#jcfAnnual_frequency) rather than a radio
@@ -31738,24 +32084,85 @@ function jcfAnnual_continueFromStep5(){
   jcfAnnual_goStep(6);
 }
 
-// ==================== Section 6: Noise Abatement Act eBriefing ====================
+// ==================== Section 6: Noise Abatement Act eBriefing — sequential
+// video loader ====================
+// Presents the three JCF briefing videos one at a time instead of all three
+// stacked on the page: checking "watched" for whichever video is currently
+// on screen immediately loads the next one, and the applicant cannot leave
+// Step 6 (or submit at Step 7) until all three are checked off. The
+// horizontal checklist rendered in the left column mirrors this same
+// progress. Order/keys match the three videos exactly as before, so nothing
+// about what's required changes — only how the applicant gets there.
+const JCFANNUAL_BRIEFING_VIDEOS = [
+  { key: 'noise', stepTitle: 'Noise Abatement Act — eBriefing', name: 'JCF Noise Abatement Act Briefing' },
+  { key: 'loudspeakers', stepTitle: 'Playing of Loud Speakers — eBriefing', name: 'JCF Enforcement Briefing on Loudspeaker Use' },
+  { key: 'charges', stepTitle: 'Charges for Breaches — eBriefing', name: 'JCF Charges and Penalties Briefing' }
+];
+let jcfAnnualBriefingUrls = { noise: '', loudspeakers: '', charges: '' };
+let jcfAnnualBriefingWatched = { noise: false, loudspeakers: false, charges: false };
+let jcfAnnualCurrentVideoIndex = 0;
+
+function jcfAnnual_renderVideoChecklist(){
+  JCFANNUAL_BRIEFING_VIDEOS.forEach((v, i) => {
+    const item = document.getElementById(`jcfAnnual_videoChecklistItem_${v.key}`);
+    if(!item) return;
+    item.classList.toggle('done', jcfAnnualBriefingWatched[v.key]);
+    item.classList.toggle('current', !jcfAnnualBriefingWatched[v.key] && i === jcfAnnualCurrentVideoIndex);
+  });
+}
+
+function jcfAnnual_renderCurrentVideo(){
+  const v = JCFANNUAL_BRIEFING_VIDEOS[jcfAnnualCurrentVideoIndex];
+  if(!v) return;
+  document.getElementById('jcfAnnual_currentVideoStepTitle').textContent = v.stepTitle;
+  document.getElementById('jcfAnnual_currentVideoName').textContent = v.name;
+  document.getElementById('jcfAnnual_jcfVideoFrame_current').innerHTML = jcf_buildVideoEmbedHtml(jcfAnnualBriefingUrls[v.key]);
+  document.getElementById('jcfAnnual_currentVideoWatch').checked = jcfAnnualBriefingWatched[v.key];
+  jcfAnnual_renderVideoChecklist();
+}
+
+function jcfAnnual_onVideoWatchedToggle(){
+  const v = JCFANNUAL_BRIEFING_VIDEOS[jcfAnnualCurrentVideoIndex];
+  if(!v) return;
+  const checked = document.getElementById('jcfAnnual_currentVideoWatch').checked;
+  jcfAnnualBriefingWatched[v.key] = checked;
+  if(checked && jcfAnnualCurrentVideoIndex < JCFANNUAL_BRIEFING_VIDEOS.length - 1){
+    jcfAnnualCurrentVideoIndex++;
+    jcfAnnual_renderCurrentVideo();
+  } else {
+    jcfAnnual_renderVideoChecklist();
+  }
+}
+window.jcfAnnual_onVideoWatchedToggle = jcfAnnual_onVideoWatchedToggle;
+
 function jcfAnnual_continueFromStep6(){
-  if(!document.getElementById('jcfAnnual_watchNoise').checked){
-    jcf_showToast('Please confirm you have watched the Noise Abatement Act briefing before continuing.');
+  const outstanding = JCFANNUAL_BRIEFING_VIDEOS.find(v => !jcfAnnualBriefingWatched[v.key]);
+  if(outstanding){
+    jcf_showToast(`Please confirm you have watched the ${outstanding.stepTitle.replace(' — eBriefing', '')} briefing before continuing.`);
+    // In case the applicant came back to Step 6 having already finished some
+    // videos earlier, jump the loader straight to whichever one is still
+    // outstanding rather than restarting from the first video.
+    jcfAnnualCurrentVideoIndex = JCFANNUAL_BRIEFING_VIDEOS.indexOf(outstanding);
+    jcfAnnual_renderCurrentVideo();
     return;
   }
   jcfAnnual_goStep(7);
 }
 
-// ==================== Section 7: Review, Declaration, Signature ====================
 async function jcfAnnual_loadBriefingVideos(){
   const templates = window.atdLoadFormTemplates ? await window.atdLoadFormTemplates() : window.ATD_DEFAULT_FORM_TEMPLATES;
-  const map = { noise: templates.jcfBriefingVideoNoiseUrl, loudspeakers: templates.jcfBriefingVideoLoudspeakersUrl, charges: templates.jcfBriefingVideoChargesUrl };
-  Object.keys(map).forEach(key => {
-    const frame = document.getElementById(`jcfAnnual_jcfVideoFrame_${key}`);
-    if(frame) frame.innerHTML = jcf_buildVideoEmbedHtml(map[key]);
-  });
+  jcfAnnualBriefingUrls = { noise: templates.jcfBriefingVideoNoiseUrl, loudspeakers: templates.jcfBriefingVideoLoudspeakersUrl, charges: templates.jcfBriefingVideoChargesUrl };
+  // This runs every time the Annual wizard is (re)entered (see
+  // jcfAnnual_startWizard) — reset the loader itself here too, so a
+  // same-page-session re-entry (e.g. opening a second Annual application
+  // without a full page reload) can't carry over an earlier application's
+  // "already watched" progress.
+  jcfAnnualBriefingWatched = { noise: false, loudspeakers: false, charges: false };
+  jcfAnnualCurrentVideoIndex = 0;
+  jcfAnnual_renderCurrentVideo();
 }
+
+// ==================== Section 7: Review, Declaration, Signature ====================
 function jcfAnnual_switchSigMode(mode){
   jcfAnnualSigMode = mode;
   ['Type','Upload','Draw'].forEach(m => {
@@ -31908,7 +32315,7 @@ async function jcfAnnual_submitApp(){
   errorBox.classList.add('hidden');
   const submitBtn = document.getElementById('jcfAnnual_submitBtn');
 
-  if(!document.getElementById('jcfAnnual_watchNoise').checked || !document.getElementById('jcfAnnual_watchLoudspeakers').checked || !document.getElementById('jcfAnnual_watchCharges').checked){
+  if(!jcfAnnualBriefingWatched.noise || !jcfAnnualBriefingWatched.loudspeakers || !jcfAnnualBriefingWatched.charges){
     errorBox.textContent = 'You must confirm you have watched all three briefing videos before submitting.';
     errorBox.classList.remove('hidden');
     return;
