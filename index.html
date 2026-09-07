@@ -3519,6 +3519,33 @@
     return browser + ' on ' + os;
   }
 
+  // sessionLog is append-only at write time (a fresh sign-in always gets a
+  // fresh session_id, so logSession() never overwrites an older row) — left
+  // alone, one person's history would grow forever. Fix #23's DELETE policy
+  // ('kv_store: delete own session log', prefix='sessionLog' and
+  // key_part2=auth.email()) already lets the client prune its own rows, so
+  // no new SQL is needed to keep only the most recent few. Called
+  // fire-and-forget from logSession() (not awaited) so pruning never adds
+  // latency to an actual sign-in.
+  var SESSION_LOG_MAX = 5;
+  async function atdPruneSessionLog(email){
+    if (!client || !email) return;
+    try {
+      var res = await atdWithClockSkewRetry(function () {
+        return client.from(TABLE).select('key, value').like('key', 'sessionLog:' + email + ':%');
+      });
+      if (res.error) { window.atdShowDebugError('atdPruneSessionLog()', res.error); return; }
+      var rows = res.data || [];
+      if (rows.length <= SESSION_LOG_MAX) return;
+      rows.sort(function (a, b) { return new Date(b.value.signedInAt) - new Date(a.value.signedInAt); });
+      var staleKeys = rows.slice(SESSION_LOG_MAX).map(function (r) { return r.key; });
+      var delRes = await atdWithClockSkewRetry(function () {
+        return client.from(TABLE).delete().in('key', staleKeys);
+      });
+      if (delRes.error) window.atdShowDebugError('atdPruneSessionLog() delete', delRes.error);
+    } catch (e) { window.atdShowDebugError('atdPruneSessionLog()', e); }
+  }
+
   var ATDBackend = {
     isConfigured: function () { return !!client; },
 
@@ -3770,8 +3797,28 @@
     // everyday logout should only ever end the session the person is
     // actually looking at; ending every session everywhere is now its own
     // explicit, clearly-labeled action — see signOutEverywhere() below.
-    signOut: function () {
+    signOut: async function () {
       if (!client) return resolved();
+      // Delete this device's own sessionLog row so a logged-out session
+      // doesn't keep showing up under "Active sessions" until enough later
+      // sign-ins eventually push it off the 5-row prune in logSession/
+      // atdPruneSessionLog. Has to happen BEFORE the real sign-out below —
+      // once that clears the local session, there's no way left to look up
+      // which sessionLog row belonged to this device. Best-effort and not
+      // awaited: a slow or failed delete must never delay or block the
+      // actual sign-out a person is waiting on.
+      try {
+        var sessionRes = await client.auth.getSession();
+        var session = sessionRes && sessionRes.data && sessionRes.data.session;
+        if (session && session.user && session.user.email) {
+          var email = session.user.email.toLowerCase();
+          var sessionId = atdJwtSessionId(session.access_token) || session.user.id;
+          var key = 'sessionLog:' + email + ':' + sessionId;
+          atdWithClockSkewRetry(function () {
+            return client.from(TABLE).delete().eq('key', key);
+          });
+        }
+      } catch (e) { /* best-effort only — signOut() itself must still proceed below */ }
       return client.auth.signOut({ scope: 'local' });
     },
     // Self-service password change for the currently signed-in user (no
@@ -4065,6 +4112,10 @@
           }, { onConflict: 'key' });
         });
         if (res.error) window.atdShowDebugError('logSession(' + portal + ')', res.error);
+        // Best-effort, not awaited: keeping this sign-in's own row visible
+        // to the caller immediately matters more than pruning happening
+        // before logSession() returns, and login shouldn't wait on it.
+        atdPruneSessionLog(email);
       } catch (e) { window.atdShowDebugError('logSession(' + portal + ')', e); }
     },
     listSessions: async function () {
@@ -4087,6 +4138,26 @@
     signOutEverywhere: async function () {
       if (!client) return { ok: false, error: 'Backend not configured' };
       try {
+        // Every session this account holds is about to be revoked, so its
+        // whole sessionLog history is stale the instant this succeeds — not
+        // just the one row a per-device signOut() would clean up. This has
+        // to run BEFORE the real sign-out below: the delete policy requires
+        // key_part2 = auth.email(), which needs this device's own session
+        // to still be authenticated — once signOut() clears it, the
+        // follow-up request would go out as anon and RLS would just deny
+        // it, silently leaving every row behind.
+        var sessionRes = await client.auth.getSession();
+        var session = sessionRes && sessionRes.data && sessionRes.data.session;
+        var email = session && session.user && session.user.email ? session.user.email.toLowerCase() : null;
+        if (email) {
+          try {
+            var logRes = await atdWithClockSkewRetry(function () {
+              return client.from(TABLE).select('key').like('key', 'sessionLog:' + email + ':%');
+            });
+            var keys = ((logRes && logRes.data) || []).map(function (row) { return row.key; });
+            if (keys.length) await client.from(TABLE).delete().in('key', keys);
+          } catch (logErr) { /* best-effort only — must never block the real sign-out below */ }
+        }
         var res = await client.auth.signOut({ scope: 'global' });
         if (res && res.error) { window.atdShowDebugError('signOutEverywhere()', res.error); return { ok: false, error: res.error.message }; }
         return { ok: true };
