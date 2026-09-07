@@ -18882,7 +18882,7 @@ async function buildApplicationRecord(appNumber){
     // afterward. Left '' for a database-picked venue, which never goes
     // through this review at all.
     venueRegistryStatus: c.venueIsNew ? 'pending' : '',
-    venueRegistryVenueId: c.venueIsNew ? `venue-${Date.now()}-${Math.floor(Math.random()*100000)}` : '',
+    venueRegistryVenueId: c.venueIsNew ? atdGenerateVenueId() : '',
     venueRegistryRejectReason: '',
     // SLA-pipeline timestamps (see the "Review Turnaround (SLA)" settings and
     // the notification bell): each is set the moment its triggering action
@@ -22861,6 +22861,33 @@ function myVenues(){
   return venues.filter(v => v.muniId === currentUser.muniId);
 }
 
+// Venue IDs are a plain 9-digit unique number (e.g. 483920175) rather than
+// the old "venue-<timestamp>-<random>" string -- easier for an officer or
+// applicant to read aloud, write on a paper form, or search by. Nine digits
+// (100000000-999999999, no leading zero so it always displays as a full
+// 9-digit number) gives 900,000,000 possible values, which is effectively
+// collision-free at pilot/national scale -- and even in the one-in-900-
+// million case where two get generated before either is saved, kv_store's
+// key column (venue:<id>) is a real database primary key, and both
+// atd_submit_pending_venue (Fix #35) and atd_ensure_pending_venue (Fix #52)
+// already guard their insert with ON CONFLICT DO NOTHING, so a collision
+// can never silently overwrite another venue's record.
+// `existingIds` is optional -- pass a Set of ids already known on the
+// client (e.g. the Municipal officer portal's own loaded `venues` array) to
+// actively avoid a collision with anything already visible; callers that
+// have no such list on hand (e.g. the public Places of Amusement wizard,
+// which cannot list other venues' ids under RLS) still get a safe id from
+// the sheer size of the id space alone.
+function atdGenerateVenueId(existingIds){
+  let id;
+  let attempts = 0;
+  do {
+    id = String(100000000 + Math.floor(Math.random() * 900000000));
+    attempts++;
+  } while(existingIds && existingIds.has(id) && attempts < 20);
+  return id;
+}
+
 async function loadVenues(){
   if(!window.storage) return;
   try{
@@ -23265,7 +23292,7 @@ async function saveVenue(){
     muni_showToast(`${name} updated.`);
   } else {
     const newVenue = {
-      id: `venue-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+      id: atdGenerateVenueId(new Set(venues.map(v => v.id))),
       ...data,
       flagged: false,
       flagReason: '',
@@ -27815,6 +27842,7 @@ window.closePromotionModal = closePromotionModal;
 window.savePromotion = savePromotion;
 window.togglePromotionStatus = togglePromotionStatus;
 window.loadVenues = loadVenues;
+window.atdGenerateVenueId = atdGenerateVenueId;
 window.renderPendingVenues = renderPendingVenues;
 window.openVenueAcceptModal = openVenueAcceptModal;
 window.closeVenueAcceptModal = closeVenueAcceptModal;
