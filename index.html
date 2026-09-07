@@ -1252,6 +1252,9 @@
   .nav-item svg{ width:18px; height:18px; flex-shrink:0; }
   .nav-item:hover{ background: var(--track); color: var(--text); }
   .nav-item.active{ background: var(--blue-tint); color: var(--blue); font-weight:700; }
+  .nav-item-locked{ opacity:.6; cursor:not-allowed; }
+  .nav-item-locked:hover{ background:transparent; color:var(--text-muted); }
+  .nav-lock-badge{ margin-left:auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--amber); background:var(--amber-tint); padding:2px 6px; border-radius:999px; }
   .sidebar-bottom{ margin-top:auto; }
   .sidebar-user{
     display:flex; align-items:center; gap:10px;
@@ -2055,6 +2058,9 @@
   .nav-item svg{ width:18px; height:18px; flex-shrink:0; }
   .nav-item:hover{ background: var(--track); color: var(--text); }
   .nav-item.active{ background: var(--blue-tint); color: var(--blue); font-weight:700; }
+  .nav-item-locked{ opacity:.6; cursor:not-allowed; }
+  .nav-item-locked:hover{ background:transparent; color:var(--text-muted); }
+  .nav-lock-badge{ margin-left:auto; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--amber); background:var(--amber-tint); padding:2px 6px; border-radius:999px; }
   .sidebar-bottom{ margin-top:auto; }
   .sidebar-user{
     display:flex; align-items:center; gap:10px;
@@ -6751,10 +6757,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item hidden" data-page="ads" id="navAds" onclick="muni_goPage('ads')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a2 2 0 11-3.2 2.4"/></svg>
       Advertisements
+      <span class="nav-lock-badge hidden">Upgrade</span>
     </div>
     <div class="nav-item hidden" data-page="eventsCalendar" id="navEventsCalendar" onclick="muni_goPage('eventsCalendar')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       Events Calendar
+      <span class="nav-lock-badge hidden">Upgrade</span>
     </div>
     <div class="nav-item hidden" data-page="permits" id="navPermits" onclick="muni_goPage('permits')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>
@@ -6771,6 +6779,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item hidden" data-page="slaBreaches" id="navSlaBreaches" onclick="muni_goPage('slaBreaches')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       SLA Breaches
+      <span class="nav-lock-badge hidden">Upgrade</span>
     </div>
 
     <div class="nav-section-label">Settings</div>
@@ -6793,6 +6802,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item hidden" data-page="promotions" id="navPromotions" onclick="muni_goPage('promotions')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41L13.42 20.58a2 2 0 01-2.83 0L2.41 12.4a2 2 0 010-2.83l7.17-7.17a2 2 0 012.83 0l7.17 7.17a2 2 0 010 2.83z"/><line x1="7.5" y1="7.5" x2="7.51" y2="7.5"/></svg>
       Promotions
+      <span class="nav-lock-badge hidden">Upgrade</span>
     </div>
     <div class="nav-item hidden" data-page="bank" id="navBank" onclick="muni_goPage('bank')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="10" rx="1"/><path d="M3 10l9-6 9 6"/><line x1="7" y1="14" x2="7" y2="17"/><line x1="12" y1="14" x2="12" y2="17"/><line x1="17" y1="14" x2="17" y2="17"/></svg>
@@ -6805,6 +6815,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item hidden" data-page="reports" id="navReports" onclick="muni_goPage('reports')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Reports
+      <span class="nav-lock-badge hidden">Upgrade</span>
     </div>
     <div class="nav-item hidden" data-page="archive" id="navArchive" onclick="muni_goPage('archive')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
@@ -7186,7 +7197,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div class="panel">
         <div class="panel-head">
-          <h2>Municipality staff accounts</h2>
+          <div>
+            <h2>Municipality staff accounts</h2>
+            <div class="cell-sub" id="userSeatCount" style="margin-top:2px;"></div>
+          </div>
           <div class="panel-tools">
             <input type="text" id="userSearch" placeholder="Search staff" aria-label="Search staff" oninput="renderUsers()">
             <button class="btn btn-primary" onclick="openUserModal()">+ Add user</button>
@@ -8662,11 +8676,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Agency subscriptions</h2>
         </div>
-        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Platform fees paid by each agency to Atendify for use of the platform, with real billing-cycle due dates computed from each agency's last-billed date.</p>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Platform fees paid by each agency to Atendify for use of the platform, with real billing-cycle due dates computed from each agency's last-billed date. The subscription tier controls which portal modules a Municipal Corporation's officers can use (up to 3 officer accounts on every tier) — change it here or from the agency's own Edit account screen.</p>
         <div style="overflow-x:auto;">
           <table>
             <thead>
-              <tr><th>Agency</th><th>Billing cycle</th><th>Fee</th><th>Last billed</th><th>Next due</th><th>Status</th><th></th></tr>
+              <tr><th>Agency</th><th>Subscription tier</th><th>Billing cycle</th><th>Fee</th><th>Last billed</th><th>Next due</th><th>Status</th><th></th></tr>
             </thead>
             <tbody id="billingBody"></tbody>
           </table>
@@ -9020,6 +9034,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <option value="Annual">Annual</option>
         </select>
       </div>
+    </div>
+
+    <!-- Subscription tier -- Municipal Corporation only, to start (see
+         MUNI_TIER_MODULES). Controls which of that Municipal Corporation's
+         portal modules its officers can use; independent of the role
+         permissions any individual officer holds. Every already-existing
+         Municipal Corporation defaults to Premium (see openAgencyModal) so
+         rollout never takes functionality away from a municipality already
+         using it -- Admin then deliberately dials a specific agency back. -->
+    <div class="field-group hidden" id="agencySubscriptionTierGroup">
+      <label for="agencySubscriptionTier">Subscription tier</label>
+      <select id="agencySubscriptionTier">
+        <option value="Essential">Essential — core licensing workflow</option>
+        <option value="Standard">Standard — adds Reports, Events Calendar, SLA Breaches</option>
+        <option value="Premium">Premium — adds Promotions and Advertisements</option>
+      </select>
+      <div class="field-hint">Every tier allows up to 3 officer accounts. A locked module still appears in that municipality's sidebar, marked "Upgrade required," so officers know it exists rather than that it's missing.</div>
     </div>
 
     <div class="modal-actions">
@@ -21523,6 +21554,51 @@ const ROLE_DEFAULTS = {
   Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true }
 };
 
+// ---------------- Subscription tiers (Municipal Corporation only, to
+// start) ----------------
+// National Admin assigns one of these three tiers per Municipal
+// Corporation (from the Agencies "Edit account" screen or the Agency
+// Subscriptions page — see admin scope's saveAgency()/adminSetAgencyTier()).
+// A tier is a CEILING over which of this portal's optional modules exist
+// for that municipality at all — it composes with, rather than replaces,
+// the existing per-officer ROLE_DEFAULTS/permissions above: tier decides
+// what's available to the agency, permissions decide who within the agency
+// can use what's available. Core statutory workflow (dashboard,
+// applications, venues, watchlist, permits, users, signatures, bank,
+// settings, profile, archive, formElements) isn't listed below because
+// every tier includes all of it.
+const MUNI_SUBSCRIPTION_TIERS = ['Essential', 'Standard', 'Premium'];
+const MUNI_TIER_MODULES = {
+  Essential: [],
+  Standard: ['reports', 'eventsCalendar', 'slaBreaches'],
+  Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads']
+};
+// Every tier allows the same number of officer accounts — tiers here
+// control feature access, not headcount. Enforced only against NEW
+// accounts (see openUserModal) — never removes or suspends an account that
+// already existed before this cap did, or before a downgrade.
+const MUNI_TIER_SEAT_CAP = 3;
+
+// Set at login (see muni_enterShellAsUser) from the agency record's own
+// subscriptionTier — defaults to Premium so a municipality whose agency
+// record predates this feature (or a lookup that somehow comes back empty)
+// never loses functionality it already had.
+let currentAgencyTier = 'Premium';
+
+function atdMuniTierModules(tier){
+  return MUNI_TIER_MODULES[tier] || MUNI_TIER_MODULES.Premium;
+}
+
+// True when the given module key (a subset of muni_goPage's page names —
+// 'reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads') isn't
+// included in the current municipality's subscription tier. Any module not
+// listed in MUNI_TIER_MODULES at all (i.e. core workflow) is never locked.
+function atdMuniModuleLocked(moduleKey){
+  const gatedModules = MUNI_TIER_MODULES.Premium; // the full set of tier-gatable modules, any tier
+  if(!gatedModules.includes(moduleKey)) return false;
+  return !atdMuniTierModules(currentAgencyTier).includes(moduleKey);
+}
+
 let municipalUsers = [];
 
 // ---------------- Registry bootstrap ----------------
@@ -21531,7 +21607,7 @@ async function muni_initRegistryData(){
     const agencyRecords = await window.atdLoadAgencies();
     MUNICIPALITIES = agencyRecords
       .filter(a => a.type === 'Municipal Corporation' && a.status === 'Active' && a.muniNumber)
-      .map(a => ({ id: a.muniNumber, name: a.name }));
+      .map(a => ({ id: a.muniNumber, name: a.name, subscriptionTier: a.subscriptionTier || 'Premium' }));
   }catch(e){ MUNICIPALITIES = []; }
   try{
     municipalUsers = await window.atdLoadMuniUsers();
@@ -21836,6 +21912,13 @@ function muni_enterShellAsUser(user){
     user.permissions.manageVenues = !!user.permissions.review;
   }
   currentUser = user;
+  // MUNICIPALITIES only lists Active Municipal Corporations (see
+  // muni_initRegistryData), so a lookup miss here would only happen for a
+  // municipality that was suspended out from under an already-logged-in
+  // session -- default to Premium rather than silently locking every
+  // optional module for that edge case.
+  const agencyMeta = MUNICIPALITIES.find(m => m.id === user.muniId);
+  currentAgencyTier = (agencyMeta && agencyMeta.subscriptionTier) || 'Premium';
   document.getElementById('muni_loginScreen').classList.add('hidden');
   document.getElementById('muni_appShell').classList.remove('hidden');
   setupSidebarForUser();
@@ -22078,6 +22161,22 @@ function setupSidebarForUser(){
   // Profile has no permission gate — every logged-in user (CEO, Supervisor,
   // Accountant) manages their own account details there, unlike the other
   // Settings-category tabs which are policy/administration surfaces.
+
+  // Subscription tier: a nav item a user has role-permission to see, but
+  // whose module isn't included in the municipality's current tier, stays
+  // VISIBLE (so officers know the feature exists) but is marked locked
+  // rather than clickable — muni_goPage() below is the actual enforcement,
+  // this only controls how the sidebar looks. An item already hidden for
+  // lacking the underlying permission is left alone; tier is moot for it.
+  [['navReports','reports'], ['navEventsCalendar','eventsCalendar'], ['navSlaBreaches','slaBreaches'], ['navPromotions','promotions'], ['navAds','ads']].forEach(([navId, moduleKey]) => {
+    const el = document.getElementById(navId);
+    if(!el || el.classList.contains('hidden')) return;
+    const locked = atdMuniModuleLocked(moduleKey);
+    el.classList.toggle('nav-item-locked', locked);
+    const badge = el.querySelector('.nav-lock-badge');
+    if(badge) badge.classList.toggle('hidden', !locked);
+    el.title = locked ? "This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade." : '';
+  });
 }
 
 // ==================== Navigation ====================
@@ -22092,6 +22191,15 @@ function muni_goPage(page, keepAppsActive){
   }
   if(page === 'promotions' && !hasPerm('approve')){
     muni_showToast("You don't have permission to manage promotions.");
+    page = 'dashboard';
+  }
+  // Subscription tier gate -- runs after the permission checks above, so it
+  // only ever fires for a user who already has the underlying role
+  // permission (someone lacking it was already redirected to 'dashboard',
+  // which is never itself tier-gated). This is the actual enforcement; the
+  // sidebar's locked/greyed styling (setupSidebarForUser) is just the cue.
+  if(atdMuniModuleLocked(page)){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
     page = 'dashboard';
   }
   document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
@@ -25210,6 +25318,12 @@ function renderUsers(){
   let list = myUsers().filter(u => !search || u.name.toLowerCase().includes(search) || u.email.toLowerCase().includes(search));
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
+  const seatCountEl = document.getElementById('userSeatCount');
+  if(seatCountEl){
+    const used = myUsers().length;
+    seatCountEl.textContent = `${used} of ${MUNI_TIER_SEAT_CAP} staff accounts used`;
+  }
+
   if(!list.length){
     body.innerHTML = `<tr><td colspan="6" class="table-empty">No staff accounts found.</td></tr>`;
     return;
@@ -25271,6 +25385,13 @@ function generateUserPassword(){
 function openUserModal(id){
   if(!hasPerm('manageUsers')){
     muni_showToast("You don't have permission to manage users.");
+    return;
+  }
+  // Seat cap applies only to adding a NEW account -- editing an existing
+  // one (id is set) is always allowed, including for a municipality that's
+  // already over the cap from before it existed or from a downgrade.
+  if(!id && myUsers().length >= MUNI_TIER_SEAT_CAP){
+    muni_showToast(`You've reached this municipality's staff limit (${MUNI_TIER_SEAT_CAP} accounts). Contact your Atendify administrator to add more.`);
     return;
   }
   editingUserId = id || null;
@@ -27843,6 +27964,14 @@ window.savePromotion = savePromotion;
 window.togglePromotionStatus = togglePromotionStatus;
 window.loadVenues = loadVenues;
 window.atdGenerateVenueId = atdGenerateVenueId;
+// Exposed for the Admin portal's own <script> scope (a separate closure —
+// see renderBilling()/adminSetAgencyTier()) and for tests driving either
+// portal directly.
+window.MUNI_SUBSCRIPTION_TIERS = MUNI_SUBSCRIPTION_TIERS;
+window.MUNI_TIER_MODULES = MUNI_TIER_MODULES;
+window.MUNI_TIER_SEAT_CAP = MUNI_TIER_SEAT_CAP;
+window.atdMuniModuleLocked = atdMuniModuleLocked;
+window.atdGetCurrentAgencyTier = function(){ return currentAgencyTier; };
 window.renderPendingVenues = renderPendingVenues;
 window.openVenueAcceptModal = openVenueAcceptModal;
 window.closeVenueAcceptModal = closeVenueAcceptModal;
@@ -28945,17 +29074,21 @@ function onAgencyTypeChange(){
   const type = document.getElementById('agencyType').value;
   const muniNumGroup = document.getElementById('agencyMuniNumberGroup');
   const linkedGroup = document.getElementById('agencyLinkedMuniGroup');
+  const tierGroup = document.getElementById('agencySubscriptionTierGroup');
 
   if(type === 'Municipal Corporation'){
     muniNumGroup.classList.remove('hidden');
     linkedGroup.classList.add('hidden');
+    tierGroup.classList.remove('hidden');
   } else if(type){
     muniNumGroup.classList.add('hidden');
     linkedGroup.classList.remove('hidden');
+    tierGroup.classList.add('hidden');
     populateLinkedMuniSelect();
   } else {
     muniNumGroup.classList.add('hidden');
     linkedGroup.classList.add('hidden');
+    tierGroup.classList.add('hidden');
   }
 }
 
@@ -28980,6 +29113,10 @@ function openAgencyModal(id){
     document.getElementById('agencyPlatformFee').value = m.platformFee;
     document.getElementById('agencyPlatformBilling').value = m.platformBilling;
     document.getElementById('agencyMuniNumber').value = m.muniNumber || '';
+    // Every already-existing Municipal Corporation defaults to Premium here
+    // (not just on the record itself) so an agency saved before this field
+    // existed shows its true effective tier rather than a blank dropdown.
+    document.getElementById('agencySubscriptionTier').value = m.subscriptionTier || 'Premium';
     onAgencyTypeChange();
     if(m.type !== 'Municipal Corporation'){
       populateLinkedMuniSelect(m.linkedMuniId);
@@ -28999,6 +29136,12 @@ function openAgencyModal(id){
     document.getElementById('agencyPlatformFee').value = '';
     document.getElementById('agencyPlatformBilling').value = 'Monthly';
     document.getElementById('agencyMuniNumber').value = '';
+    // A brand-new agency starts on Essential -- Admin picks the tier this
+    // customer is actually subscribing to, rather than it silently
+    // launching on the top tier. Premium-by-default (above) is only a
+    // grandfather clause for agencies that already existed before this
+    // field did.
+    document.getElementById('agencySubscriptionTier').value = 'Essential';
     onAgencyTypeChange();
   }
   document.getElementById('agencyModal').classList.remove('hidden');
@@ -29021,6 +29164,10 @@ async function saveAgency(){
   const appFeeSpecial = parseFloat(document.getElementById('agencyFeeSpecial').value) || 0;
   const platformFee = parseFloat(document.getElementById('agencyPlatformFee').value) || 0;
   const platformBilling = document.getElementById('agencyPlatformBilling').value;
+  // Subscription tiers only apply to Municipal Corporations to start (see
+  // MUNI_TIER_MODULES) -- left null for every other agency type rather than
+  // carrying a value that nothing currently reads.
+  const subscriptionTier = type === 'Municipal Corporation' ? (document.getElementById('agencySubscriptionTier').value || 'Essential') : null;
 
   if(!name || !type || !parish || !email){
     admin_showToast('Please fill in the agency name, type, parish, and email.');
@@ -29067,7 +29214,7 @@ async function saveAgency(){
 
   if(editingAgencyId){
     const m = agencies.find(m => m.id === editingAgencyId);
-    Object.assign(m, { name, type, parish, contact, phone, email, roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling, muniNumber, linkedMuniId });
+    Object.assign(m, { name, type, parish, contact, phone, email, roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling, muniNumber, linkedMuniId, subscriptionTier });
     if(type === 'Municipal Corporation' && !m.jurisdictionParishes){
       m.jurisdictionParishes = [parish];
     }
@@ -29081,7 +29228,7 @@ async function saveAgency(){
       status: 'Active',
       created: new Date().toISOString().slice(0,10),
       roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling,
-      muniNumber, linkedMuniId
+      muniNumber, linkedMuniId, subscriptionTier
     };
     if(type === 'Municipal Corporation'){
       record.jurisdictionParishes = [parish];
@@ -30241,7 +30388,7 @@ function renderBilling(){
   const body = document.getElementById('billingBody');
   if(!body) return;
   if(!agencies.length){
-    body.innerHTML = `<tr><td colspan="7" class="table-empty">No agency accounts yet.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="table-empty">No agency accounts yet.</td></tr>`;
     document.getElementById('billingTotal').textContent = admin_formatCurrency(0);
     return;
   }
@@ -30254,9 +30401,24 @@ function renderBilling(){
     const lastBilled = m.lastBilledDate || m.created;
     const nextDue = admin_computeNextDue(lastBilled, m.platformBilling);
     const overdue = nextDue && nextDue < today;
+    // Subscription tiers only apply to Municipal Corporations to start
+    // (MUNI_TIER_MODULES) -- every other agency type shows a plain "Not
+    // tiered" label rather than an editable dropdown that nothing reads yet.
+    // MUNI_SUBSCRIPTION_TIERS is defined in the Municipal officer portal's
+    // own <script> scope (a separate closure from this Admin one) and
+    // exposed on window for exactly this kind of cross-portal reference —
+    // the fallback array is only for the unlikely case that script hasn't
+    // run yet.
+    const tierOptions = window.MUNI_SUBSCRIPTION_TIERS || ['Essential', 'Standard', 'Premium'];
+    const tierCell = m.type === 'Municipal Corporation'
+      ? `<select onchange="adminSetAgencyTier(${m.id}, this.value)">
+          ${tierOptions.map(t => `<option value="${t}" ${(m.subscriptionTier || 'Premium') === t ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>`
+      : '<span style="color:var(--text-muted);">Not tiered</span>';
     return `
       <tr>
         <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
+        <td>${tierCell}</td>
         <td>${m.platformBilling}</td>
         <td>${admin_formatCurrency(m.platformFee)}</td>
         <td>${admin_escapeHtml(lastBilled)}</td>
@@ -30267,6 +30429,15 @@ function renderBilling(){
     `;
   }).join('');
   document.getElementById('billingTotal').textContent = admin_formatCurrency(totalMonthly);
+}
+
+async function adminSetAgencyTier(id, tier){
+  const m = agencies.find(m => m.id === id);
+  if(!m) return;
+  m.subscriptionTier = tier;
+  await window.atdSaveAgency(m);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.tierChange', details: `Set ${m.name}'s subscription tier to ${tier}.`, muniId: m.muniNumber });
+  admin_showToast(`${m.name} is now on the ${tier} tier.`);
 }
 
 async function adminMarkAgencyPaid(id){
@@ -30811,6 +30982,8 @@ window.admin_saveVenueOverlay = admin_saveVenueOverlay;
 window.admin_addVenueViolation = admin_addVenueViolation;
 window.saveRole = saveRole;
 window.toggleAgencyStatus = toggleAgencyStatus;
+window.renderBilling = renderBilling;
+window.adminSetAgencyTier = adminSetAgencyTier;
 window.renderAdminUsers = renderAdminUsers;
 window.adminResetUserPassword = adminResetUserPassword;
 window.adminToggleUserStatus = adminToggleUserStatus;
