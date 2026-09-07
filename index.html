@@ -6808,6 +6808,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="10" rx="1"/><path d="M3 10l9-6 9 6"/><line x1="7" y1="14" x2="7" y2="17"/><line x1="12" y1="14" x2="12" y2="17"/><line x1="17" y1="14" x2="17" y2="17"/></svg>
       Bank Account
     </div>
+    <div class="nav-item hidden" data-page="billing" id="navBilling" onclick="muni_goPage('billing')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      Subscription &amp; Billing
+    </div>
     <div class="nav-item hidden" data-page="settings" id="navSettings" onclick="muni_goPage('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       SLA Policy
@@ -7306,6 +7310,65 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="btn-row" id="bankDetailsActions">
           <button class="btn btn-primary" onclick="saveBankDetails()">Save bank details</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SUBSCRIPTION & BILLING PAGE (CEO only) ===== -->
+    <div class="page hidden" id="muni_page-billing">
+      <div style="margin-bottom:20px;">
+        <p style="font-size:13.5px; color:var(--text-muted); margin:0;">Your municipality's Atendify subscription, invoices, and billing contact. Plan tier and payment method are set by your Atendify administrator — use "Request a plan change" below to reach them.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 style="font-size:18px;">Subscription Plan</h2>
+          <span class="badge badge-blue" id="billingTierBadge">Premium Plan</span>
+        </div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 14px;">What's included in <span id="billingMuniName">your municipality</span>'s current plan.</p>
+        <div id="billingModulesList" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;"></div>
+        <div class="btn-row">
+          <button class="btn" onclick="muniRequestPlanChange()">Request a plan change</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Upcoming Invoice</h2></div>
+        <div class="progress-track"><div class="progress-fill" id="billingCycleProgressFill" style="width:0%"></div></div>
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px;">
+          <div class="field-group"><label>Billing period</label><div class="cell-sub" id="billingPeriodText">—</div></div>
+          <div class="field-group"><label>Amount due</label><div class="cell-sub" id="billingAmountDueText">—</div></div>
+          <div class="field-group"><label>Due date</label><div class="cell-sub" id="billingDueDateText">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Past Invoices</h2></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Invoice #</th><th>Period</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+            <tbody id="billingInvoicesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Payment Method</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 0;" id="billingPaymentMethodText">No payment method on file.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 style="font-size:18px;">Email Recipient</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 14px;">Where Atendify sends invoices and billing notices for this municipality.</p>
+        <div class="field-row">
+          <div class="field-group">
+            <label for="billingEmailInput">Billing email</label>
+            <input type="email" id="billingEmailInput" placeholder="billing@yourmunicipality.gov.jm">
+          </div>
+        </div>
+        <div class="btn-row" id="billingEmailActions">
+          <button class="btn btn-primary" onclick="saveMuniBillingEmail()">Save</button>
+          <button class="btn" onclick="renderMuniBilling()">Cancel</button>
         </div>
       </div>
     </div>
@@ -9051,6 +9114,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <option value="Premium">Premium — adds Promotions and Advertisements</option>
       </select>
       <div class="field-hint">Every tier allows up to 3 officer accounts. A locked module still appears in that municipality's sidebar, marked "Upgrade required," so officers know it exists rather than that it's missing.</div>
+    </div>
+
+    <!-- Feeds the CEO's own "Subscription & Billing" account page (see
+         muni_page-billing) -- Payment method is admin-set only (this
+         platform has no live payment processor to collect a real card or
+         bank number, so this is a descriptive record: how this agency
+         actually settles its invoice, e.g. by bank transfer or government
+         purchase order). Billing email defaults to the agency's main
+         contact email and can also be changed by the CEO directly from
+         their own Billing page -- editable in both places since it's their
+         own correspondence address, not a financial control. -->
+    <div class="field-group hidden" id="agencyBillingDetailsGroup">
+      <div class="modal-section-title" style="margin-top:0;">Billing (shown on the CEO's Subscription &amp; Billing page)</div>
+      <div class="field-group">
+        <label for="agencyPaymentMethodLabel">Payment method on file</label>
+        <input type="text" id="agencyPaymentMethodLabel" placeholder="e.g. Bank transfer — NCB acct ending 4521, or Government Purchase Order">
+      </div>
+      <div class="field-group">
+        <label for="agencyBillingEmail">Billing correspondence email</label>
+        <input type="email" id="agencyBillingEmail" placeholder="Defaults to the contact email above">
+      </div>
     </div>
 
     <div class="modal-actions">
@@ -22162,6 +22246,13 @@ function setupSidebarForUser(){
   // Accountant) manages their own account details there, unlike the other
   // Settings-category tabs which are policy/administration surfaces.
 
+  // Subscription & Billing is CEO-only, gated on the role itself rather than
+  // the manageUsers/review/approve permission checkboxes used everywhere
+  // else — payment method and invoice history are financial account
+  // information, not a delegable operational permission like managing users
+  // or reviewing applications.
+  document.getElementById('navBilling').classList.toggle('hidden', currentUser.role !== 'CEO');
+
   // Subscription tier: a nav item a user has role-permission to see, but
   // whose module isn't included in the municipality's current tier, stays
   // VISIBLE (so officers know the feature exists) but is marked locked
@@ -22193,6 +22284,10 @@ function muni_goPage(page, keepAppsActive){
     muni_showToast("You don't have permission to manage promotions.");
     page = 'dashboard';
   }
+  if(page === 'billing' && currentUser.role !== 'CEO'){
+    muni_showToast("You don't have permission to view this.");
+    page = 'dashboard';
+  }
   // Subscription tier gate -- runs after the permission checks above, so it
   // only ever fires for a user who already has the underlying role
   // permission (someone lacking it was already redirected to 'dashboard',
@@ -22206,7 +22301,7 @@ function muni_goPage(page, keepAppsActive){
   (document.getElementById('muni_page-' + page) || document.getElementById('page-' + page)).classList.remove('hidden');
   const navKey = keepAppsActive ? 'applications' : page;
   document.querySelectorAll('#shell-muni .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === navKey));
-  const titles = { dashboard: 'Dashboard', applications: 'Applications', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar' };
+  const titles = { dashboard: 'Dashboard', applications: 'Applications', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar', billing: 'Subscription & Billing' };
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
@@ -22222,6 +22317,7 @@ function muni_goPage(page, keepAppsActive){
   if(page === 'formElements') renderFormElements();
   if(page === 'promotions') renderPromotions();
   if(page === 'eventsCalendar') goEventsCalendarPage();
+  if(page === 'billing') renderMuniBilling();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -22255,6 +22351,189 @@ async function saveBankDetails(){
   } catch(err){
     muni_showToast('Could not save bank account details right now.');
   }
+}
+
+// ==================== Subscription & Billing (CEO only) ====================
+// A read-mostly view onto fields National Admin manages on this
+// municipality's agency record (platform fee/cycle, subscription tier,
+// payment method on file, invoice history) plus one thing the CEO manages
+// themselves (which email address billing notices go to). Deliberately NOT
+// a real payment page: no card entry, no self-service plan change/cancel —
+// "Request a plan change" only logs to the audit trail Admin already
+// watches, same posture as the JCF/Municipal officer permission system,
+// which is also enforced client-side only.
+//
+// MUNICIPALITIES (this portal's own lightweight roster, built in
+// muni_initRegistryData) only carries {id, name, subscriptionTier} — not
+// enough to render this page — so this loads the full agency record
+// straight from window.atdLoadAgencies() instead, matching by muniNumber.
+async function muni_loadMyAgencyRecord(){
+  if(!currentUser) return null;
+  const list = await window.atdLoadAgencies();
+  return list.find(a => a.muniNumber === currentUser.muniId) || null;
+}
+
+function muni_computeBillingNextDue(lastBilledDate, billingCycle){
+  const parts = String(lastBilledDate || '').split('-').map(n => parseInt(n, 10));
+  if(parts.length !== 3 || parts.some(isNaN)) return '';
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  if(billingCycle === 'Annual') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+let muni_currentAgencyRecord = null;
+
+async function renderMuniBilling(){
+  const m = await muni_loadMyAgencyRecord();
+  muni_currentAgencyRecord = m;
+  if(!m){
+    muni_showToast('Could not load your municipality\'s billing information.');
+    return;
+  }
+
+  // ---- Subscription Plan ----
+  const tier = m.subscriptionTier || 'Premium';
+  document.getElementById('billingTierBadge').textContent = tier + ' Plan';
+  document.getElementById('billingMuniName').textContent = m.name;
+  const moduleLabels = { reports: 'Reports & Analytics', eventsCalendar: 'Events Calendar', slaBreaches: 'SLA Breach Tracking', promotions: 'Promotions', ads: 'Advertisement Module' };
+  const baseModules = ['Applications & Venue Registry', 'Permits & Signatures', `Up to ${MUNI_TIER_SEAT_CAP} staff seats`];
+  const tierModules = (window.MUNI_TIER_MODULES && window.MUNI_TIER_MODULES[tier]) || [];
+  const allModules = baseModules.concat(tierModules.map(k => moduleLabels[k] || k));
+  document.getElementById('billingModulesList').innerHTML = allModules.map(label =>
+    `<span class="badge badge-green">${muni_escapeHtml(label)}</span>`
+  ).join('');
+
+  // ---- Upcoming Invoice ----
+  const periodStart = m.lastBilledDate || m.created || new Date().toISOString().slice(0, 10);
+  const periodEnd = muni_computeBillingNextDue(periodStart, m.platformBilling);
+  const today = new Date().toISOString().slice(0, 10);
+  let pct = 0;
+  if(periodEnd){
+    const startMs = new Date(periodStart).getTime();
+    const endMs = new Date(periodEnd).getTime();
+    const todayMs = new Date(today).getTime();
+    pct = endMs > startMs ? Math.min(100, Math.max(0, ((todayMs - startMs) / (endMs - startMs)) * 100)) : 0;
+  }
+  document.getElementById('billingCycleProgressFill').style.width = pct.toFixed(1) + '%';
+  document.getElementById('billingPeriodText').textContent = `${periodStart} to ${periodEnd || '—'}`;
+  document.getElementById('billingAmountDueText').textContent = muni_formatCurrency(m.platformFee || 0) + ' / ' + (m.platformBilling || 'Monthly');
+  document.getElementById('billingDueDateText').textContent = periodEnd || '—';
+
+  // ---- Past Invoices ----
+  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.slice().reverse() : [];
+  const invoicesBody = document.getElementById('billingInvoicesBody');
+  invoicesBody.innerHTML = invoices.length ? invoices.map((inv, revIdx) => {
+    const idx = invoices.length - 1 - revIdx;
+    return `
+    <tr>
+      <td class="cell-primary">${muni_escapeHtml(inv.invoiceNumber)}</td>
+      <td>${muni_escapeHtml(inv.periodStart)} &ndash; ${muni_escapeHtml(inv.periodEnd)}</td>
+      <td>${muni_formatCurrency(inv.amount || 0)}</td>
+      <td><span class="badge badge-green">${muni_escapeHtml(inv.status || 'Paid')}</span></td>
+      <td>
+        <button class="btn btn-sm" onclick="muniPrintInvoice(${idx})">Invoice</button>
+        <button class="btn btn-sm" onclick="muniPrintReceipt(${idx})">Receipt</button>
+      </td>
+    </tr>
+  `; }).join('') : `<tr><td colspan="5" class="table-empty">No invoices yet.</td></tr>`;
+
+  // ---- Payment Method ----
+  document.getElementById('billingPaymentMethodText').textContent = m.paymentMethodLabel
+    ? m.paymentMethodLabel
+    : 'No payment method on file. Contact your Atendify administrator to add one.';
+
+  // ---- Email Recipient ----
+  document.getElementById('billingEmailInput').value = m.billingEmail || m.email || '';
+}
+
+async function saveMuniBillingEmail(){
+  const m = muni_currentAgencyRecord || await muni_loadMyAgencyRecord();
+  if(!m) return;
+  const email = document.getElementById('billingEmailInput').value.trim();
+  if(!email){
+    muni_showToast('Please enter a billing email address.');
+    return;
+  }
+  m.billingEmail = email;
+  await window.atdSaveAgency(m);
+  await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'billing.emailChange', details: `Set the billing correspondence email to ${email}.`, muniId: currentUser.muniId });
+  muni_showToast('Billing email updated.');
+  renderMuniBilling();
+}
+
+async function muniRequestPlanChange(){
+  const m = muni_currentAgencyRecord || await muni_loadMyAgencyRecord();
+  if(!m) return;
+  // There's no "notify Admin" channel in this app (atdNotify only reaches an
+  // agency's own staff) -- logging to the shared Audit Logs page, which
+  // National Admin already watches, is the closest real equivalent, and
+  // matches how every other cross-portal-visible action here works.
+  await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'billing.planChangeRequested', details: `Requested a subscription plan change (currently ${m.subscriptionTier || 'Premium'}).`, muniId: currentUser.muniId });
+  muni_showToast('Request sent. Your Atendify administrator will follow up about changing your plan.');
+}
+
+function muni_billingPrintHtml(inv, m, docLabel){
+  return `<div style="max-width:700px; margin:30px auto; padding:20px; font-family:-apple-system,sans-serif;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #222; padding-bottom:14px; margin-bottom:20px;">
+      <div>
+        <div style="font-size:20px; font-weight:700;">Atendify</div>
+        <div style="font-size:12px; color:#666;">Places of Amusement Licensing Suite</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:18px; font-weight:700;">${muni_escapeHtml(docLabel)}</div>
+        <div style="font-size:12px; color:#666;">${muni_escapeHtml(inv.invoiceNumber)}</div>
+        <div style="font-size:12px; color:#666;">${muni_escapeHtml(inv.issuedDate || inv.periodEnd)}</div>
+      </div>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:24px;">
+      <div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#888; margin-bottom:4px;">Bill to</div>
+        <div style="font-size:13.5px; font-weight:600;">${muni_escapeHtml(m.name)}</div>
+        <div style="font-size:12.5px; color:#555;">${muni_escapeHtml(m.billingEmail || m.email || '')}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#888; margin-bottom:4px;">Billing period</div>
+        <div style="font-size:13px;">${muni_escapeHtml(inv.periodStart)} &ndash; ${muni_escapeHtml(inv.periodEnd)}</div>
+      </div>
+    </div>
+    <table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px;">
+      <thead><tr>
+        <th style="text-align:left; border-bottom:1px solid #ccc; padding:8px 4px;">Description</th>
+        <th style="text-align:right; border-bottom:1px solid #ccc; padding:8px 4px;">Amount</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="padding:8px 4px; border-bottom:1px solid #eee;">Atendify platform subscription &mdash; ${muni_escapeHtml(inv.planName || 'Plan')} (${muni_escapeHtml(inv.billingCycle || 'Monthly')})</td>
+          <td style="text-align:right; padding:8px 4px; border-bottom:1px solid #eee;">${muni_formatCurrency(inv.amount || 0)}</td></tr>
+      </tbody>
+      <tfoot>
+        <tr><td style="text-align:right; padding:10px 4px; font-weight:700;">Total</td><td style="text-align:right; padding:10px 4px; font-weight:700;">${muni_formatCurrency(inv.amount || 0)}</td></tr>
+      </tfoot>
+    </table>
+    <div style="font-size:12px; color:#777;">${docLabel === 'Receipt' ? `Payment received. Status: ${muni_escapeHtml(inv.status || 'Paid')}.` : `Payment method on file: ${muni_escapeHtml(m.paymentMethodLabel || 'Not set')}.`}</div>
+  </div>`;
+}
+
+function muniPrintInvoice(idx){
+  const m = muni_currentAgencyRecord;
+  const inv = m && m.subscriptionInvoices && m.subscriptionInvoices[idx];
+  if(!m || !inv) return;
+  const printArea = document.getElementById('permitPrintArea');
+  printArea.innerHTML = muni_billingPrintHtml(inv, m, 'Invoice');
+  document.body.classList.add('printing-permit');
+  window.print();
+  setTimeout(() => document.body.classList.remove('printing-permit'), 500);
+}
+
+function muniPrintReceipt(idx){
+  const m = muni_currentAgencyRecord;
+  const inv = m && m.subscriptionInvoices && m.subscriptionInvoices[idx];
+  if(!m || !inv) return;
+  const printArea = document.getElementById('permitPrintArea');
+  printArea.innerHTML = muni_billingPrintHtml(inv, m, 'Receipt');
+  document.body.classList.add('printing-permit');
+  window.print();
+  setTimeout(() => document.body.classList.remove('printing-permit'), 500);
 }
 
 // ==================== Municipality settings (CEO only) ====================
@@ -27972,6 +28251,12 @@ window.MUNI_TIER_MODULES = MUNI_TIER_MODULES;
 window.MUNI_TIER_SEAT_CAP = MUNI_TIER_SEAT_CAP;
 window.atdMuniModuleLocked = atdMuniModuleLocked;
 window.atdGetCurrentAgencyTier = function(){ return currentAgencyTier; };
+window.renderMuniBilling = renderMuniBilling;
+window.saveMuniBillingEmail = saveMuniBillingEmail;
+window.muniRequestPlanChange = muniRequestPlanChange;
+window.muniPrintInvoice = muniPrintInvoice;
+window.muniPrintReceipt = muniPrintReceipt;
+window.muni_loadMyAgencyRecord = muni_loadMyAgencyRecord;
 window.renderPendingVenues = renderPendingVenues;
 window.openVenueAcceptModal = openVenueAcceptModal;
 window.closeVenueAcceptModal = closeVenueAcceptModal;
@@ -29075,20 +29360,24 @@ function onAgencyTypeChange(){
   const muniNumGroup = document.getElementById('agencyMuniNumberGroup');
   const linkedGroup = document.getElementById('agencyLinkedMuniGroup');
   const tierGroup = document.getElementById('agencySubscriptionTierGroup');
+  const billingGroup = document.getElementById('agencyBillingDetailsGroup');
 
   if(type === 'Municipal Corporation'){
     muniNumGroup.classList.remove('hidden');
     linkedGroup.classList.add('hidden');
     tierGroup.classList.remove('hidden');
+    billingGroup.classList.remove('hidden');
   } else if(type){
     muniNumGroup.classList.add('hidden');
     linkedGroup.classList.remove('hidden');
     tierGroup.classList.add('hidden');
+    billingGroup.classList.add('hidden');
     populateLinkedMuniSelect();
   } else {
     muniNumGroup.classList.add('hidden');
     linkedGroup.classList.add('hidden');
     tierGroup.classList.add('hidden');
+    billingGroup.classList.add('hidden');
   }
 }
 
@@ -29117,6 +29406,8 @@ function openAgencyModal(id){
     // (not just on the record itself) so an agency saved before this field
     // existed shows its true effective tier rather than a blank dropdown.
     document.getElementById('agencySubscriptionTier').value = m.subscriptionTier || 'Premium';
+    document.getElementById('agencyPaymentMethodLabel').value = m.paymentMethodLabel || '';
+    document.getElementById('agencyBillingEmail').value = m.billingEmail || m.email || '';
     onAgencyTypeChange();
     if(m.type !== 'Municipal Corporation'){
       populateLinkedMuniSelect(m.linkedMuniId);
@@ -29142,6 +29433,8 @@ function openAgencyModal(id){
     // grandfather clause for agencies that already existed before this
     // field did.
     document.getElementById('agencySubscriptionTier').value = 'Essential';
+    document.getElementById('agencyPaymentMethodLabel').value = '';
+    document.getElementById('agencyBillingEmail').value = '';
     onAgencyTypeChange();
   }
   document.getElementById('agencyModal').classList.remove('hidden');
@@ -29168,6 +29461,12 @@ async function saveAgency(){
   // MUNI_TIER_MODULES) -- left null for every other agency type rather than
   // carrying a value that nothing currently reads.
   const subscriptionTier = type === 'Municipal Corporation' ? (document.getElementById('agencySubscriptionTier').value || 'Essential') : null;
+  // Billing details (shown on the CEO's own Subscription & Billing page) are
+  // admin-set, descriptive-only text -- never a real card-entry form. Scoped
+  // to Municipal Corporation for the same reason subscriptionTier is: that's
+  // the only agency type with a CEO-facing Billing tab right now.
+  const paymentMethodLabel = type === 'Municipal Corporation' ? document.getElementById('agencyPaymentMethodLabel').value.trim() : null;
+  const billingEmail = type === 'Municipal Corporation' ? (document.getElementById('agencyBillingEmail').value.trim() || email) : null;
 
   if(!name || !type || !parish || !email){
     admin_showToast('Please fill in the agency name, type, parish, and email.');
@@ -29214,7 +29513,7 @@ async function saveAgency(){
 
   if(editingAgencyId){
     const m = agencies.find(m => m.id === editingAgencyId);
-    Object.assign(m, { name, type, parish, contact, phone, email, roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling, muniNumber, linkedMuniId, subscriptionTier });
+    Object.assign(m, { name, type, parish, contact, phone, email, roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling, muniNumber, linkedMuniId, subscriptionTier, paymentMethodLabel, billingEmail });
     if(type === 'Municipal Corporation' && !m.jurisdictionParishes){
       m.jurisdictionParishes = [parish];
     }
@@ -29228,7 +29527,7 @@ async function saveAgency(){
       status: 'Active',
       created: new Date().toISOString().slice(0,10),
       roleId, appFeeAnnual, appFeeSpecial, platformFee, platformBilling,
-      muniNumber, linkedMuniId, subscriptionTier
+      muniNumber, linkedMuniId, subscriptionTier, paymentMethodLabel, billingEmail
     };
     if(type === 'Municipal Corporation'){
       record.jurisdictionParishes = [parish];
@@ -30442,7 +30741,30 @@ async function adminSetAgencyTier(id, tier){
 
 async function adminMarkAgencyPaid(id){
   const m = agencies.find(m => m.id === id);
-  m.lastBilledDate = new Date().toISOString().slice(0, 10);
+  const periodStart = m.lastBilledDate || m.created;
+  const periodEnd = new Date().toISOString().slice(0, 10);
+  m.lastBilledDate = periodEnd;
+  // Generate an Atendify-branded invoice/receipt record for the CEO's own
+  // Subscription & Billing page (renderMuniBilling()). Kept as an array on
+  // the agency record itself, rather than a new dedicated storage key
+  // scheme, since this pilot's agency count is small and this way the
+  // invoice history travels with the agency record automatically (loads,
+  // saves, and deletes right along with everything else atdSaveAgency
+  // already handles). Municipal-Corporation-only, matching subscriptionTier.
+  if(m.type === 'Municipal Corporation'){
+    if(!Array.isArray(m.subscriptionInvoices)) m.subscriptionInvoices = [];
+    const seq = m.subscriptionInvoices.length + 1;
+    m.subscriptionInvoices.push({
+      invoiceNumber: `ATD-${m.muniNumber}-${String(seq).padStart(5, '0')}`,
+      planName: m.subscriptionTier || 'Premium',
+      amount: m.platformFee,
+      billingCycle: m.platformBilling,
+      periodStart,
+      periodEnd,
+      issuedDate: periodEnd,
+      status: 'Paid'
+    });
+  }
   await window.atdSaveAgency(m);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.markPaid', details: `Marked ${m.name}'s platform subscription as paid.`, muniId: m.muniNumber });
   admin_showToast(`${m.name} marked as paid. Next due ${admin_computeNextDue(m.lastBilledDate, m.platformBilling)}.`);
