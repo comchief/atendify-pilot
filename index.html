@@ -5765,6 +5765,109 @@
     }catch(e){ return 0; }
   };
 
+  // ---- Subscription tier feature catalog + external agency linking
+  // eligibility (Admin's Subscription & Licensing page) ----
+  // Defined here, in this shared/early script block, so that neither the
+  // Admin portal's nor the Municipal officer portal's own <script> tag
+  // load-order matters for the other to read this catalog (each is its own
+  // separate closure elsewhere in this file). The Municipal officer portal
+  // is the one that actually enforces feature gating day to day (see
+  // MUNI_TIER_MODULES/atdMuniModuleLocked in its own scope, which loads its
+  // working copy from atdGetTierModulesConfig() below at portal boot);
+  // Admin's Subscription & Licensing page is the editable view onto that
+  // same saved config, plus a second, independent config for which
+  // subscription tier(s) a Municipal Corporation must be on before a given
+  // kind of external agency (JCF, JFB, ...) can be linked to it at all.
+  window.ATD_TIER_ORDER = ['Essential', 'Standard', 'Premium'];
+  window.ATD_TIER_FEATURE_CATALOG = [
+    { key: 'reports', label: 'Reports & Analytics' },
+    { key: 'eventsCalendar', label: 'Events Calendar' },
+    { key: 'slaBreaches', label: 'SLA Breach Tracking' },
+    { key: 'activityTimeline', label: 'Activity Timeline' },
+    { key: 'promotions', label: 'Promotions' },
+    { key: 'ads', label: 'Advertisement Module' }
+  ];
+  // Factory fallback, used until an Admin ever saves an edit (or if the
+  // saved record is ever missing/corrupt) — matches what MUNI_TIER_MODULES
+  // shipped with before this became admin-editable.
+  window.ATD_DEFAULT_TIER_MODULES = {
+    Essential: [],
+    Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
+    Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
+  };
+  window.atdGetTierModulesConfig = async function(){
+    const fallback = JSON.parse(JSON.stringify(window.ATD_DEFAULT_TIER_MODULES));
+    if(!window.storage) return fallback;
+    try{
+      const r = await window.storage.get('platform:tierModulesConfig');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        // Only accept known feature keys for a known tier -- a stale or
+        // hand-edited record naming a tier/feature nothing else recognizes
+        // is ignored for that entry rather than let it silently create a
+        // module no UI can ever unlock or a tier no UI can ever gate.
+        const validKeys = window.ATD_TIER_FEATURE_CATALOG.map(f => f.key);
+        window.ATD_TIER_ORDER.forEach(t => {
+          if(Array.isArray(saved[t])) fallback[t] = saved[t].filter(k => validKeys.includes(k));
+        });
+      }
+    }catch(e){}
+    return fallback;
+  };
+  window.atdSaveTierModulesConfig = async function(cfg){
+    await window.storage.set('platform:tierModulesConfig', JSON.stringify(cfg), true);
+  };
+
+  // External agencies (JCF, JFB, JAMMS, JACAP, Ministry of Health, ...) are
+  // each linked to exactly one Municipal Corporation (see
+  // agencyLinkedMuniGroup / saveAgency in the Admin portal's Agencies page).
+  // ATD_AGENCY_TYPE_CATALOG lists every linkable agency type the "Add
+  // agency account" dropdown offers. JAMMS and JACAP are listed here (and
+  // added to that dropdown) even though neither has its own portal built
+  // yet -- so the tier-eligibility rule for linking one can be configured
+  // in advance of that work, per instruction: build the infrastructure now.
+  // Municipal Corporation itself is not linkable (it's the entity that
+  // HOLDS a tier, not one linked to another), so it has no entry here.
+  window.ATD_AGENCY_TYPE_CATALOG = ['JCF', 'JFB', 'JAMMS', 'JACAP', 'Ministry of Health', 'NSWMA', 'Other'];
+  // A tier list here means "a Municipal Corporation must be on one of these
+  // tiers before this agency type can be linked to it." Every catalog type
+  // ALWAYS has an explicit array (never an absent key) so the Admin UI's
+  // checkboxes are unambiguous: all three tiers checked means unrestricted,
+  // none checked means that agency type can't be linked to any municipality
+  // at all, right now. NSWMA and Other start with every tier checked
+  // (unrestricted) since nobody has specified a requirement for them yet;
+  // Admin can restrict either later from the same panel that edits
+  // everything else here.
+  window.ATD_DEFAULT_AGENCY_TIER_ELIGIBILITY = {
+    JCF: ['Standard', 'Premium'],
+    JFB: ['Premium'],
+    JAMMS: ['Premium'],
+    JACAP: ['Premium'],
+    'Ministry of Health': ['Standard', 'Premium'],
+    NSWMA: window.ATD_TIER_ORDER.slice(),
+    Other: window.ATD_TIER_ORDER.slice()
+  };
+  window.atdGetAgencyTierEligibility = async function(){
+    const fallback = JSON.parse(JSON.stringify(window.ATD_DEFAULT_AGENCY_TIER_ELIGIBILITY));
+    if(!window.storage) return fallback;
+    try{
+      const r = await window.storage.get('platform:agencyTierEligibilityConfig');
+      if(r && r.value){
+        const saved = JSON.parse(r.value);
+        window.ATD_AGENCY_TYPE_CATALOG.forEach(t => {
+          // An explicit [] (every box unchecked) must be preserved exactly
+          // as "no tier qualifies" -- only a genuinely absent/non-array
+          // entry falls back to the factory default above.
+          if(Array.isArray(saved[t])) fallback[t] = saved[t].filter(x => window.ATD_TIER_ORDER.includes(x));
+        });
+      }
+    }catch(e){}
+    return fallback;
+  };
+  window.atdSaveAgencyTierEligibility = async function(cfg){
+    await window.storage.set('platform:agencyTierEligibilityConfig', JSON.stringify(cfg), true);
+  };
+
   // ---- System errors: real JS runtime errors caught during use of this
   // app, in this browser. There is no backend/API behind this prototype, so
   // this is the one "system health" signal that's honestly implementable —
@@ -9047,6 +9150,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <span id="billingTotal">J$0.00</span>
         </div>
       </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Tiers &amp; Features</h2>
+        </div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Every Municipal Corporation gets the core licensing workflow (Applications &amp; Venue Registry, Permits &amp; Signatures, up to 3 staff seats) regardless of tier. Check or uncheck a box below to add or remove an optional feature from a tier — it takes effect immediately, everywhere, for every municipality on that tier.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>Feature</th><th>Essential</th><th>Standard</th><th>Premium</th></tr>
+            </thead>
+            <tbody id="admin_tierFeatureMatrixBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>External Agency Linking</h2>
+        </div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Which subscription tier(s) a Municipal Corporation must be on before an external agency of a given type can be linked to it (see "Linked Municipal Corporation" on the Add/Edit agency account screen). JAMMS and JACAP are listed here in preparation even though neither has its own portal built yet — configure their eligibility now so it's ready the day they do. Checking all three tiers for a type means any Municipal Corporation can have one linked; unchecking all three blocks that agency type from being linked to any municipality at all.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>Agency type</th><th>Essential</th><th>Standard</th><th>Premium</th></tr>
+            </thead>
+            <tbody id="admin_agencyTierEligibilityBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ===== INTEGRATIONS PAGE ===== -->
@@ -9291,6 +9424,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <option>Municipal Corporation</option>
         <option>JCF</option>
         <option>JFB</option>
+        <!-- JAMMS/JACAP have no working portal yet (see
+             window.ATD_AGENCY_TYPE_CATALOG's own comment) -- listed here
+             so their subscription-tier linking eligibility can be
+             configured in advance, from the Subscription & Licensing
+             page's own "External Agency Linking" panel. -->
+        <option>JAMMS</option>
+        <option>JACAP</option>
         <option>NSWMA</option>
         <option>Ministry of Health</option>
         <option>Other</option>
@@ -9309,6 +9449,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <option value="">Select an option</option>
       </select>
       <div class="field-hint">Applications routed to this agency will be tagged with the same application number issued by the linked corporation, so both sides can reference the same case.</div>
+      <!-- Populated by populateLinkedMuniSelect() from window.ATD_AGENCY_TYPE_CATALOG's
+           own eligibility config (see the Subscription & Licensing page's
+           "External Agency Linking" panel) — only shown when the selected
+           agency type is actually tier-restricted. -->
+      <div class="field-hint" id="agencyLinkedMuniTierHint" style="color:var(--warn, #b45309);"></div>
     </div>
 
     <div class="field-group">
@@ -22988,16 +23133,22 @@ const ROLE_DEFAULTS = {
 // applications, venues, watchlist, permits, users, signatures, bank,
 // settings, profile, archive, formElements) isn't listed below because
 // every tier includes all of it.
-const MUNI_SUBSCRIPTION_TIERS = ['Essential', 'Standard', 'Premium'];
-const MUNI_TIER_MODULES = {
-  Essential: [],
-  // 'activityTimeline' (CEO-only per-application activity timeline, see
-  // renderAppDetail's Activity Timeline card and muni_buildApplicationTimeline)
-  // isn't a nav page like the others here -- atdMuniModuleLocked() works the
-  // same regardless, since it just checks tier membership by key.
-  Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
-  Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
-};
+const MUNI_SUBSCRIPTION_TIERS = window.ATD_TIER_ORDER || ['Essential', 'Standard', 'Premium'];
+// Seeded from the shared factory defaults (see window.ATD_DEFAULT_TIER_MODULES
+// near atdGetSecurityPolicy) and then overwritten IN PLACE — never
+// reassigned to a new object — by muni_initRegistryData() below once the
+// real, Admin-editable config loads from storage. Mutating in place (rather
+// than `MUNI_TIER_MODULES = cfg`) matters because `window.MUNI_TIER_MODULES
+// = MUNI_TIER_MODULES` further down this file captures this exact object
+// reference once, at parse time; a reassignment here would leave that
+// window alias pointing at the old, stale object forever.
+const MUNI_TIER_MODULES = window.ATD_DEFAULT_TIER_MODULES
+  ? JSON.parse(JSON.stringify(window.ATD_DEFAULT_TIER_MODULES))
+  : {
+      Essential: [],
+      Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
+      Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
+    };
 // Every tier allows the same number of officer accounts — tiers here
 // control feature access, not headcount. Enforced only against NEW
 // accounts (see openUserModal) — never removes or suspends an account that
@@ -23017,9 +23168,18 @@ function atdMuniTierModules(tier){
 // True when the given module key (a subset of muni_goPage's page names —
 // 'reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads') isn't
 // included in the current municipality's subscription tier. Any module not
-// listed in MUNI_TIER_MODULES at all (i.e. core workflow) is never locked.
+// in the canonical gatable-feature catalog at all (i.e. core workflow) is
+// never locked. Deliberately reads window.ATD_TIER_FEATURE_CATALOG (the
+// fixed catalog of every feature that CAN ever be tier-gated) rather than
+// MUNI_TIER_MODULES.Premium for that catalog, as it used to: now that an
+// Admin can toggle any tier's module list independently (including
+// removing something from Premium too), using Premium's own current array
+// as "the full set of gatable things" would make a feature no tier
+// currently grants read as "not gated" and fall open for everyone, instead
+// of staying locked everywhere as intended.
 function atdMuniModuleLocked(moduleKey){
-  const gatedModules = MUNI_TIER_MODULES.Premium; // the full set of tier-gatable modules, any tier
+  const gatedModules = (window.ATD_TIER_FEATURE_CATALOG || []).map(f => f.key);
+  if(!gatedModules.length) gatedModules.push(...MUNI_TIER_MODULES.Premium); // fallback if the shared catalog hasn't loaded
   if(!gatedModules.includes(moduleKey)) return false;
   return !atdMuniTierModules(currentAgencyTier).includes(moduleKey);
 }
@@ -23037,6 +23197,16 @@ async function muni_initRegistryData(){
   try{
     municipalUsers = await window.atdLoadMuniUsers();
   }catch(e){ municipalUsers = []; }
+  // Pull in whatever an Admin has actually toggled on the Subscription &
+  // Licensing page's Tiers & Features matrix, if anything — mutates the
+  // existing MUNI_TIER_MODULES object in place (see its own comment on why
+  // this can never become `MUNI_TIER_MODULES = cfg`).
+  try{
+    if(window.atdGetTierModulesConfig){
+      const cfg = await window.atdGetTierModulesConfig();
+      Object.assign(MUNI_TIER_MODULES, cfg);
+    }
+  }catch(e){}
   populateMuniSelect();
   populateDemoHint();
 }
@@ -29946,6 +30116,17 @@ let editingRoleId = null;
 let activeAppId = null;
 let activeVenueId = null;
 
+// Admin's own working copies of the two shared, persisted configs defined
+// near atdGetSecurityPolicy — which subscription tiers grant which of the
+// Municipal officer portal's optional modules (adminTierModulesConfig), and
+// which subscription tier(s) a Municipal Corporation must be on before a
+// given external agency type can be linked to it (adminAgencyTierEligibility).
+// Loaded in admin_refreshRegistryData() below, same pattern as `agencies`/
+// `roles`/`muniUsers` above; re-read from window.atd* getters (not from
+// these caches) immediately after any save, same as those.
+let adminTierModulesConfig = {};
+let adminAgencyTierEligibility = {};
+
 // Loads every real application record across every municipality (the
 // storage key is flat — `application:<appNumber>` — with the record's own
 // `muniId` field carrying the municipality, the same shape and convention
@@ -30120,6 +30301,12 @@ async function admin_refreshRegistryData(){
     loaded.sort((a,b) => a.id - b.id);
     roles = loaded.length ? loaded : ADMIN_ROLE_SEED.slice();
   }catch(e){ roles = ADMIN_ROLE_SEED.slice(); }
+  try{
+    adminTierModulesConfig = await window.atdGetTierModulesConfig();
+  }catch(e){ adminTierModulesConfig = Object.assign({}, window.ATD_DEFAULT_TIER_MODULES); }
+  try{
+    adminAgencyTierEligibility = await window.atdGetAgencyTierEligibility();
+  }catch(e){ adminAgencyTierEligibility = Object.assign({}, window.ATD_DEFAULT_AGENCY_TIER_ELIGIBILITY); }
   admin_renderNationalOverview();
   if(!document.getElementById('admin_appShell').classList.contains('hidden')){
     admin_renderAll();
@@ -30425,6 +30612,8 @@ function admin_renderAll(){
   renderAgencies();
   renderRoles();
   renderBilling();
+  admin_renderTierFeatureMatrix();
+  admin_renderAgencyLinkingEligibility();
   admin_populateUserFilters();
   renderAdminUsers();
   renderAuditLogs();
@@ -30969,12 +31158,43 @@ function populateAgencyRoleSelect(selectedRoleId){
   select.value = selectedRoleId || (roles[0] ? roles[0].id : '');
 }
 
+// Filters the linkable Municipal Corporation list down to those whose own
+// subscription tier is eligible for the agency type currently selected in
+// the modal (see adminAgencyTierEligibility / the Subscription & Licensing
+// page's "External Agency Linking" panel). An already-linked municipality
+// (selectedId, when editing) always stays visible even if no longer
+// eligible -- editing an agency for some unrelated reason must never
+// silently drop or hide its existing link, same "don't retroactively break
+// something that already worked" posture saveAgency() itself applies when
+// re-validating this at save time.
 function populateLinkedMuniSelect(selectedId){
   const select = document.getElementById('agencyLinkedMuni');
-  const corporations = agencies.filter(a => a.type === 'Municipal Corporation' && a.id !== editingAgencyId);
+  const hint = document.getElementById('agencyLinkedMuniTierHint');
+  const type = document.getElementById('agencyType').value;
+  const tiersList = window.ATD_TIER_ORDER || ['Essential', 'Standard', 'Premium'];
+  const allowedTiers = adminAgencyTierEligibility[type] || tiersList;
+  const allCorporations = agencies.filter(a => a.type === 'Municipal Corporation' && a.id !== editingAgencyId);
+  const corporations = allCorporations.filter(a => {
+    const tier = a.subscriptionTier || 'Premium';
+    return allowedTiers.includes(tier) || a.id === selectedId;
+  });
   select.innerHTML = '<option value="">Select an option</option>' +
-    corporations.map(a => `<option value="${a.id}">${admin_escapeHtml(a.name)}${a.muniNumber ? ' (#' + a.muniNumber + ')' : ''}</option>`).join('');
+    corporations.map(a => {
+      const tier = a.subscriptionTier || 'Premium';
+      const ineligible = !allowedTiers.includes(tier);
+      return `<option value="${a.id}">${admin_escapeHtml(a.name)}${a.muniNumber ? ' (#' + a.muniNumber + ')' : ''}${ineligible ? ' — ' + admin_escapeHtml(tier) + ' tier, not eligible' : ''}</option>`;
+    }).join('');
   select.value = selectedId || '';
+
+  if(hint){
+    if(type && !allowedTiers.length){
+      hint.textContent = `${type} currently can't be linked to any Municipal Corporation — every tier is unchecked for it on the Subscription & Licensing page's External Agency Linking panel.`;
+    } else if(type && allowedTiers.length < tiersList.length){
+      hint.textContent = `${type} can only be linked to a Municipal Corporation on the ${allowedTiers.join(' or ')} tier.`;
+    } else {
+      hint.textContent = '';
+    }
+  }
 }
 
 function onAgencyTypeChange(){
@@ -31124,6 +31344,28 @@ async function saveAgency(){
     if(!linkedMuniId){
       admin_showToast('Please select which Municipal Corporation this agency is linked to.');
       return;
+    }
+    // Re-validate against the External Agency Linking eligibility config
+    // (Subscription & Licensing page) — the dropdown above already filters
+    // to eligible municipalities, but a value could still reach here from a
+    // stale render or a directly-edited select. An UNCHANGED link on an
+    // agency being edited for some other reason is never blocked here, even
+    // if that municipality's tier was downgraded since the link was made —
+    // same "never retroactively break something that already worked"
+    // posture as MUNI_TIER_SEAT_CAP and the tier rollout itself.
+    const existingAgency = editingAgencyId ? agencies.find(a => a.id === editingAgencyId) : null;
+    const linkUnchanged = existingAgency && existingAgency.linkedMuniId === linkedMuniId;
+    if(!linkUnchanged){
+      const tiersList = window.ATD_TIER_ORDER || ['Essential', 'Standard', 'Premium'];
+      const allowedTiers = adminAgencyTierEligibility[type] || tiersList;
+      const linkedMuni = agencies.find(a => a.id === linkedMuniId);
+      const linkedMuniTier = (linkedMuni && linkedMuni.subscriptionTier) || 'Premium';
+      if(!allowedTiers.includes(linkedMuniTier)){
+        admin_showToast(allowedTiers.length
+          ? `${type} can only be linked to a Municipal Corporation on the ${allowedTiers.join(' or ')} tier. ${linkedMuni ? linkedMuni.name : 'This municipality'} is on ${linkedMuniTier}.`
+          : `${type} currently can't be linked to any Municipal Corporation — every tier is unchecked for it on the Subscription & Licensing page's External Agency Linking panel.`);
+        return;
+      }
     }
   }
 
@@ -32361,6 +32603,85 @@ async function adminSetAgencyTier(id, tier){
   admin_showToast(`${m.name} is now on the ${tier} tier.`);
 }
 
+// ---- Tiers & Features matrix ----
+// The editable view onto window.ATD_TIER_FEATURE_CATALOG / MUNI_TIER_MODULES
+// (enforced by the Municipal officer portal's own atdMuniModuleLocked — see
+// its scope for how a toggle here actually takes effect). Every checkbox
+// here reflects and edits adminTierModulesConfig, which is re-read from
+// window.atdGetTierModulesConfig() (not just mutated locally) after every
+// save, matching how adminSetAgencyTier above re-derives its own state from
+// the saved agency record rather than trusting an in-memory guess.
+function admin_renderTierFeatureMatrix(){
+  const body = document.getElementById('admin_tierFeatureMatrixBody');
+  if(!body) return;
+  const catalog = window.ATD_TIER_FEATURE_CATALOG || [];
+  const tiers = window.ATD_TIER_ORDER || ['Essential', 'Standard', 'Premium'];
+  body.innerHTML = catalog.map(f => `
+    <tr>
+      <td class="cell-primary">${admin_escapeHtml(f.label)}</td>
+      ${tiers.map(t => {
+        const on = (adminTierModulesConfig[t] || []).includes(f.key);
+        return `<td style="text-align:center;"><input type="checkbox" ${on ? 'checked' : ''} onchange="adminToggleTierModule('${t}', '${f.key}', this.checked)"></td>`;
+      }).join('')}
+    </tr>
+  `).join('') || `<tr><td colspan="${tiers.length + 1}" class="table-empty">No optional features defined.</td></tr>`;
+}
+
+async function adminToggleTierModule(tier, moduleKey, checked){
+  const current = new Set(adminTierModulesConfig[tier] || []);
+  if(checked) current.add(moduleKey); else current.delete(moduleKey);
+  adminTierModulesConfig[tier] = Array.from(current);
+  await window.atdSaveTierModulesConfig(adminTierModulesConfig);
+  // Re-read (rather than trust the local mutation above) so this matches
+  // exactly what every other portal will now load, and so a stale/filtered
+  // key (see atdGetTierModulesConfig's own comment) is reflected immediately.
+  adminTierModulesConfig = await window.atdGetTierModulesConfig();
+  // Keep the Municipal officer portal's own live copy in sync too, in case
+  // that portal's script has already booted in this same browser tab (see
+  // MUNI_TIER_MODULES's own comment on why this must mutate in place).
+  if(window.MUNI_TIER_MODULES) Object.assign(window.MUNI_TIER_MODULES, adminTierModulesConfig);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.tierFeatureToggle', details: `${checked ? 'Enabled' : 'Disabled'} "${moduleKey}" for the ${tier} tier.` });
+  admin_renderTierFeatureMatrix();
+  admin_showToast(`${moduleKey} is now ${checked ? 'included in' : 'removed from'} the ${tier} tier.`);
+}
+
+// ---- External Agency Linking eligibility ----
+// Which subscription tier(s) a Municipal Corporation must be on before a
+// given kind of external agency (JCF, JFB, JAMMS, JACAP, Ministry of
+// Health, ...) can be linked to it at all — see saveAgency()'s own
+// re-validation of this at save time, and onAgencyTypeChange() /
+// populateLinkedMuniSelect() for how the "Add agency account" modal's own
+// dropdown reflects it. JAMMS and JACAP are listed here (see
+// window.ATD_AGENCY_TYPE_CATALOG's own comment) even though neither has a
+// working portal yet — this panel exists so their eligibility rule can be
+// set up in advance, ready for whenever that portal work happens.
+function admin_renderAgencyLinkingEligibility(){
+  const body = document.getElementById('admin_agencyTierEligibilityBody');
+  if(!body) return;
+  const types = window.ATD_AGENCY_TYPE_CATALOG || [];
+  const tiers = window.ATD_TIER_ORDER || ['Essential', 'Standard', 'Premium'];
+  body.innerHTML = types.map(type => `
+    <tr>
+      <td class="cell-primary">${admin_escapeHtml(type)}</td>
+      ${tiers.map(t => {
+        const on = (adminAgencyTierEligibility[type] || []).includes(t);
+        return `<td style="text-align:center;"><input type="checkbox" ${on ? 'checked' : ''} onchange="adminToggleAgencyTierEligibility('${admin_escapeHtml(type)}', '${t}', this.checked)"></td>`;
+      }).join('')}
+    </tr>
+  `).join('') || `<tr><td colspan="${tiers.length + 1}" class="table-empty">No agency types defined.</td></tr>`;
+}
+
+async function adminToggleAgencyTierEligibility(agencyType, tier, checked){
+  const current = new Set(adminAgencyTierEligibility[agencyType] || []);
+  if(checked) current.add(tier); else current.delete(tier);
+  adminAgencyTierEligibility[agencyType] = Array.from(current);
+  await window.atdSaveAgencyTierEligibility(adminAgencyTierEligibility);
+  adminAgencyTierEligibility = await window.atdGetAgencyTierEligibility();
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.agencyTierEligibilityToggle', details: `${checked ? 'Allowed' : 'Disallowed'} linking a ${agencyType} agency to a ${tier}-tier Municipal Corporation.` });
+  admin_renderAgencyLinkingEligibility();
+  admin_showToast(`${agencyType} can ${checked ? 'now' : 'no longer'} be linked to a ${tier}-tier Municipal Corporation.`);
+}
+
 async function adminMarkAgencyPaid(id){
   const m = agencies.find(m => m.id === id);
   const periodStart = m.lastBilledDate || m.created;
@@ -32928,6 +33249,10 @@ window.saveRole = saveRole;
 window.toggleAgencyStatus = toggleAgencyStatus;
 window.renderBilling = renderBilling;
 window.adminSetAgencyTier = adminSetAgencyTier;
+window.admin_renderTierFeatureMatrix = admin_renderTierFeatureMatrix;
+window.adminToggleTierModule = adminToggleTierModule;
+window.admin_renderAgencyLinkingEligibility = admin_renderAgencyLinkingEligibility;
+window.adminToggleAgencyTierEligibility = adminToggleAgencyTierEligibility;
 window.renderAdminUsers = renderAdminUsers;
 window.adminResetUserPassword = adminResetUserPassword;
 window.adminToggleUserStatus = adminToggleUserStatus;
