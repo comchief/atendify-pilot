@@ -15079,6 +15079,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return patrons !== null && patrons <= 500;
   }
 
+  // JCF Noise Abatement permit number format: JCF<MC#>-<MC#><YY>-<seq>
+  // e.g. JCF19-1926-01 = linked Municipal Corporation #19, year 20{26}, the
+  // 1st JCF permit issued against that MC/year combination. The "JCF<MC#>"
+  // agency segment intentionally reuses the SAME linked Municipal
+  // Corporation number as the middle segment's own MC# (JCF Divisions don't
+  // carry a separate admin-assigned number of their own in Atendify) — per
+  // instruction. rec.muniId is already that Municipal Corporation's
+  // muniNumber, not its internal id (see the app-wide muniId convention
+  // documented at ~line 5398). The sequence resets every calendar year, per
+  // MC/JCF Division — keyed on this exact prefix, via the same atomic,
+  // server-side counter (ATDBackend.nextAppSeq / atd_next_app_seq)
+  // generateAppNumber() already relies on for POA application numbers, just
+  // under its own distinct prefix so it can never collide with that
+  // keyspace.
+  async function jcfd_generatePermitNumber(rec){
+    const muniPadded = String((rec && rec.muniId != null) ? rec.muniId : 0).padStart(2, '0');
+    const yy = String(new Date().getFullYear()).slice(-2);
+    const prefix = `JCFPERMIT-${muniPadded}${yy}`;
+    let seq = 1;
+    if(window.ATDBackend && window.ATDBackend.isConfigured()){
+      try{
+        seq = await window.ATDBackend.nextAppSeq(prefix);
+      } catch(err){
+        seq = 1;
+      }
+    }
+    const seqPadded = String(seq % 100).padStart(2, '0');
+    return `JCF${muniPadded}-${muniPadded}${yy}-${seqPadded}`;
+  }
+
   async function jcfd_approve(){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
@@ -15091,7 +15121,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
     rec.permitGenerated = true;
     rec.permit = {
-      number: 'JCFP-' + rec.jcfAppNumber,
+      number: await jcfd_generatePermitNumber(rec),
       permitTypeLabel: 'JCF Noise Abatement Permit',
       issuedDate: new Date().toISOString().slice(0,10),
       expiresDate: (rec.eventOverview && rec.eventOverview.dateOfEvent) || ''
