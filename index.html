@@ -852,9 +852,23 @@
   /* Printable documents (Payment Advice / Notice of Application) */
   .print-only{ display:none; }
   @media print{
-    body.printing-doc > *{ visibility:hidden; }
-    body.printing-doc .print-only,
-    body.printing-doc .print-only *{ visibility:visible; }
+    /* Fix: was `visibility:hidden` on every direct child of <body> --
+       visibility-hidden elements keep their full layout box/height, they
+       just don't paint. #printArea sits alongside every portal shell
+       (#shell-poa, #shell-muni, #shell-jcfd, ...), and whichever shell is
+       currently the active/visible one is often a long dashboard page --
+       so the print output's total height was that whole hidden-but-still-
+       laid-out page, not the one-page document actually being printed,
+       producing several extra blank pages after the real content (this is
+       what caused printouts using this same #printArea/.printing-doc
+       mechanism, including the JCF Permit and its own dedicated
+       .printing-permit variant below, to print as ~7 pages instead of
+       one). `display:none` actually removes the sibling from layout
+       instead. #printArea itself matches BOTH `> *` (hide) and
+       `.print-only` (show) here, but the second selector has higher
+       specificity (two classes vs. one class + universal), so it wins
+       regardless of source order and #printArea still ends up visible. */
+    body.printing-doc > *{ display:none; }
     body.printing-doc .print-only{
       display:block;
       position:absolute;
@@ -1814,9 +1828,17 @@
   .permit-doc-efile{ margin-top: 26px; font-size: 12px; font-style: italic; color:#666; }
 
   @media print{
-    body.printing-permit > *{ visibility:hidden; }
-    body.printing-permit .print-only,
-    body.printing-permit .print-only *{ visibility:visible; }
+    /* Fix: same multi-page print bug and same fix as .printing-doc above --
+       `visibility:hidden` kept every sibling's full layout height (the
+       officer dashboard's currently-open application detail page, in this
+       case), so a permit print came out as several near-blank pages after
+       page 1. `display:none` removes the sibling from layout entirely;
+       #permitPrintArea/#jcfdPermitPrintArea themselves are also now true
+       top-level siblings of every shell (not nested inside #shell-muni/
+       #shell-jcfd -- see where those divs are declared), which is required
+       for this fix to work: display:none on an ancestor cannot be undone
+       by a descendant's own display:block, only a sibling's can. */
+    body.printing-permit > *{ display:none; }
     body.printing-permit .print-only{
       display:block;
       position:absolute;
@@ -2242,6 +2264,21 @@
   .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top: 6px; }
   .pw-row{ display:flex; gap:8px; }
   .pw-row input{ flex:1; }
+
+  /* Vertical activity timeline (CEO-only Activity Timeline card/modal) --
+     a vertical companion to .status-step/.status-connector's horizontal
+     stepper visual above, since a chronological log of many entries reads
+     top-to-bottom rather than left-to-right. */
+  .activity-timeline{ display:flex; flex-direction:column; }
+  .at-item{ display:flex; gap:14px; }
+  .at-item:last-child .at-line{ display:none; }
+  .at-rail{ display:flex; flex-direction:column; align-items:center; width:14px; flex-shrink:0; }
+  .at-dot{ width:12px; height:12px; border-radius:50%; background: var(--blue); margin-top:4px; flex-shrink:0; }
+  .at-line{ flex:1; width:2px; background: var(--border); margin:4px 0; min-height:22px; }
+  .at-body{ padding-bottom:20px; flex:1; min-width:0; }
+  .at-when{ font-size:12px; font-weight:700; color: var(--text-muted); text-transform:uppercase; letter-spacing:0.02em; }
+  .at-office{ font-size:13px; font-weight:700; margin:2px 0 3px; }
+  .at-desc{ font-size:13.5px; line-height:1.5; }
 
   .detail-row{
     display:grid;
@@ -5357,6 +5394,26 @@
     await window.storage.delete('agency:' + id);
   };
 
+  // Reverse of jcfd_jurisdictionMuniId() (jcfd scope): given an
+  // application's `muniId` (a Municipal Corporation agency's `muniNumber` --
+  // see the "muniId convention" comment above), find the JCF agency whose
+  // own `linkedMuniId` (that MC agency's internal `.id`, NOT its muniNumber
+  // -- see populateLinkedMuniSelect/agencyNameById in the Admin scope)
+  // points back to it. Used to route a document-re-upload notification
+  // (window.atdNotify) to the correct JCF branch from the applicant/poa
+  // scope, which has no access to jcfd's own closure-local helpers.
+  window.atdFindJcfBranchForMuniId = async function(muniId){
+    if(muniId == null) return null;
+    try{
+      const agencies = await window.atdLoadAgencies();
+      const muniAgency = agencies.find(a => a.type === 'Municipal Corporation' && a.muniNumber === muniId);
+      if(!muniAgency) return null;
+      return agencies.find(a => a.type === 'JCF' && a.linkedMuniId === muniAgency.id) || null;
+    } catch(err){
+      return null;
+    }
+  };
+
   window.atdLoadMuniUsers = async function(){
     await atdSeedMuniUsersOnce();
     const list = await window.storage.list('muniUser:');
@@ -6821,14 +6878,27 @@
 </div>
 
 <div class="toast" id="poa_toast" role="status" aria-live="polite" aria-atomic="true">Application submitted successfully.</div>
-<div id="printArea" class="print-only"></div>
 
 <script>
 var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this.parsedData=[];for(var b=[],d=0,e=this.data.length;e>d;d++){var f=this.data.charCodeAt(d);f>65536?(b[0]=240|(1835008&f)>>>18,b[1]=128|(258048&f)>>>12,b[2]=128|(4032&f)>>>6,b[3]=128|63&f):f>2048?(b[0]=224|(61440&f)>>>12,b[1]=128|(4032&f)>>>6,b[2]=128|63&f):f>128?(b[0]=192|(1984&f)>>>6,b[1]=128|63&f):b[0]=f,this.parsedData=this.parsedData.concat(b)}this.parsedData.length!=this.data.length&&(this.parsedData.unshift(191),this.parsedData.unshift(187),this.parsedData.unshift(239))}function b(a,b){this.typeNumber=a,this.errorCorrectLevel=b,this.modules=null,this.moduleCount=0,this.dataCache=null,this.dataList=[]}function i(a,b){if(void 0==a.length)throw new Error(a.length+"/"+b);for(var c=0;c<a.length&&0==a[c];)c++;this.num=new Array(a.length-c+b);for(var d=0;d<a.length-c;d++)this.num[d]=a[d+c]}function j(a,b){this.totalCount=a,this.dataCount=b}function k(){this.buffer=[],this.length=0}function m(){return"undefined"!=typeof CanvasRenderingContext2D}function n(){var a=!1,b=navigator.userAgent;return/android/i.test(b)&&(a=!0,aMat=b.toString().match(/android ([0-9]\.[0-9])/i),aMat&&aMat[1]&&(a=parseFloat(aMat[1]))),a}function r(a,b){for(var c=1,e=s(a),f=0,g=l.length;g>=f;f++){var h=0;switch(b){case d.L:h=l[f][0];break;case d.M:h=l[f][1];break;case d.Q:h=l[f][2];break;case d.H:h=l[f][3]}if(h>=e)break;c++}if(c>l.length)throw new Error("Too long data");return c}function s(a){var b=encodeURI(a).toString().replace(/\%[0-9a-fA-F]{2}/g,"a");return b.length+(b.length!=a?3:0)}a.prototype={getLength:function(){return this.parsedData.length},write:function(a){for(var b=0,c=this.parsedData.length;c>b;b++)a.put(this.parsedData[b],8)}},b.prototype={addData:function(b){var c=new a(b);this.dataList.push(c),this.dataCache=null},isDark:function(a,b){if(0>a||this.moduleCount<=a||0>b||this.moduleCount<=b)throw new Error(a+","+b);return this.modules[a][b]},getModuleCount:function(){return this.moduleCount},make:function(){this.makeImpl(!1,this.getBestMaskPattern())},makeImpl:function(a,c){this.moduleCount=4*this.typeNumber+17,this.modules=new Array(this.moduleCount);for(var d=0;d<this.moduleCount;d++){this.modules[d]=new Array(this.moduleCount);for(var e=0;e<this.moduleCount;e++)this.modules[d][e]=null}this.setupPositionProbePattern(0,0),this.setupPositionProbePattern(this.moduleCount-7,0),this.setupPositionProbePattern(0,this.moduleCount-7),this.setupPositionAdjustPattern(),this.setupTimingPattern(),this.setupTypeInfo(a,c),this.typeNumber>=7&&this.setupTypeNumber(a),null==this.dataCache&&(this.dataCache=b.createData(this.typeNumber,this.errorCorrectLevel,this.dataList)),this.mapData(this.dataCache,c)},setupPositionProbePattern:function(a,b){for(var c=-1;7>=c;c++)if(!(-1>=a+c||this.moduleCount<=a+c))for(var d=-1;7>=d;d++)-1>=b+d||this.moduleCount<=b+d||(this.modules[a+c][b+d]=c>=0&&6>=c&&(0==d||6==d)||d>=0&&6>=d&&(0==c||6==c)||c>=2&&4>=c&&d>=2&&4>=d?!0:!1)},getBestMaskPattern:function(){for(var a=0,b=0,c=0;8>c;c++){this.makeImpl(!0,c);var d=f.getLostPoint(this);(0==c||a>d)&&(a=d,b=c)}return b},createMovieClip:function(a,b,c){var d=a.createEmptyMovieClip(b,c),e=1;this.make();for(var f=0;f<this.modules.length;f++)for(var g=f*e,h=0;h<this.modules[f].length;h++){var i=h*e,j=this.modules[f][h];j&&(d.beginFill(0,100),d.moveTo(i,g),d.lineTo(i+e,g),d.lineTo(i+e,g+e),d.lineTo(i,g+e),d.endFill())}return d},setupTimingPattern:function(){for(var a=8;a<this.moduleCount-8;a++)null==this.modules[a][6]&&(this.modules[a][6]=0==a%2);for(var b=8;b<this.moduleCount-8;b++)null==this.modules[6][b]&&(this.modules[6][b]=0==b%2)},setupPositionAdjustPattern:function(){for(var a=f.getPatternPosition(this.typeNumber),b=0;b<a.length;b++)for(var c=0;c<a.length;c++){var d=a[b],e=a[c];if(null==this.modules[d][e])for(var g=-2;2>=g;g++)for(var h=-2;2>=h;h++)this.modules[d+g][e+h]=-2==g||2==g||-2==h||2==h||0==g&&0==h?!0:!1}},setupTypeNumber:function(a){for(var b=f.getBCHTypeNumber(this.typeNumber),c=0;18>c;c++){var d=!a&&1==(1&b>>c);this.modules[Math.floor(c/3)][c%3+this.moduleCount-8-3]=d}for(var c=0;18>c;c++){var d=!a&&1==(1&b>>c);this.modules[c%3+this.moduleCount-8-3][Math.floor(c/3)]=d}},setupTypeInfo:function(a,b){for(var c=this.errorCorrectLevel<<3|b,d=f.getBCHTypeInfo(c),e=0;15>e;e++){var g=!a&&1==(1&d>>e);6>e?this.modules[e][8]=g:8>e?this.modules[e+1][8]=g:this.modules[this.moduleCount-15+e][8]=g}for(var e=0;15>e;e++){var g=!a&&1==(1&d>>e);8>e?this.modules[8][this.moduleCount-e-1]=g:9>e?this.modules[8][15-e-1+1]=g:this.modules[8][15-e-1]=g}this.modules[this.moduleCount-8][8]=!a},mapData:function(a,b){for(var c=-1,d=this.moduleCount-1,e=7,g=0,h=this.moduleCount-1;h>0;h-=2)for(6==h&&h--;;){for(var i=0;2>i;i++)if(null==this.modules[d][h-i]){var j=!1;g<a.length&&(j=1==(1&a[g]>>>e));var k=f.getMask(b,d,h-i);k&&(j=!j),this.modules[d][h-i]=j,e--,-1==e&&(g++,e=7)}if(d+=c,0>d||this.moduleCount<=d){d-=c,c=-c;break}}}},b.PAD0=236,b.PAD1=17,b.createData=function(a,c,d){for(var e=j.getRSBlocks(a,c),g=new k,h=0;h<d.length;h++){var i=d[h];g.put(i.mode,4),g.put(i.getLength(),f.getLengthInBits(i.mode,a)),i.write(g)}for(var l=0,h=0;h<e.length;h++)l+=e[h].dataCount;if(g.getLengthInBits()>8*l)throw new Error("code length overflow. ("+g.getLengthInBits()+">"+8*l+")");for(g.getLengthInBits()+4<=8*l&&g.put(0,4);0!=g.getLengthInBits()%8;)g.putBit(!1);for(;;){if(g.getLengthInBits()>=8*l)break;if(g.put(b.PAD0,8),g.getLengthInBits()>=8*l)break;g.put(b.PAD1,8)}return b.createBytes(g,e)},b.createBytes=function(a,b){for(var c=0,d=0,e=0,g=new Array(b.length),h=new Array(b.length),j=0;j<b.length;j++){var k=b[j].dataCount,l=b[j].totalCount-k;d=Math.max(d,k),e=Math.max(e,l),g[j]=new Array(k);for(var m=0;m<g[j].length;m++)g[j][m]=255&a.buffer[m+c];c+=k;var n=f.getErrorCorrectPolynomial(l),o=new i(g[j],n.getLength()-1),p=o.mod(n);h[j]=new Array(n.getLength()-1);for(var m=0;m<h[j].length;m++){var q=m+p.getLength()-h[j].length;h[j][m]=q>=0?p.get(q):0}}for(var r=0,m=0;m<b.length;m++)r+=b[m].totalCount;for(var s=new Array(r),t=0,m=0;d>m;m++)for(var j=0;j<b.length;j++)m<g[j].length&&(s[t++]=g[j][m]);for(var m=0;e>m;m++)for(var j=0;j<b.length;j++)m<h[j].length&&(s[t++]=h[j][m]);return s};for(var c={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8},d={L:1,M:0,Q:3,H:2},e={PATTERN000:0,PATTERN001:1,PATTERN010:2,PATTERN011:3,PATTERN100:4,PATTERN101:5,PATTERN110:6,PATTERN111:7},f={PATTERN_POSITION_TABLE:[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],G15:1335,G18:7973,G15_MASK:21522,getBCHTypeInfo:function(a){for(var b=a<<10;f.getBCHDigit(b)-f.getBCHDigit(f.G15)>=0;)b^=f.G15<<f.getBCHDigit(b)-f.getBCHDigit(f.G15);return(a<<10|b)^f.G15_MASK},getBCHTypeNumber:function(a){for(var b=a<<12;f.getBCHDigit(b)-f.getBCHDigit(f.G18)>=0;)b^=f.G18<<f.getBCHDigit(b)-f.getBCHDigit(f.G18);return a<<12|b},getBCHDigit:function(a){for(var b=0;0!=a;)b++,a>>>=1;return b},getPatternPosition:function(a){return f.PATTERN_POSITION_TABLE[a-1]},getMask:function(a,b,c){switch(a){case e.PATTERN000:return 0==(b+c)%2;case e.PATTERN001:return 0==b%2;case e.PATTERN010:return 0==c%3;case e.PATTERN011:return 0==(b+c)%3;case e.PATTERN100:return 0==(Math.floor(b/2)+Math.floor(c/3))%2;case e.PATTERN101:return 0==b*c%2+b*c%3;case e.PATTERN110:return 0==(b*c%2+b*c%3)%2;case e.PATTERN111:return 0==(b*c%3+(b+c)%2)%2;default:throw new Error("bad maskPattern:"+a)}},getErrorCorrectPolynomial:function(a){for(var b=new i([1],0),c=0;a>c;c++)b=b.multiply(new i([1,g.gexp(c)],0));return b},getLengthInBits:function(a,b){if(b>=1&&10>b)switch(a){case c.MODE_NUMBER:return 10;case c.MODE_ALPHA_NUM:return 9;case c.MODE_8BIT_BYTE:return 8;case c.MODE_KANJI:return 8;default:throw new Error("mode:"+a)}else if(27>b)switch(a){case c.MODE_NUMBER:return 12;case c.MODE_ALPHA_NUM:return 11;case c.MODE_8BIT_BYTE:return 16;case c.MODE_KANJI:return 10;default:throw new Error("mode:"+a)}else{if(!(41>b))throw new Error("type:"+b);switch(a){case c.MODE_NUMBER:return 14;case c.MODE_ALPHA_NUM:return 13;case c.MODE_8BIT_BYTE:return 16;case c.MODE_KANJI:return 12;default:throw new Error("mode:"+a)}}},getLostPoint:function(a){for(var b=a.getModuleCount(),c=0,d=0;b>d;d++)for(var e=0;b>e;e++){for(var f=0,g=a.isDark(d,e),h=-1;1>=h;h++)if(!(0>d+h||d+h>=b))for(var i=-1;1>=i;i++)0>e+i||e+i>=b||(0!=h||0!=i)&&g==a.isDark(d+h,e+i)&&f++;f>5&&(c+=3+f-5)}for(var d=0;b-1>d;d++)for(var e=0;b-1>e;e++){var j=0;a.isDark(d,e)&&j++,a.isDark(d+1,e)&&j++,a.isDark(d,e+1)&&j++,a.isDark(d+1,e+1)&&j++,(0==j||4==j)&&(c+=3)}for(var d=0;b>d;d++)for(var e=0;b-6>e;e++)a.isDark(d,e)&&!a.isDark(d,e+1)&&a.isDark(d,e+2)&&a.isDark(d,e+3)&&a.isDark(d,e+4)&&!a.isDark(d,e+5)&&a.isDark(d,e+6)&&(c+=40);for(var e=0;b>e;e++)for(var d=0;b-6>d;d++)a.isDark(d,e)&&!a.isDark(d+1,e)&&a.isDark(d+2,e)&&a.isDark(d+3,e)&&a.isDark(d+4,e)&&!a.isDark(d+5,e)&&a.isDark(d+6,e)&&(c+=40);for(var k=0,e=0;b>e;e++)for(var d=0;b>d;d++)a.isDark(d,e)&&k++;var l=Math.abs(100*k/b/b-50)/5;return c+=10*l}},g={glog:function(a){if(1>a)throw new Error("glog("+a+")");return g.LOG_TABLE[a]},gexp:function(a){for(;0>a;)a+=255;for(;a>=256;)a-=255;return g.EXP_TABLE[a]},EXP_TABLE:new Array(256),LOG_TABLE:new Array(256)},h=0;8>h;h++)g.EXP_TABLE[h]=1<<h;for(var h=8;256>h;h++)g.EXP_TABLE[h]=g.EXP_TABLE[h-4]^g.EXP_TABLE[h-5]^g.EXP_TABLE[h-6]^g.EXP_TABLE[h-8];for(var h=0;255>h;h++)g.LOG_TABLE[g.EXP_TABLE[h]]=h;i.prototype={get:function(a){return this.num[a]},getLength:function(){return this.num.length},multiply:function(a){for(var b=new Array(this.getLength()+a.getLength()-1),c=0;c<this.getLength();c++)for(var d=0;d<a.getLength();d++)b[c+d]^=g.gexp(g.glog(this.get(c))+g.glog(a.get(d)));return new i(b,0)},mod:function(a){if(this.getLength()-a.getLength()<0)return this;for(var b=g.glog(this.get(0))-g.glog(a.get(0)),c=new Array(this.getLength()),d=0;d<this.getLength();d++)c[d]=this.get(d);for(var d=0;d<a.getLength();d++)c[d]^=g.gexp(g.glog(a.get(d))+b);return new i(c,0).mod(a)}},j.RS_BLOCK_TABLE=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],j.getRSBlocks=function(a,b){var c=j.getRsBlockTable(a,b);if(void 0==c)throw new Error("bad rs block @ typeNumber:"+a+"/errorCorrectLevel:"+b);for(var d=c.length/3,e=[],f=0;d>f;f++)for(var g=c[3*f+0],h=c[3*f+1],i=c[3*f+2],k=0;g>k;k++)e.push(new j(h,i));return e},j.getRsBlockTable=function(a,b){switch(b){case d.L:return j.RS_BLOCK_TABLE[4*(a-1)+0];case d.M:return j.RS_BLOCK_TABLE[4*(a-1)+1];case d.Q:return j.RS_BLOCK_TABLE[4*(a-1)+2];case d.H:return j.RS_BLOCK_TABLE[4*(a-1)+3];default:return void 0}},k.prototype={get:function(a){var b=Math.floor(a/8);return 1==(1&this.buffer[b]>>>7-a%8)},put:function(a,b){for(var c=0;b>c;c++)this.putBit(1==(1&a>>>b-c-1))},getLengthInBits:function(){return this.length},putBit:function(a){var b=Math.floor(this.length/8);this.buffer.length<=b&&this.buffer.push(0),a&&(this.buffer[b]|=128>>>this.length%8),this.length++}};var l=[[17,14,11,7],[32,26,20,14],[53,42,32,24],[78,62,46,34],[106,84,60,44],[134,106,74,58],[154,122,86,64],[192,152,108,84],[230,180,130,98],[271,213,151,119],[321,251,177,137],[367,287,203,155],[425,331,241,177],[458,362,258,194],[520,412,292,220],[586,450,322,250],[644,504,364,280],[718,560,394,310],[792,624,442,338],[858,666,482,382],[929,711,509,403],[1003,779,565,439],[1091,857,611,461],[1171,911,661,511],[1273,997,715,535],[1367,1059,751,593],[1465,1125,805,625],[1528,1190,868,658],[1628,1264,908,698],[1732,1370,982,742],[1840,1452,1030,790],[1952,1538,1112,842],[2068,1628,1168,898],[2188,1722,1228,958],[2303,1809,1283,983],[2431,1911,1351,1051],[2563,1989,1423,1093],[2699,2099,1499,1139],[2809,2213,1579,1219],[2953,2331,1663,1273]],o=function(){var a=function(a,b){this._el=a,this._htOption=b};return a.prototype.draw=function(a){function g(a,b){var c=document.createElementNS("http://www.w3.org/2000/svg",a);for(var d in b)b.hasOwnProperty(d)&&c.setAttribute(d,b[d]);return c}var b=this._htOption,c=this._el,d=a.getModuleCount();Math.floor(b.width/d),Math.floor(b.height/d),this.clear();var h=g("svg",{viewBox:"0 0 "+String(d)+" "+String(d),width:"100%",height:"100%",fill:b.colorLight});h.setAttributeNS("http://www.w3.org/2000/xmlns/","xmlns:xlink","http://www.w3.org/1999/xlink"),c.appendChild(h),h.appendChild(g("rect",{fill:b.colorDark,width:"1",height:"1",id:"template"}));for(var i=0;d>i;i++)for(var j=0;d>j;j++)if(a.isDark(i,j)){var k=g("use",{x:String(i),y:String(j)});k.setAttributeNS("http://www.w3.org/1999/xlink","href","#template"),h.appendChild(k)}},a.prototype.clear=function(){for(;this._el.hasChildNodes();)this._el.removeChild(this._el.lastChild)},a}(),p="svg"===document.documentElement.tagName.toLowerCase(),q=p?o:m()?function(){function a(){this._elImage.src=this._elCanvas.toDataURL("image/png"),this._elImage.style.display="block",this._elCanvas.style.display="none"}function d(a,b){var c=this;if(c._fFail=b,c._fSuccess=a,null===c._bSupportDataURI){var d=document.createElement("img"),e=function(){c._bSupportDataURI=!1,c._fFail&&_fFail.call(c)},f=function(){c._bSupportDataURI=!0,c._fSuccess&&c._fSuccess.call(c)};return d.onabort=e,d.onerror=e,d.onload=f,d.src="data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==",void 0}c._bSupportDataURI===!0&&c._fSuccess?c._fSuccess.call(c):c._bSupportDataURI===!1&&c._fFail&&c._fFail.call(c)}if(this._android&&this._android<=2.1){var b=1/window.devicePixelRatio,c=CanvasRenderingContext2D.prototype.drawImage;CanvasRenderingContext2D.prototype.drawImage=function(a,d,e,f,g,h,i,j){if("nodeName"in a&&/img/i.test(a.nodeName))for(var l=arguments.length-1;l>=1;l--)arguments[l]=arguments[l]*b;else"undefined"==typeof j&&(arguments[1]*=b,arguments[2]*=b,arguments[3]*=b,arguments[4]*=b);c.apply(this,arguments)}}var e=function(a,b){this._bIsPainted=!1,this._android=n(),this._htOption=b,this._elCanvas=document.createElement("canvas"),this._elCanvas.width=b.width,this._elCanvas.height=b.height,a.appendChild(this._elCanvas),this._el=a,this._oContext=this._elCanvas.getContext("2d"),this._bIsPainted=!1,this._elImage=document.createElement("img"),this._elImage.style.display="none",this._el.appendChild(this._elImage),this._bSupportDataURI=null};return e.prototype.draw=function(a){var b=this._elImage,c=this._oContext,d=this._htOption,e=a.getModuleCount(),f=d.width/e,g=d.height/e,h=Math.round(f),i=Math.round(g);b.style.display="none",this.clear();for(var j=0;e>j;j++)for(var k=0;e>k;k++){var l=a.isDark(j,k),m=k*f,n=j*g;c.strokeStyle=l?d.colorDark:d.colorLight,c.lineWidth=1,c.fillStyle=l?d.colorDark:d.colorLight,c.fillRect(m,n,f,g),c.strokeRect(Math.floor(m)+.5,Math.floor(n)+.5,h,i),c.strokeRect(Math.ceil(m)-.5,Math.ceil(n)-.5,h,i)}this._bIsPainted=!0},e.prototype.makeImage=function(){this._bIsPainted&&d.call(this,a)},e.prototype.isPainted=function(){return this._bIsPainted},e.prototype.clear=function(){this._oContext.clearRect(0,0,this._elCanvas.width,this._elCanvas.height),this._bIsPainted=!1},e.prototype.round=function(a){return a?Math.floor(1e3*a)/1e3:a},e}():function(){var a=function(a,b){this._el=a,this._htOption=b};return a.prototype.draw=function(a){for(var b=this._htOption,c=this._el,d=a.getModuleCount(),e=Math.floor(b.width/d),f=Math.floor(b.height/d),g=['<table style="border:0;border-collapse:collapse;">'],h=0;d>h;h++){g.push("<tr>");for(var i=0;d>i;i++)g.push('<td style="border:0;border-collapse:collapse;padding:0;margin:0;width:'+e+"px;height:"+f+"px;background-color:"+(a.isDark(h,i)?b.colorDark:b.colorLight)+';"></td>');g.push("</tr>")}g.push("</table>"),c.innerHTML=g.join("");var j=c.childNodes[0],k=(b.width-j.offsetWidth)/2,l=(b.height-j.offsetHeight)/2;k>0&&l>0&&(j.style.margin=l+"px "+k+"px")},a.prototype.clear=function(){this._el.innerHTML=""},a}();QRCode=function(a,b){if(this._htOption={width:256,height:256,typeNumber:4,colorDark:"#000000",colorLight:"#ffffff",correctLevel:d.H},"string"==typeof b&&(b={text:b}),b)for(var c in b)this._htOption[c]=b[c];"string"==typeof a&&(a=document.getElementById(a)),this._android=n(),this._el=a,this._oQRCode=null,this._oDrawing=new q(this._el,this._htOption),this._htOption.text&&this.makeCode(this._htOption.text)},QRCode.prototype.makeCode=function(a){this._oQRCode=new b(r(a,this._htOption.correctLevel),this._htOption.correctLevel),this._oQRCode.addData(a),this._oQRCode.make(),this._el.title=a,this._oDrawing.draw(this._oQRCode),this.makeImage()},QRCode.prototype.makeImage=function(){"function"==typeof this._oDrawing.makeImage&&(!this._android||this._android>=3)&&this._oDrawing.makeImage()},QRCode.prototype.clear=function(){this._oDrawing.clear()},QRCode.CorrectLevel=d}();
 </script>
 
+</div>
 
-</div><div id="shell-muni" class="app-shell hidden">
+<!-- Fix: relocated here (was nested inside #shell-poa, right before the
+     closing tag just above) from its original spot right next to the
+     QRCode script -- printArea needs to be a true sibling of every
+     shell, not a descendant of one, because the shared print CSS (see
+     the printing-doc @media print rule) hides every direct child of
+     <body> during print. Nested one level deeper than that, this div
+     would have been carried down into full invisibility along with the
+     rest of #shell-poa instead of being the one thing left showing --
+     which is exactly what produced the multi-page blank-page-after-the
+     -real-content print bug reported for the JCF/MC/POA permits and
+     other printouts that reuse this area. -->
+<div id="printArea" class="print-only"></div>
+
+<div id="shell-muni" class="app-shell hidden">
 <div class="suite-back-bar">
   <button type="button" onclick="muni_logout()">&larr; Log out</button>
   <span class="suite-back-label">Municipal Officer Dashboard</span>
@@ -8273,14 +8343,44 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
-<!-- ===== JCF Permit View Modal (simple/functional — full design to follow) ===== -->
+<!-- ===== JCF Permit View Modal ===== -->
 <div class="modal-overlay hidden" id="jcfPermitModal">
-  <div class="modal-box">
+  <div class="modal-box modal-wide">
     <h3>JCF Noise Abatement Permit</h3>
     <p class="modal-sub" id="jcfPermitModalSub">—</p>
     <div id="jcfPermitModalBody"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeJcfPermitModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Issued Permit View Modal (Municipal Corporation's own Places of
+     Amusement permit database — see muni_viewIssuedPermit). Used by the
+     Issued Permits tab's "View / Print" button, which used to route into
+     the full Application Details page instead of showing the permit. ===== -->
+<div class="modal-overlay hidden" id="permitViewModal">
+  <div class="modal-box modal-wide">
+    <h3>Issued Permit</h3>
+    <p class="modal-sub" id="permitViewModalSub">—</p>
+    <div id="permitViewModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePermitViewModal()">Close</button>
+      <button class="btn btn-primary" onclick="printIssuedPermitFromModal()">🖨 Print permit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CEO Activity Timeline Modal (Standard/Premium subscription tiers
+     only — see the Activity Timeline card in renderAppDetail and
+     muni_buildApplicationTimeline). ===== -->
+<div class="modal-overlay hidden" id="activityTimelineModal">
+  <div class="modal-box modal-wide">
+    <h3>Activity Timeline</h3>
+    <p class="modal-sub" id="activityTimelineModalSub">—</p>
+    <div id="activityTimelineModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeActivityTimelineModal()">Close</button>
     </div>
   </div>
 </div>
@@ -8342,12 +8442,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </div>
 
 <div class="toast" id="muni_toast" role="status" aria-live="polite" aria-atomic="true"></div>
-<div id="permitPrintArea" class="print-only"></div>
-
 <!-- qrcodejs already inlined above -->
 
+</div>
 
-</div><div id="shell-admin" class="app-shell hidden">
+<!-- Fix: relocated here (was nested inside #shell-muni, right before
+     this closing tag) -- same reasoning as printArea above: this needs
+     to be a sibling of every shell, not a descendant of one, or the
+     shared print CSS hides it along with the rest of #shell-muni. -->
+<div id="permitPrintArea" class="print-only"></div>
+
+<div id="shell-admin" class="app-shell hidden">
 <!-- ===== Admin > Application Forms: document preview modal ===== -->
 <!-- See admin_previewDocument() in the Admin script — renders the exact
      same document-building code applicants/officers see (printPaymentAdvice,
@@ -9857,6 +9962,44 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <hr class="divider">
 
+        <!-- JAMMS/JCAP Approval — moved here from being Main-Menu-only, so
+             an applicant already on this Entertainment Details step (adding
+             DJs/Sound Systems just below) doesn't have to leave the JCF form
+             to go find these on their Places of Amusement Main Menu. Kept
+             OUTSIDE #jcf_djSoundBlock below on purpose: that block gets
+             physically relocated into the Annual JCF wizard, which handles
+             JAMMS/JCAP through its own separate Section 5 (Other Licenses &
+             Approvals) — nesting this inside djSoundBlock would duplicate
+             that upload into the Annual flow too. -->
+        <div class="section-title">Required JCF Approvals</div>
+        <div class="col-desc" style="margin:-6px 0 14px;">Upload these here, or from your Places of Amusement application's Main Menu — whichever you upload first shows up in both places.</div>
+
+        <div>
+          <div class="id-flyer-box-title">JAMMS Approval</div>
+          <div id="jamsFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
+          <div class="flyer-upload-box" id="jamsBox" onclick="document.getElementById('jamsFile').click()">
+            <div id="jamsPreviewWrap">
+              <div class="fu-icon">⤒</div>
+              <div class="fu-label">Upload JAMMS Approval</div>
+            </div>
+            <input type="file" id="jamsFile" accept="image/*,.pdf" style="display:none;" onchange="jamsFileChosen(this)">
+          </div>
+        </div>
+
+        <div style="margin-top:18px;">
+          <div class="id-flyer-box-title">JCAP Approval</div>
+          <div id="jcapFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
+          <div class="flyer-upload-box" id="jcapBox" onclick="document.getElementById('jcapFile').click()">
+            <div id="jcapPreviewWrap">
+              <div class="fu-icon">⤒</div>
+              <div class="fu-label">Upload JCAP Approval</div>
+            </div>
+            <input type="file" id="jcapFile" accept="image/*,.pdf" style="display:none;" onchange="jcapFileChosen(this)">
+          </div>
+        </div>
+
+        <hr class="divider">
+
         <!-- Wrapped in #jcf_djSoundBlock so the Annual JCF wizard's own
              Entertainment Activities section (jcfAnnual_step3) can relocate
              this exact block into itself wholesale (see
@@ -10664,6 +10807,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== Applicant Dashboard Permit View Modal — shows the actual issued
+     permit (POA or JCF) in place, without leaving the Dashboard for the
+     Main Menu. See acct_viewPermit(). ===== -->
+<div class="modal-overlay hidden" id="acct_permitViewModal">
+  <div class="modal-box modal-wide">
+    <h3 id="acct_permitViewModalTitle">Permit</h3>
+    <p class="modal-sub" id="acct_permitViewModalSub">—</p>
+    <div id="acct_permitViewModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="acct_closePermitViewModal()">Close</button>
+      <button class="btn btn-primary" onclick="acct_printPermitFromModal()">🖨 Print / Download</button>
+    </div>
+  </div>
+</div>
+
 <div id="shell-jcfd" class="app-shell hidden">
   <div class="suite-back-bar">
     <button type="button" onclick="jcfd_logout()">&larr; Log out</button>
@@ -10797,6 +10955,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="topbar">
         <h1 id="jcfd_topbarTitle">Dashboard</h1>
         <div class="topbar-right">
+          <!-- Notification bell (JCF Division) -- mirrors the Municipal
+               officer portal's own bell (#notifBellWrap etc.) exactly,
+               same shared .notif-bell-wrap/.notif-panel CSS, just scoped to
+               this branch's own jcfd_ prefixed ids/functions instead. See
+               jcfd_loadNotifications()/jcfd_renderNotifBell() below. -->
+          <div class="notif-bell-wrap" id="jcfd_notifBellWrap">
+            <span class="notif-bell" id="jcfd_notifBellIcon" onclick="jcfd_toggleNotifPanel(event)" title="Notifications">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+              <span class="notif-badge hidden" id="jcfd_notifBadge">0</span>
+            </span>
+            <div class="notif-panel hidden" id="jcfd_notifPanel">
+              <div class="notif-panel-head">
+                <span>Notifications</span>
+                <button class="btn btn-sm" onclick="jcfd_markAllNotificationsRead()">Mark all read</button>
+              </div>
+              <div class="notif-panel-body" id="jcfd_notifPanelBody">
+                <div class="notif-empty">No notifications yet.</div>
+              </div>
+            </div>
+          </div>
           <span class="theme-toggle" id="jcfd_themeToggle" title="Toggle dark mode">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
           </span>
@@ -11316,6 +11494,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== Issued Permit View Modal — shows the actual permit document,
+     not the underlying application (see jcfd_viewIssuedPermit). Used by
+     the Issued Permits tab's "View / Print" button, which used to route
+     into the full Application Details page instead. ===== -->
+<div class="modal-overlay hidden" id="jcfd_permitViewModal">
+  <div class="modal-box modal-wide">
+    <h3>Issued Permit</h3>
+    <p class="modal-sub" id="jcfd_permitViewModalSub">—</p>
+    <div id="jcfd_permitViewModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closePermitViewModal()">Close</button>
+      <button class="btn btn-primary" onclick="jcfd_printIssuedPermitFromModal()">🖨 Print permit</button>
+    </div>
+  </div>
+</div>
+
 <!-- Hidden print-only layout for issued JCF permits — populated whenever the
      application detail view renders, toggled visible only during printing
      (mirrors the Municipal Officer's permitPrintArea/printing-permit pipeline). -->
@@ -11329,7 +11523,47 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   document.querySelectorAll('.app-logo-img-hub').forEach(function(img){ img.src = "data:image/png;base64,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"; });
   document.querySelectorAll('.app-logo-img-admin').forEach(function(img){ img.src = "data:image/png;base64,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"; });
 
+  // Returns 'poa' or 'jcf' when an applicant is currently mid-way through
+  // that wizard (the step flow itself, or its pre-submit review step — NOT
+  // the landing/info page, NOT the post-submission Main Menu, NOT already
+  // confirmed), or null otherwise. Used by showHub() below to warn before
+  // leaving one of these for anywhere else. jcfAnnual_applicationFlow (the
+  // Annual JCF wizard) lives inside shell-jcf too and has no separate review
+  // container of its own — its whole flow, review included, stays inside
+  // that one element until actual submission (see jcfAnnual_submitApp),
+  // unlike the Special Event flow's jcf_stepReview.
+  function atdIsVisible(id){
+    var el = document.getElementById(id);
+    return !!(el && !el.classList.contains('hidden'));
+  }
+  window.atdApplicationInProgress = function(){
+    if(atdIsVisible('shell-poa') && (atdIsVisible('poa_applicationFlow') || atdIsVisible('poa_stepReview'))) return 'poa';
+    if(atdIsVisible('shell-jcf') && (atdIsVisible('jcf_applicationFlow') || atdIsVisible('jcf_stepReview') || atdIsVisible('jcfAnnual_applicationFlow'))) return 'jcf';
+    return null;
+  };
+
   function showHub(app){
+    // Warn a logged-in applicant before leaving an application they're
+    // actually mid-way through, for anywhere else (another portal, the
+    // landing page, their own Dashboard) — re-entering the SAME wizard
+    // (app === the in-progress one) never warns, since that's not leaving
+    // anything. Their progress is only saved as of their last completed
+    // step (poa_saveDraftSilently/jcf_saveDraftSilently both only run when
+    // advancing a step — see continueFromStepN/poa_goStepSaving), so
+    // unsaved edits on the CURRENT step would otherwise disappear with no
+    // warning at all. Skipped for a guest entirely (no account to have
+    // saved a draft to in the first place) and for anyone not actually
+    // mid-wizard right now. A real, synchronous window.confirm() is used
+    // here rather than this app's own styled atdConfirm() modal (used
+    // everywhere else) because showHub() is called from dozens of places,
+    // many of which never await it — a real confirm() blocks JS execution
+    // the way a navigation guard actually needs, without changing any of
+    // those callers' own control flow.
+    var inProgressShell = window.atdApplicationInProgress();
+    if(inProgressShell && inProgressShell !== app && window.AccountBridge && window.AccountBridge.getCurrentUser()){
+      var leftMidWizard = window.confirm('You have an application in progress. If you leave now, anything you\'ve entered since your last saved step will not be kept.\n\nAre you sure you want to leave?');
+      if(!leftMidWizard) return;
+    }
     document.getElementById('publicLanding').classList.add('hidden');
     document.getElementById('staffHub').classList.add('hidden');
     document.querySelectorAll('.app-shell').forEach(function(el){ el.classList.add('hidden'); });
@@ -11345,6 +11579,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     window.scrollTo({top:0, behavior:'instant'});
   }
   window.showHub = showHub;
+
+  // Native tab close/refresh/external-navigation counterpart to the in-app
+  // guard just above — showHub() can only ever catch navigation WITHIN this
+  // page; closing the tab or hitting refresh bypasses it entirely. Same
+  // gating (logged-in applicant, genuinely mid-wizard) and same reasoning
+  // (unsaved edits since the last completed step). Browsers ignore any
+  // custom string here and show their own fixed wording, but returning one
+  // is what triggers the native "leave site?" prompt at all in every engine
+  // that still supports this.
+  window.addEventListener('beforeunload', function(e){
+    if(window.atdApplicationInProgress() && window.AccountBridge && window.AccountBridge.getCurrentUser()){
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
+  });
 
   function publicTrackApplication(){
     showHub('poa');
@@ -12271,16 +12521,93 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_renderPermits = acct_renderPermits;
 
+  // Fix: this used to switch away from the Dashboard entirely (showHub('poa')
+  // + openMainMenu + mmGoView('permit')) just to reuse the Main Menu's own
+  // Permit tab rendering — landing the applicant on the full Main Menu
+  // (Documents/Payment/etc. nav and all) instead of just showing them their
+  // permit. Renders the SAME poa_buildPermitDocHtml()/jcfd_buildPermitDocHtml()
+  // layouts that Main Menu tab uses (see renderMmPermit()), fed this SAME
+  // record's own rec.permit, in a modal right on the Dashboard, with a
+  // Print/Download action — never leaving the Dashboard at all.
+  let acctViewingPermit = null; // { kind: 'poa'|'jcf', rec, appNumberForQr }
   async function acct_viewPermit(key){
-    showHub('poa');
     try{
       const r = await window.storage.get(key, true);
       const rec = JSON.parse(r.value);
-      if(window.openMainMenu) window.openMainMenu(rec, key);
-      setTimeout(function(){ if(window.mmGoView) window.mmGoView('permit'); }, 50);
-    } catch(e){ /* ignore */ }
+      if(!rec || !rec.permitGenerated || !rec.permit){
+        showToastFallback('Could not load this permit.');
+        return;
+      }
+      const isJcf = key.indexOf('jcfApplication:') === 0;
+      const p = rec.permit;
+      let bodyHtml, qrData;
+      if(isJcf){
+        const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
+        const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+        bodyHtml = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'acct_permitViewModalQrTarget', jcfCrest) : '';
+        // Same "master" appNumber convention as the Main Menu's own Permit tab
+        // (see renderMmPermit()'s own poa_renderPermitQr calls) -- the JCF
+        // permit's QR verifies against the linked POA application number
+        // when one exists, falling back to the JCF filing's own number for a
+        // standalone Noise Abatement filing with no linked POA application.
+        qrData = rec.poaAppNumber || rec.jcfAppNumber;
+        document.getElementById('acct_permitViewModalTitle').textContent = 'JCF Noise Abatement Permit';
+        document.getElementById('acct_permitViewModalSub').textContent = `JCF Application #${rec.jcfAppNumber || ''}`;
+      } else {
+        const signature = window.fetchMuniSignature ? await window.fetchMuniSignature(rec.muniId) : null;
+        const logo = window.fetchMuniLogo ? await window.fetchMuniLogo(rec.muniId) : null;
+        bodyHtml = window.poa_buildPermitDocHtml ? window.poa_buildPermitDocHtml(p, signature, 'acct_permitViewModalQrTarget', logo) : '';
+        qrData = rec.appNumber;
+        document.getElementById('acct_permitViewModalTitle').textContent = 'Places of Amusement Permit';
+        document.getElementById('acct_permitViewModalSub').textContent = `Application #${rec.appNumber || ''}`;
+      }
+      acctViewingPermit = { isJcf, rec };
+      document.getElementById('acct_permitViewModalBody').innerHTML = bodyHtml;
+      document.getElementById('acct_permitViewModal').classList.remove('hidden');
+      // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+      if(window.poa_renderPermitQr && window.atdVerifyUrl) window.poa_renderPermitQr('acct_permitViewModalQrTarget', window.atdVerifyUrl(qrData));
+    } catch(e){
+      showToastFallback('Could not load this permit.');
+    }
   }
   window.acct_viewPermit = acct_viewPermit;
+
+  function acct_closePermitViewModal(){
+    document.getElementById('acct_permitViewModal').classList.add('hidden');
+    acctViewingPermit = null;
+  }
+  window.acct_closePermitViewModal = acct_closePermitViewModal;
+
+  // Prints (or, via the browser's own print dialog, saves as PDF -- there's
+  // no separate in-app file-download path anywhere else in Atendify either,
+  // so this matches every other "Print permit" action in the app) the
+  // permit currently shown in this modal, reusing the same shared
+  // #printArea/.printing-doc pipeline the Main Menu's own printPermitFromMenu()
+  // uses, filled fresh immediately before printing.
+  async function acct_printPermitFromModal(){
+    if(!acctViewingPermit || !acctViewingPermit.rec || !acctViewingPermit.rec.permit) return;
+    const { isJcf, rec } = acctViewingPermit;
+    const p = rec.permit;
+    const printArea = document.getElementById('printArea');
+    if(!printArea) return;
+    let qrData;
+    if(isJcf){
+      const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
+      const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+      printArea.innerHTML = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'printPermitQrTarget', jcfCrest) : '';
+      qrData = rec.poaAppNumber || rec.jcfAppNumber;
+    } else {
+      const signature = window.fetchMuniSignature ? await window.fetchMuniSignature(rec.muniId) : null;
+      const logo = window.fetchMuniLogo ? await window.fetchMuniLogo(rec.muniId) : null;
+      printArea.innerHTML = window.poa_buildPermitDocHtml ? window.poa_buildPermitDocHtml(p, signature, 'printPermitQrTarget', logo) : '';
+      qrData = rec.appNumber;
+    }
+    if(window.poa_renderPermitQr && window.atdVerifyUrl) window.poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(qrData));
+    document.body.classList.add('printing-doc');
+    window.print();
+    setTimeout(()=> document.body.classList.remove('printing-doc'), 500);
+  }
+  window.acct_printPermitFromModal = acct_printPermitFromModal;
 
   // Balance is always recomputed from the transaction list itself, never
   // trusted as a stored number — see fix22_wallet.sql's comment on why this
@@ -13348,11 +13675,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_exportEventsCalendarPdf = jcfd_exportEventsCalendarPdf;
 
+  // Reads the application's own real, stored rec.status directly instead of
+  // guessing it from assignedOfficerId/recommendation — see
+  // jcfd_assignOfficer()/jcfd_updateDocStatus()/jcfd_saveRecommendation()
+  // (each advances rec.status itself) for the full Submitted -> Assigned ->
+  // Under Review -> Processing -> Approved/Rejected lifecycle this now
+  // reflects, matching what the user asked to see "across all views
+  // (Dashboard and Application tabs)".
   function jcfd_statusBadge(rec){
     if(rec.status === 'Approved') return '<span class="badge badge-green">Approved</span>';
     if(rec.status === 'Rejected') return '<span class="badge badge-red">Rejected</span>';
-    if(rec.assignedOfficerId) return '<span class="badge badge-blue">Assigned</span>';
-    return '<span class="badge badge-amber">Pending Assignment</span>';
+    if(rec.status === 'Processing') return '<span class="badge badge-blue">Processing</span>';
+    if(rec.status === 'Under Review') return '<span class="badge badge-blue">Under Review</span>';
+    if(rec.status === 'Assigned') return '<span class="badge badge-blue">Assigned</span>';
+    return '<span class="badge badge-amber">Submitted</span>';
   }
 
   async function jcfd_renderDashboard(){
@@ -13391,6 +13727,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     jcfd_renderDashboardNotices(visible);
     jcfd_renderCommentedTable(visible);
+    jcfd_loadNotifications();
     if(refreshBtn){ refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh'; }
   }
   // Exposed so the Dashboard page's own "↻ Refresh" button (plain inline
@@ -13448,6 +13785,169 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     container.innerHTML = html;
   }
+
+  // ==================== Notification bell (JCF Division) ====================
+  // Ports the Municipal officer portal's own persisted notification-bell
+  // system (window.atdNotify / loadNotifications / renderNotifBell — see
+  // that portal's own "Notification bell" section) over to this portal,
+  // scoped by JCF branch (jcfdCurrentBranch.id) the same way the muni side
+  // is scoped by muniId — window.atdNotify(...) already takes an arbitrary
+  // id as its first argument, so the exact same shared write helper and
+  // `notification:<id>:<recordId>` storage shape is reused here as-is,
+  // just written/read under this branch's own agencyId instead of a
+  // municipality's id. Unlike the muni bell, there's no live SLA-breach
+  // feed merged in here (JCF has its own separate SLA Breaches tab/page
+  // already) — this only surfaces persisted, one-time event notifications
+  // (currently: a previously-rejected document being re-uploaded — see
+  // jcf_persistJcfDocToPoa's sibling notify call in mmDocFileChosen/
+  // mmJcfDocFileChosen/mmNoiseDocFileChosen, applicant/poa scope).
+  let jcfdNotifPersisted = [];
+  let jcfdNotifPanelOpen = false;
+
+  async function jcfd_fetchPersistedNotifications(agencyId){
+    if(!window.storage || agencyId == null) return [];
+    try{
+      const listResult = await window.storage.list(`notification:${agencyId}:`, true);
+      const keys = (listResult && listResult.keys) || [];
+      const out = [];
+      for(const key of keys){
+        try{
+          const result = await window.storage.get(key, true);
+          if(result && result.value) out.push({ key, rec: JSON.parse(result.value) });
+        } catch(err){ /* skip unreadable record */ }
+      }
+      return out;
+    } catch(err){
+      return [];
+    }
+  }
+
+  async function jcfd_loadNotifications(){
+    if(!jcfdCurrentUser || !jcfdCurrentBranch){
+      jcfdNotifPersisted = [];
+      jcfd_renderNotifBell();
+      return;
+    }
+    const fetched = await jcfd_fetchPersistedNotifications(jcfdCurrentBranch.id);
+    jcfdNotifPersisted = fetched
+      // 'checklist' is the closest existing jcfd_hasPerm() key to "reviews
+      // documents" — matches who mmDocFileChosen/mmJcfDocFileChosen re-
+      // upload notifications are routed to. A Chief always passes
+      // jcfd_hasPerm() regardless of key (see jcfd_hasPerm's own short-
+      // circuit), so Chiefs always see every notification too.
+      .filter(({ rec }) => !rec.targetPermission || jcfd_hasPerm(rec.targetPermission))
+      .map(({ key, rec }) => ({
+        key, id: rec.id, type: rec.type, message: rec.message, appNumber: rec.appNumber,
+        createdAt: rec.createdAt,
+        read: (Array.isArray(rec.readBy) && jcfdCurrentUser.email) ? rec.readBy.includes(jcfdCurrentUser.email) : false
+      }))
+      .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+    jcfd_renderNotifBell();
+  }
+  window.jcfd_loadNotifications = jcfd_loadNotifications;
+
+  function jcfd_notifTimeAgo(iso){
+    if(!iso) return '';
+    const then = new Date(iso);
+    if(isNaN(then.getTime())) return '';
+    const diffMs = Date.now() - then.getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if(mins < 1) return 'just now';
+    if(mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if(hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function jcfd_notifGoToApp(appNumber){
+    if(!appNumber) return;
+    jcfd_toggleNotifPanel();
+    jcfd_openApplication('jcfApplication:' + appNumber);
+  }
+  window.jcfd_notifGoToApp = jcfd_notifGoToApp;
+
+  function jcfd_renderNotifBell(){
+    const badge = document.getElementById('jcfd_notifBadge');
+    const body = document.getElementById('jcfd_notifPanelBody');
+    if(!badge || !body) return;
+
+    const unreadCount = jcfdNotifPersisted.filter(n => !n.read).length;
+    if(unreadCount > 0){
+      badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+
+    const items = jcfdNotifPersisted.map(n => `
+      <div class="notif-item ${n.read ? '' : 'unread'}" onclick='jcfd_notifGoToApp(${JSON.stringify(n.appNumber)}); jcfd_markNotificationRead(${JSON.stringify(n.id)})'>
+        <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
+        <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${jcfd_notifTimeAgo(n.createdAt)}</span></div>
+      </div>
+    `);
+
+    body.innerHTML = items.length ? items.join('') : '<div class="notif-empty">No notifications yet.</div>';
+  }
+  window.jcfd_renderNotifBell = jcfd_renderNotifBell;
+
+  function jcfd_toggleNotifPanel(event){
+    if(event) event.stopPropagation();
+    const panel = document.getElementById('jcfd_notifPanel');
+    if(!panel) return;
+    jcfdNotifPanelOpen = !jcfdNotifPanelOpen;
+    panel.classList.toggle('hidden', !jcfdNotifPanelOpen);
+  }
+  window.jcfd_toggleNotifPanel = jcfd_toggleNotifPanel;
+
+  async function jcfd_markNotificationRead(id){
+    const n = jcfdNotifPersisted.find(x => x.id === id);
+    if(!n || n.read || !window.storage || !jcfdCurrentUser) return;
+    n.read = true;
+    jcfd_renderNotifBell();
+    try{
+      const result = await window.storage.get(n.key, true);
+      if(result && result.value){
+        const rec = JSON.parse(result.value);
+        rec.readBy = Array.isArray(rec.readBy) ? rec.readBy : [];
+        if(jcfdCurrentUser.email && !rec.readBy.includes(jcfdCurrentUser.email)) rec.readBy.push(jcfdCurrentUser.email);
+        await window.storage.set(n.key, JSON.stringify(rec), true);
+      }
+    } catch(err){
+      // best-effort — the read state still shows correctly for this session
+    }
+  }
+  window.jcfd_markNotificationRead = jcfd_markNotificationRead;
+
+  async function jcfd_markAllNotificationsRead(){
+    const unread = jcfdNotifPersisted.filter(n => !n.read);
+    if(!unread.length || !window.storage || !jcfdCurrentUser) return;
+    unread.forEach(n => n.read = true);
+    jcfd_renderNotifBell();
+    for(const n of unread){
+      try{
+        const result = await window.storage.get(n.key, true);
+        if(result && result.value){
+          const rec = JSON.parse(result.value);
+          rec.readBy = Array.isArray(rec.readBy) ? rec.readBy : [];
+          if(jcfdCurrentUser.email && !rec.readBy.includes(jcfdCurrentUser.email)) rec.readBy.push(jcfdCurrentUser.email);
+          await window.storage.set(n.key, JSON.stringify(rec), true);
+        }
+      } catch(err){ /* best-effort */ }
+    }
+  }
+  window.jcfd_markAllNotificationsRead = jcfd_markAllNotificationsRead;
+
+  // Close the notification panel when clicking anywhere outside it.
+  document.addEventListener('click', (e)=>{
+    if(!jcfdNotifPanelOpen) return;
+    const wrap = document.getElementById('jcfd_notifBellWrap');
+    if(wrap && !wrap.contains(e.target)){
+      jcfdNotifPanelOpen = false;
+      const panel = document.getElementById('jcfd_notifPanel');
+      if(panel) panel.classList.add('hidden');
+    }
+  });
 
   function jcfd_renderCommentedTable(visible){
     const body = document.getElementById('jcfd_commentedBody');
@@ -13629,27 +14129,42 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return html;
   }
 
-  const JCFD_STATUS_FLOW = ['Submitted', 'Under Review', 'Approved'];
+  // Real 5-stage lifecycle (matches rec.status directly now — see
+  // jcfd_assignOfficer()/jcfd_updateDocStatus()/jcfd_saveRecommendation(),
+  // which are the only places that advance rec.status forward, and
+  // jcfd_approveRecommendationWithdrawal()/jcfd_chiefRejectRecommendation()/
+  // jcfd_reopenForReview(), which are the only places that move it back).
+  // 'Rejected' is a separate terminal branch handled below, not part of this
+  // forward list, since it can happen from any of the 4 stages before it.
+  const JCFD_STATUS_FLOW = ['Submitted', 'Assigned', 'Under Review', 'Processing', 'Approved'];
 
   function jcfd_renderStatusStepper(rec){
     const stepper = document.getElementById('jcfd_statusStepper');
     if(!stepper) return;
     if(rec.status === 'Rejected'){
-      const doneUpTo = rec.recommendation || rec.assignedOfficerId ? 1 : 0;
+      // Simplification, documented: rec.status is overwritten to 'Rejected'
+      // by jcfd_reject() (see that function), so the exact prior stage isn't
+      // directly recoverable from rec.status alone at this point — a
+      // rejection can legitimately happen from Assigned, Under Review, or
+      // Processing (jcfd_canDecideApp() is a permission check, not a
+      // status gate). Approximate the furthest stage reached from the same
+      // fields those stages set and never clear on rejection: a
+      // recommendation on file means Processing was reached; otherwise an
+      // assigned officer means at least Assigned/Under Review was reached
+      // (these two aren't distinguishable after the fact without a
+      // recommendation, since nothing else persists once status is
+      // overwritten) — this only affects how many steps show "done" before
+      // the Rejected marker, not the Rejected outcome itself.
+      let doneUpTo = 0;
+      if(rec.recommendation) doneUpTo = 3;
+      else if(rec.assignedOfficerId) doneUpTo = 1;
       stepper.innerHTML = JCFD_STATUS_FLOW.slice(0, doneUpTo + 1).map((s,i)=>{
         const cls = i < doneUpTo ? 'done' : 'current';
         return `<div class="status-step ${cls}"><span class="dot"></span>${s}</div><div class="status-connector"></div>`;
       }).join('') + `<div class="status-step rejected"><span class="dot"></span>Rejected</div>`;
       return;
     }
-    // "Under Review" isn't a real stored status (JCF records are only ever
-    // Submitted/Approved/Rejected — see jcfd_approve()/jcfd_reject()) — it's
-    // shown once the application has been assigned or has a recommendation,
-    // to give the applicant/officer a sense of progress in between, mirroring
-    // the Municipal Officer's multi-step stepper.
-    let idx = 0;
-    if(rec.status === 'Approved') idx = 2;
-    else if(rec.assignedOfficerId || rec.recommendation) idx = 1;
+    const idx = Math.max(0, JCFD_STATUS_FLOW.indexOf(rec.status));
     stepper.innerHTML = JCFD_STATUS_FLOW.map((s,i)=>{
       let cls = '';
       if(i < idx) cls = 'done';
@@ -14362,6 +14877,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.assignedOfficerId = officer ? officer.id : null;
     rec.assignedOfficerName = officer ? officer.name : '';
     rec.assignedAt = officer ? new Date().toISOString() : '';
+    // Fix: this used to never touch rec.status at all — the Dashboard's own
+    // jcfd_statusBadge() showed "Assigned" purely by INFERRING it live from
+    // assignedOfficerId truthiness, while the Application Detail view's
+    // stepper independently inferred "Under Review" from that exact same
+    // condition — so the identical state showed two different words in two
+    // different views, and neither survived as a real, storable status.
+    // rec.status is now the single source of truth both views read (see
+    // jcfd_statusBadge/jcfd_renderStatusStepper below): only advance it on
+    // a genuinely fresh assignment ('Submitted' -> 'Assigned') or a genuine
+    // un-assignment with no further progress yet ('Assigned' -> back to
+    // 'Submitted') — never clobber 'Under Review'/'Processing'/a final
+    // decision just because an officer got reassigned mid-review.
+    if(officer && rec.status === 'Submitted'){
+      rec.status = 'Assigned';
+    } else if(!officer && rec.status === 'Assigned'){
+      rec.status = 'Submitted';
+    }
     await jcfd_saveActiveApp(rec);
     jcfd_showToast(officer ? `Assigned to ${officer.name}.` : 'Assignment cleared.');
     jcfd_renderApplicationDetail();
@@ -14406,6 +14938,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.recommendationWithdrawalRequested = false;
     rec.recommendationWithdrawalRequestedBy = '';
     rec.recommendationWithdrawalRequestedDate = '';
+    // Fix: submitting a recommendation used to never touch rec.status at
+    // all, so this was the single biggest visible gap in the status
+    // lifecycle — an application could sit on a Supervisor's completed
+    // recommendation, awaiting only the Chief's final decision, and still
+    // show exactly the same "Assigned"/"Under Review" status it had before
+    // any recommendation existed. 'Processing' now means exactly this: a
+    // recommendation is on file and the Chief's final decision is pending.
+    rec.status = 'Processing';
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Recommendation saved.');
     jcfd_renderApplicationDetail();
@@ -14454,6 +14994,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.recommendationChiefRejectionReason = '';
     rec.recommendationChiefRejectedBy = '';
     rec.recommendationChiefRejectedDate = '';
+    // Status lifecycle fix: rec.status was advanced to 'Processing' when the
+    // recommendation was originally submitted (see jcfd_saveRecommendation).
+    // Clearing the recommendation here without reverting status would leave
+    // the dashboard/detail views showing "Processing" for an application that
+    // no longer has any recommendation on file. Only step back from
+    // 'Processing' -- never touch an already-finalized Approved/Rejected
+    // status (a withdrawal request shouldn't be reachable post-decision, but
+    // guard anyway rather than assume the UI always prevents it).
+    if(rec.status === 'Processing'){
+      rec.status = 'Under Review';
+    }
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Withdrawal request approved. The recommendation has been cleared.');
     jcfd_renderApplicationDetail();
@@ -14487,6 +15038,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.recommendationWithdrawalRequested = false;
     rec.recommendationWithdrawalRequestedBy = '';
     rec.recommendationWithdrawalRequestedDate = '';
+    // Status lifecycle fix: same reasoning as jcfd_approveRecommendationWithdrawal
+    // above -- the recommendation is being cleared, so status should step back
+    // from 'Processing' to 'Under Review' rather than keep showing Processing
+    // with no recommendation actually on file.
+    if(rec.status === 'Processing'){
+      rec.status = 'Under Review';
+    }
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Recommendation rejected. The Supervisor will need to submit a new one.');
     jcfd_renderApplicationDetail();
@@ -14585,7 +15143,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     if(!(await window.atdConfirm('Reopen this application for review? This allows a new final decision to be made.'))) return;
-    rec.status = 'Submitted';
+    // Status lifecycle fix: restore the real stage the application had
+    // actually reached, rather than always dropping it back to the very
+    // start — a rejection recorded from Processing (recommendation already
+    // on file) should reopen at Processing, not send it back through
+    // Assigned/Under Review again. Uses the same best-effort signals as
+    // jcfd_renderStatusStepper()'s Rejected-branch backtrace, since this is
+    // the same "prior stage isn't directly recoverable from rec.status
+    // alone" situation — see that function's comment.
+    if(rec.recommendation) rec.status = 'Processing';
+    else if(rec.assignedOfficerId) rec.status = 'Under Review';
+    else rec.status = 'Submitted';
     rec.permitGenerated = false;
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Application reopened for review.');
@@ -15205,11 +15773,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jcfd_renderReports = jcfd_renderReports;
 
   // Plain-text version of jcfd_statusBadge(), for grouping in report charts.
+  // Kept in sync with jcfd_statusBadge()'s own real-status reading — see its
+  // comment for the full lifecycle this reflects.
   function jcfd_statusBadgeLabel(rec){
     if(rec.status === 'Approved') return 'Approved';
     if(rec.status === 'Rejected') return 'Rejected';
-    if(rec.assignedOfficerId) return 'Assigned';
-    return 'Pending Assignment';
+    if(rec.status === 'Processing') return 'Processing';
+    if(rec.status === 'Under Review') return 'Under Review';
+    if(rec.status === 'Assigned') return 'Assigned';
+    return 'Submitted';
   }
 
   // ==================== Official Use Checklist ====================
@@ -15531,6 +16103,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       rec[section] = rec[section] || {};
       rec[section][statusKey] = newStatus;
       rec[section][noteKey] = note;
+      await jcfd_saveActiveApp(rec);
+    }
+
+    // Reviewing any one required document (Approve/Reject/Not Applicable,
+    // any kind — including the jams/jcap branch above, which otherwise
+    // never touches or saves `rec` itself) is the real, concrete signal
+    // that this officer's review has actually started, distinct from
+    // merely being assigned — see jcfd_assignOfficer()'s own comment on why
+    // 'Assigned' and 'Under Review' are now two separate stored statuses
+    // instead of one state shown as two different words in two views.
+    if(rec.status === 'Assigned'){
+      rec.status = 'Under Review';
       await jcfd_saveActiveApp(rec);
     }
 
@@ -15941,7 +16525,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(p.issuedDate || '')}</td>
         <td>${acctEscapeHtml(p.expiresDate || '')}</td>
         <td>${acctEscapeHtml(a.rec.jcfAppNumber || '')}</td>
-        <td><button class="btn btn-sm" onclick='jcfd_openApplication(${JSON.stringify(a.key)})'>View / Print</button></td>
+        <td><button class="btn btn-sm" onclick='jcfd_viewIssuedPermit(${JSON.stringify(a.key)})'>View / Print</button></td>
       </tr>`;
     }).join('');
   }
@@ -15950,6 +16534,59 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // jcfd_findJurisdictionApplications() full-jurisdiction re-fetch as
   // jcfd_renderApplications() above.
   window.jcfd_renderPermitsListDebounced = window.atdDebounce(jcfd_renderPermitsList, 300);
+
+  // Fix: the Issued Permits tab's "View / Print" button used to call
+  // jcfd_openApplication(), which navigates to the full Application Details
+  // page — the underlying application, comments, checklist and all — rather
+  // than showing the permit itself. Renders the SAME jcfd_buildPermitDocHtml()
+  // layout the Application Detail view's own Issued Permit card prints (see
+  // jcfd_printPermit()), fed this record's own rec.permit, in a modal with
+  // its own Print button.
+  let jcfdViewingPermitRec = null;
+  async function jcfd_viewIssuedPermit(key){
+    if(!window.storage) return;
+    try{
+      const r = await window.storage.get(key, true);
+      const rec = (r && r.value) ? JSON.parse(r.value) : null;
+      if(!rec || !rec.permitGenerated || !rec.permit){
+        jcfd_showToast('Could not load this permit.');
+        return;
+      }
+      jcfdViewingPermitRec = rec;
+      document.getElementById('jcfd_permitViewModalSub').textContent = `JCF Application #${rec.jcfAppNumber || ''}`;
+      document.getElementById('jcfd_permitViewModalBody').innerHTML =
+        jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, 'jcfd_permitViewModalQrTarget', jcfdCachedCrest);
+      document.getElementById('jcfd_permitViewModal').classList.remove('hidden');
+      // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+      jcfd_renderPermitQr('jcfd_permitViewModalQrTarget', window.atdVerifyUrl(rec.jcfAppNumber));
+    } catch(e){
+      jcfd_showToast('Could not load this permit.');
+    }
+  }
+  window.jcfd_viewIssuedPermit = jcfd_viewIssuedPermit;
+
+  function jcfd_closePermitViewModal(){
+    document.getElementById('jcfd_permitViewModal').classList.add('hidden');
+    jcfdViewingPermitRec = null;
+  }
+  window.jcfd_closePermitViewModal = jcfd_closePermitViewModal;
+
+  // Prints the permit currently shown in the Issued Permit View modal —
+  // reuses the same shared #jcfdPermitPrintArea/.printing-permit pipeline
+  // jcfd_printPermit() uses for the Application Detail view's own Issued
+  // Permit card, filling it fresh immediately before printing so it's never
+  // left holding stale content for the next unrelated render.
+  function jcfd_printIssuedPermitFromModal(){
+    if(!jcfdViewingPermitRec || !jcfdViewingPermitRec.permit) return;
+    const printArea = document.getElementById('jcfdPermitPrintArea');
+    if(!printArea) return;
+    printArea.innerHTML = jcfd_buildPermitDocHtml(jcfdViewingPermitRec.permit, jcfdCachedSignature, 'jcfdPermitQrTarget', jcfdCachedCrest);
+    jcfd_renderPermitQr('jcfdPermitQrTarget', window.atdVerifyUrl(jcfdViewingPermitRec.jcfAppNumber));
+    document.body.classList.add('printing-permit');
+    window.print();
+    setTimeout(() => document.body.classList.remove('printing-permit'), 500);
+  }
+  window.jcfd_printIssuedPermitFromModal = jcfd_printIssuedPermitFromModal;
 
   // ==================== Permit Signature ====================
   let jcfdCachedSignature = null;
@@ -16315,8 +16952,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <li>No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.</li>
           <li>No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.</li>
           <li>Be advised that any person who sings any profane or obscene song or ballad or uses any profane, indecent language publicly is liable to prosecution.</li>
-          <li>Be further advised that the owner of the premises, equipment and operator of the device are also liable to prosecution if these provisions of the Noise Abatement Act is breached.</li>
-          <li>Be further advised that it is your responsibility that it is illegal for persons attending this event to carry offensive weapons such as knives, daggers, knuckle dusters ice-picks, etc.,</li>
+          <li>Be further advised that the owner of the premises, equipment and operator of the device are also liable for prosecution if the provisions of the Noise Abatement Act is breached.</li>
+          <li>Be further advised that it is illegal for persons attending this event to carry offensive weapons such as knives, daggers, knuckle busters, ice-pricks, etc.,</li>
           <li>No "Bike Show" must be staged or entertained during this event. Breach of this condition will lead to prosecution and immediate closure of the event.</li>
         </ol>
 
@@ -19588,12 +20225,17 @@ const POA_POLICE_APPROVAL_DOC_NAME = 'Police Approval (apply online)';
 // New "JCF Required Documents" section on the Main Menu's Uploads view
 // (below the municipality's own "Required Documents") — the JCF now
 // requires every applicant to supply proof of a JAMMS and a JCAP approval
-// for their event, uploaded here rather than on the JCF form itself so an
-// applicant only has to do it once, same reasoning as the Photo ID/Flier/
-// Ownership carry-over into the JCF form (see openJcfForm()). Fixed at two
-// entries by design (unlike regulatoryDocList, this isn't admin-configured
-// per business/event type) — see renderMmJcfDocuments()/mmJcfDocFileChosen().
+// for their event. These can also be uploaded directly from the Special
+// Event JCF form's own Entertainment Details step (see jamsFileChosen/
+// jcapFileChosen and jcf_persistJcfDocToPoa in the jcf-scope script below) —
+// both places read and write the SAME r.jcfDocuments field on this POA
+// application record, so whichever place the applicant uploads from first,
+// the other immediately shows it as already uploaded rather than asking
+// again. Fixed at two entries by design (unlike regulatoryDocList, this
+// isn't admin-configured per business/event type) — see
+// renderMmJcfDocuments()/mmJcfDocFileChosen().
 const JCF_REQUIRED_DOC_LIST = ['JAMMS Approval', 'JCAP Approval'];
+window.JCF_REQUIRED_DOC_LIST = JCF_REQUIRED_DOC_LIST;
 
 // Cached (not attached to currentAppRecord, which mmRefreshRecord() replaces
 // wholesale on every refresh) linked-JCF-application data and municipality
@@ -20990,6 +21632,10 @@ async function mmNoiseDocFileChosen(kind, label, input){
   const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
   const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
   const fileDataKey = kind === 'photoId' ? 'photoIdFileData' : 'permissionLetterFileData';
+  // Captured before being overwritten below — see mmDocFileChosen's own
+  // matching comment: the JCF branch bell notification only fires for an
+  // actual REJECTED -> re-uploaded transition, not a first-time upload.
+  const wasRejected = jcfApp[section] && jcfApp[section][statusKey] === 'Rejected';
 
   try{
     jcfApp[section] = jcfApp[section] || {};
@@ -21018,6 +21664,16 @@ async function mmNoiseDocFileChosen(kind, label, input){
   await poa_refreshLinkedJcfApp();
   renderMmNoiseDocuments();
   poa_showToast(`${label} uploaded and submitted.`);
+  // Notify the JCF Division dashboard's bell -- this filing's own docs
+  // (Photo ID / Proof of Ownership) are reviewed by whichever JCF branch
+  // jcfApp.muniId already identifies directly (unlike mmJcfDocFileChosen's
+  // JAMMS/JCAP, this record already lives under the JCF branch's own
+  // jurisdiction, so no muniId reverse-lookup is needed here).
+  if(wasRejected && window.atdFindJcfBranchForMuniId && window.atdNotify){
+    window.atdFindJcfBranchForMuniId(jcfApp.muniId).then(branch => {
+      if(branch) window.atdNotify(branch.id, 'checklist', 'document_reuploaded', `${label} was re-uploaded for ${jcfApp.jcfAppNumber} after being rejected.`, jcfApp.jcfAppNumber);
+    });
+  }
 }
 window.mmNoiseDocFileChosen = mmNoiseDocFileChosen;
 
@@ -21090,6 +21746,10 @@ async function fetchMuniSignature(muniId){
     return null;
   }
 }
+// Exposed so the Applicant Dashboard's own acct_viewPermit() (a separate
+// <script> scope) can render the SAME real permit layout in its own modal
+// instead of navigating into the Main Menu just to reuse this lookup.
+window.fetchMuniSignature = fetchMuniSignature;
 
 // JCF-side equivalent of fetchMuniSignature above, for rendering the SAME
 // jcfd_buildPermitDocHtml() permit on the applicant's own Main Menu. The
@@ -21113,6 +21773,10 @@ async function fetchJcfSignature(parish){
     return null;
   }
 }
+// Exposed so the Municipal Officer portal's own openJcfPermitModal() (a
+// separate <script> scope) can render the SAME real permit layout here
+// instead of duplicating this parish->branch->signature lookup by hand.
+window.fetchJcfSignature = fetchJcfSignature;
 
 // `platform:jcfCrest` is admin-only under current RLS — the JCF Officer
 // Portal's own read of it (jcfdCachedCrest) silently comes back empty for
@@ -21327,6 +21991,10 @@ async function mmJcfDocFileChosen(index, docName, input){
   }
 
   if(!currentAppRecord.jcfDocuments) currentAppRecord.jcfDocuments = {};
+  // Captured before being overwritten below — see mmDocFileChosen's own
+  // matching comment: the JCF branch bell notification only fires for an
+  // actual REJECTED -> re-uploaded transition, not a first-time upload.
+  const wasRejected = currentAppRecord.jcfDocuments[docName] && currentAppRecord.jcfDocuments[docName].status === 'Rejected';
 
   const fileData = await poa_readFileAsDataUrl(file);
   // Fix: poa_readFileAsDataUrl/atdReadFileSmart returns null for a non-image
@@ -21356,6 +22024,17 @@ async function mmJcfDocFileChosen(index, docName, input){
   await mmPersist();
   renderMmJcfDocuments();
   poa_showToast(`${docName} uploaded and submitted.`);
+  // Notify the JCF Division dashboard's bell -- JAMMS/JCAP is reviewed by
+  // whichever JCF branch is linked to this application's municipality (see
+  // window.atdFindJcfBranchForMuniId's own comment for why this two-hop
+  // lookup is needed instead of just reusing currentAppRecord.muniId
+  // directly). Best-effort: a missing/unlinked branch just means no bell
+  // fires, same as atdNotify's own no-op-on-null-id behavior elsewhere.
+  if(wasRejected && window.atdFindJcfBranchForMuniId && window.atdNotify){
+    window.atdFindJcfBranchForMuniId(currentAppRecord.muniId).then(branch => {
+      if(branch) window.atdNotify(branch.id, 'checklist', 'document_reuploaded', `${docName} was re-uploaded for ${currentAppRecord.appNumber} after being rejected.`, currentAppRecord.appNumber);
+    });
+  }
 }
 window.mmJcfDocFileChosen = mmJcfDocFileChosen;
 
@@ -21413,6 +22092,11 @@ async function mmDocFileChosen(index, docName, input){
   }
 
   if(!currentAppRecord.regulatoryDocuments) currentAppRecord.regulatoryDocuments = {};
+  // Captured before being overwritten below — the officer bell notification
+  // just after mmPersist() only fires for an actual REJECTED -> re-uploaded
+  // transition, not a first-time upload (which the officer already sees via
+  // the existing application_submitted / new-document notifications).
+  const wasRejected = currentAppRecord.regulatoryDocuments[docName] && currentAppRecord.regulatoryDocuments[docName].status === 'Rejected';
 
   const fileData = await poa_readFileAsDataUrl(file);
   // Same fix as mmJcfDocFileChosen's own comment: a file too large (non-image
@@ -21436,6 +22120,14 @@ async function mmDocFileChosen(index, docName, input){
 
   input.value = '';
   await mmPersist();
+  // Notify the Municipal officer dashboard's bell -- a previously-rejected
+  // document just came back, worth a fresh look without waiting for the
+  // applicant to say so. Routed by 'review', the same targetPermission the
+  // muni bell already treats most document-related notifications as (see
+  // notifPermKeyForStage in the muni scope).
+  if(wasRejected && window.atdNotify && currentAppRecord.muniId != null){
+    window.atdNotify(currentAppRecord.muniId, 'review', 'document_reuploaded', `${docName} was re-uploaded for ${currentAppRecord.appNumber} after being rejected.`, currentAppRecord.appNumber);
+  }
   renderMmDocuments();
   poa_showToast(`${docName} uploaded and submitted.`);
 }
@@ -21871,8 +22563,12 @@ const ROLE_DEFAULTS = {
 const MUNI_SUBSCRIPTION_TIERS = ['Essential', 'Standard', 'Premium'];
 const MUNI_TIER_MODULES = {
   Essential: [],
-  Standard: ['reports', 'eventsCalendar', 'slaBreaches'],
-  Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads']
+  // 'activityTimeline' (CEO-only per-application activity timeline, see
+  // renderAppDetail's Activity Timeline card and muni_buildApplicationTimeline)
+  // isn't a nav page like the others here -- atdMuniModuleLocked() works the
+  // same regardless, since it just checks tier membership by key.
+  Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
+  Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
 };
 // Every tier allows the same number of officer accounts — tiers here
 // control feature access, not headcount. Enforced only against NEW
@@ -25445,10 +26141,56 @@ function renderPermitsList(){
         <td>${muni_escapeHtml(p.issuedDate)}</td>
         <td>${muni_escapeHtml(p.expiresDate)}</td>
         <td>${muni_escapeHtml(a.appNumber)}</td>
-        <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View / Print</button></td>
+        <td><button class="btn btn-sm" onclick='viewIssuedPermit(${JSON.stringify(a.id)})'>View / Print</button></td>
       </tr>
     `;
   }).join('');
+}
+
+// Fix: the Issued Permits tab's "View / Print" button used to call
+// muni_openAppModal(), which navigates to the full Application Details page
+// — the underlying application, comments, checklist and all — rather than
+// showing the permit itself. Renders the SAME muni_buildPermitDocHtml()
+// layout the Application Detail view's own Permit card prints (see
+// printPermit()), fed this application's own a.permit, in a modal with its
+// own Print button. Uses a separate qrTargetId (see muni_buildPermitDocHtml's
+// own comment) so this modal's QR box doesn't collide with the hidden
+// #permitPrintArea's identically-shaped one.
+let viewingPermitApp = null;
+function viewIssuedPermit(id){
+  const a = myApplications().find(a => a.id === id);
+  if(!a || !a.permitGenerated || !a.permit){
+    muni_showToast('Could not load this permit.');
+    return;
+  }
+  viewingPermitApp = a;
+  document.getElementById('permitViewModalSub').textContent = `Application #${a.appNumber}`;
+  document.getElementById('permitViewModalBody').innerHTML =
+    muni_buildPermitDocHtml(a.permit, cachedSignature, cachedLogo, 'permitViewModalQrTarget');
+  document.getElementById('permitViewModal').classList.remove('hidden');
+  // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+  muni_renderPermitQr('permitViewModalQrTarget', window.atdVerifyUrl(a.appNumber));
+}
+
+function closePermitViewModal(){
+  document.getElementById('permitViewModal').classList.add('hidden');
+  viewingPermitApp = null;
+}
+
+// Prints the permit currently shown in the Issued Permit View modal —
+// reuses the same shared #permitPrintArea/.printing-permit pipeline every
+// other muni-scope print action uses, filling it fresh immediately before
+// printing so it's never left holding stale content for the next unrelated
+// render (same pattern as printJcfPermitFromModal() above).
+function printIssuedPermitFromModal(){
+  if(!viewingPermitApp || !viewingPermitApp.permit) return;
+  const printArea = document.getElementById('permitPrintArea');
+  if(!printArea) return;
+  printArea.innerHTML = muni_buildPermitDocHtml(viewingPermitApp.permit, cachedSignature, cachedLogo, 'permitQrTarget');
+  muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(viewingPermitApp.appNumber));
+  document.body.classList.add('printing-permit');
+  window.print();
+  setTimeout(() => document.body.classList.remove('printing-permit'), 500);
 }
 
 
@@ -26082,22 +26824,58 @@ async function muni_loadLinkedJcfApp(id){
   renderAppDetail();
 }
 
-function openJcfPermitModal(){
+// Fix: this used to show only a bare 4-field summary (number/type/issued/
+// expires dates) built by hand here, instead of the actual issued permit
+// document — the same "MC officer should see the actual issued permit"
+// request applies here as much as it does to the Permit tab's own print/
+// view buttons. Now renders the SAME jcfd_buildPermitDocHtml() layout the
+// JCF Division itself prints (see window.jcfd_buildPermitDocHtml, exposed
+// from the JCF officer portal's own <script> scope), fed the SAME
+// jcfApp.permit data, with the JCF Division's own signature/crest and a
+// real verification QR — not a re-typed, drifting summary of it.
+async function openJcfPermitModal(){
   const a = applications.find(a => a.id === activeAppId);
   const jcfApp = a && a._linkedJcfApp;
   if(!jcfApp || !jcfApp.permit) return;
   const p = jcfApp.permit;
   document.getElementById('jcfPermitModalSub').textContent = `JCF Application #${jcfApp.jcfAppNumber || ''}`;
+  const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
+  const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
   document.getElementById('jcfPermitModalBody').innerHTML =
-    detailRow('Permit Number', p.number) +
-    detailRow('Permit Type', p.permitTypeLabel) +
-    detailRow('Issued Date', p.issuedDate) +
-    detailRow('Expires Date', p.expiresDate);
+    (window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'jcfPermitModalQrTarget', jcfCrest) : '') +
+    `<div class="action-btn-row" style="margin-top:14px;"><button class="btn btn-sm" onclick="printJcfPermitFromModal()">🖨 Print permit</button></div>`;
   document.getElementById('jcfPermitModal').classList.remove('hidden');
+  // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
+  // Uses the same "master" application number the applicant's own copy of
+  // this same permit verifies against (see poa_renderPermitQr's callers),
+  // not the JCF Division's own internal jcfAppNumber, so both copies of
+  // this permit resolve to the same verification link.
+  muni_renderPermitQr('jcfPermitModalQrTarget', window.atdVerifyUrl(a.appNumber));
 }
 
 function closeJcfPermitModal(){
   document.getElementById('jcfPermitModal').classList.add('hidden');
+}
+
+// Prints the JCF permit currently shown in the View Issued Permit modal --
+// reuses the same shared #permitPrintArea/.printing-permit pipeline every
+// other muni-scope print action uses (see muni_buildPermitDocHtml's own
+// printPermit()), filling it fresh immediately before printing so it's
+// never left holding stale content for the next unrelated render.
+async function printJcfPermitFromModal(){
+  const a = applications.find(a => a.id === activeAppId);
+  const jcfApp = a && a._linkedJcfApp;
+  if(!jcfApp || !jcfApp.permit) return;
+  const p = jcfApp.permit;
+  const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
+  const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+  const printArea = document.getElementById('permitPrintArea');
+  if(!printArea || !window.jcfd_buildPermitDocHtml) return;
+  printArea.innerHTML = window.jcfd_buildPermitDocHtml(p, jcfSignature, 'permitQrTarget', jcfCrest);
+  muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(a.appNumber));
+  document.body.classList.add('printing-permit');
+  window.print();
+  setTimeout(() => document.body.classList.remove('printing-permit'), 500);
 }
 
 function detailRow(label, value){
@@ -26401,6 +27179,96 @@ function renderSubmissionColumn(a){
   col.innerHTML = html;
 }
 
+// ==================== CEO Activity Timeline ====================
+// Reconstructs a chronological, cross-office history of this application —
+// from the applicant's own submission through to the final decision —
+// directly from the SAME timestamped fields already stored on the record
+// for the SLA Policy feature (paymentSubmittedAt/paymentVerifiedAt/
+// venueApprovedAt/recommendationMadeAt — see computeSlaBreaches) plus
+// decidedAt (added alongside this feature, see setFinalStatus), and, when a
+// JCF Noise Abatement filing is linked, the equivalent fields on that
+// record. There's no separate "audit trail" to draw from instead — the
+// platform's own atdLogAudit mostly covers logins and "viewed" events, not
+// this (and never covers the JCF side's assign/recommend/decide actions at
+// all) — these stage timestamps ARE the real record of who did what, when.
+function muni_timelineDateTime(iso){
+  if(!iso) return { date: '—', time: '' };
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return { date: String(iso), time: '' };
+  // A plain "YYYY-MM-DD" date (no officer-action timestamp behind it, e.g.
+  // the applicant's own submittedDate) has no real time-of-day to show —
+  // only show a time for genuine ISO datetime strings.
+  const hasTime = /T\d{2}:\d{2}/.test(String(iso));
+  return {
+    date: d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+    time: hasTime ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''
+  };
+}
+
+function muni_buildApplicationTimeline(a){
+  const entries = [];
+  function add(iso, office, description){
+    if(!iso) return;
+    entries.push({ iso, office, description });
+  }
+
+  // ---- Municipal Corporation side ----
+  add(a.submitted, 'Applicant', `Application ${muni_escapeHtml(a.appNumber)} submitted.`);
+  add(a.paymentSubmittedAt, 'Applicant', 'License fee payment submitted.');
+  add(a.paymentVerifiedAt, 'Municipal Corporation', `License fee payment verified${a.paymentReceiptNumber ? ' (receipt #' + muni_escapeHtml(a.paymentReceiptNumber) + ')' : ''}.`);
+  add(a.venueApprovedAt, 'Municipal Corporation', 'Venue inspection/approval recorded.');
+  add(a.recommendationMadeAt, 'Municipal Corporation', `Recommendation recorded: ${muni_escapeHtml(a.recommendation || '—')}${a.recommendedBy ? ' (by ' + muni_escapeHtml(a.recommendedBy) + ')' : ''}.`);
+  add(a.recommendationWithdrawalRequestedDate, 'Municipal Corporation', `Withdrawal of recommendation requested${a.recommendationWithdrawalRequestedBy ? ' by ' + muni_escapeHtml(a.recommendationWithdrawalRequestedBy) : ''}.`);
+  add(a.recommendationCeoRejectedDate, 'Municipal Corporation (CEO)', `Recommendation rejected by the CEO${a.recommendationCeoRejectionReason ? ': ' + muni_escapeHtml(a.recommendationCeoRejectionReason) : ''}.`);
+  add(a.decidedAt, 'Municipal Corporation (CEO)', `Final decision: ${muni_escapeHtml(a.status)}${a.finalDecision ? ' — ' + muni_escapeHtml(a.finalDecision) : ''}.`);
+
+  // ---- Linked JCF Noise Abatement filing, if any ----
+  const jcfApp = a._linkedJcfApp;
+  if(jcfApp){
+    add(jcfApp.submittedDate, 'Applicant', `Linked JCF Noise Abatement application ${muni_escapeHtml(jcfApp.jcfAppNumber || '')} submitted.`);
+    add(jcfApp.assignedAt, 'JCF Division', `Assigned to ${muni_escapeHtml(jcfApp.assignedOfficerName || 'an officer')}.`);
+    add(jcfApp.recommendedAt, 'JCF Division', `Recommendation recorded: ${muni_escapeHtml(jcfApp.recommendation || '—')}${jcfApp.recommendedBy ? ' (by ' + muni_escapeHtml(jcfApp.recommendedBy) + ')' : ''}.`);
+    add(jcfApp.recommendationWithdrawalRequestedDate, 'JCF Division', `Withdrawal of recommendation requested${jcfApp.recommendationWithdrawalRequestedBy ? ' by ' + muni_escapeHtml(jcfApp.recommendationWithdrawalRequestedBy) : ''}.`);
+    add(jcfApp.recommendationChiefRejectedDate, 'JCF Division (Chief)', `Recommendation rejected by the Chief${jcfApp.recommendationChiefRejectionReason ? ': ' + muni_escapeHtml(jcfApp.recommendationChiefRejectionReason) : ''}.`);
+    add(jcfApp.decidedAt, 'JCF Division (Chief)', `Final decision: ${muni_escapeHtml(jcfApp.status)}${jcfApp.finalDecision ? ' — ' + muni_escapeHtml(jcfApp.finalDecision) : ''}.`);
+    (jcfApp.comments || []).forEach(c => add(c.date, `JCF Division${c.role ? ' (' + muni_escapeHtml(c.role) + ')' : ''}`, `Comment by ${muni_escapeHtml(c.by || 'an officer')}: "${muni_escapeHtml(c.text || '')}"`));
+  }
+
+  entries.sort((x, y) => new Date(x.iso) - new Date(y.iso));
+  return entries;
+}
+
+function muni_renderApplicationTimeline(a){
+  const entries = muni_buildApplicationTimeline(a);
+  if(!entries.length){
+    return `<p class="col-desc">No timestamped activity is on file for this application yet.</p>`;
+  }
+  return `<div class="activity-timeline">` + entries.map(e => {
+    const when = muni_timelineDateTime(e.iso);
+    return `
+      <div class="at-item">
+        <div class="at-rail"><div class="at-dot"></div><div class="at-line"></div></div>
+        <div class="at-body">
+          <div class="at-when">${muni_escapeHtml(when.date)}${when.time ? ' · ' + muni_escapeHtml(when.time) : ''}</div>
+          <div class="at-office">${muni_escapeHtml(e.office)}</div>
+          <div class="at-desc">${e.description}</div>
+        </div>
+      </div>`;
+  }).join('') + `</div>`;
+}
+
+function openActivityTimelineModal(){
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a) return;
+  document.getElementById('activityTimelineModalSub').textContent = `Application #${a.appNumber}`;
+  document.getElementById('activityTimelineModalBody').innerHTML = muni_renderApplicationTimeline(a);
+  document.getElementById('activityTimelineModal').classList.remove('hidden');
+}
+
+function closeActivityTimelineModal(){
+  document.getElementById('activityTimelineModal').classList.add('hidden');
+}
+
 async function renderAppDetail(){
   const a = applications.find(a => a.id === activeAppId);
   if(!a) return;
@@ -26439,6 +27307,10 @@ async function renderAppDetail(){
   // ==================== Official use cards ====================
   const cards = document.getElementById('officialUseCards');
   let cardsHtml = '';
+
+  // Hoisted here (used by both the Activity Timeline card below and the
+  // Review & Recommendation card further down) rather than declared twice.
+  const isCeo = currentUser.role === 'CEO';
 
   // Computed live (see muni_computeRequiredDocumentsSubmitted) and hoisted
   // above the Rejected/not-Rejected gate below because the Final Decision
@@ -26696,6 +27568,25 @@ async function renderAppDetail(){
   }
   cardsHtml += `</div>`;
 
+  // ---- Activity Timeline card (CEO only, Standard/Premium subscription
+  // tiers only — see MUNI_TIER_MODULES's 'activityTimeline' entry and
+  // atdMuniModuleLocked). Not shown to non-CEO staff at all (this is a CEO
+  // oversight feature, not a workflow tool every officer needs), and shown
+  // as a locked upsell rather than hidden entirely for a CEO on Essential,
+  // matching how every other tier-gated module already presents itself
+  // (see setupSidebarForUser's own locked-nav-item styling). ----
+  if(isCeo){
+    cardsHtml += `<div class="official-card"><h4>Activity Timeline</h4>`;
+    if(atdMuniModuleLocked('activityTimeline')){
+      cardsHtml += `<p class="no-permission-note">This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.</p>`;
+    } else {
+      cardsHtml += `
+        <p class="col-desc">See a complete, vertical timeline of every stage this application has passed through — from submission to the final decision — including the linked JCF Noise Abatement filing, if any.</p>
+        <div class="action-btn-row"><button class="btn btn-sm" onclick="openActivityTimelineModal()">View Activity Timeline</button></div>`;
+    }
+    cardsHtml += `</div>`;
+  }
+
   // ---- Review & recommendation card ----
   // Once a Supervisor picks a recommendation it locks (badge, green/red) and
   // the pick buttons are removed — no more re-picking. A Supervisor can only
@@ -26705,7 +27596,6 @@ async function renderAppDetail(){
   // action when one is pending, and an independent "Reject recommendation"
   // action that requires a reason (kept separate from the Final Decision
   // card's own Approve/Reject-application buttons below).
-  const isCeo = currentUser.role === 'CEO';
   cardsHtml += `<div class="official-card"><h4>Review &amp; Recommendation</h4>`;
 
   if(a.recommendationCeoRejectionReason && !a.recommendation){
@@ -26862,7 +27752,8 @@ function muni_formatShortDate_permit(isoDate){
 // the same layout, rebuilt in the Municipal officer portal's own scope
 // (muni_escapeHtml, not poa_escapeHtml) so the CEO's own print/preview of a
 // permit they just issued matches exactly what the applicant will see.
-function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl){
+function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
+  qrTargetId = qrTargetId || 'permitQrTarget';
   const parishName = muni_permitParishName(p.parish);
   return `
     <div class="permit-doc permit-doc-annual">
@@ -26872,7 +27763,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl){
           ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${muni_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
           : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
-          <div class="qr-box" id="permitQrTarget"></div>
+          <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
         </div>
       </div>
@@ -26912,8 +27803,14 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl){
 }
 
 // ==================== Permit document (shared builder) ====================
-function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl){
-  if(p && p.permitTypeLabel === 'ANNUAL') return muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl);
+// qrTargetId (optional, defaults to 'permitQrTarget' -- the hidden
+// #permitPrintArea's own QR box id) lets a caller render this into a
+// SEPARATE on-screen element (e.g. the Issued Permits tab's View/Print
+// modal) at the same time the hidden print-only copy exists, without both
+// colliding on the same element id (see muni_viewIssuedPermit()).
+function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
+  if(p && p.permitTypeLabel === 'ANNUAL') return muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId);
+  qrTargetId = qrTargetId || 'permitQrTarget';
   const eventClause = p.eventName
     ? ` with event name: <strong>${muni_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${muni_escapeHtml(muni_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -26926,7 +27823,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl){
           <div class="permit-doc-muniname">${muni_escapeHtml((p.municipalityName || '').toUpperCase())}</div>
         </div>
         <div class="permit-doc-qr">
-          <div class="qr-box" id="permitQrTarget"></div>
+          <div class="qr-box" id="${qrTargetId}"></div>
           <div class="qr-scan-label">SCAN ME</div>
         </div>
       </div>
@@ -27439,6 +28336,7 @@ async function persistIfFromStorage(a){
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
     a.raw.finalDecision = a.finalDecision || '';
+    a.raw.decidedAt = a.decidedAt || '';
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
     return true;
   } catch(err){
@@ -27958,6 +28856,13 @@ async function setFinalStatus(status){
   }
 
   a.status = status;
+  // Added for the CEO's own Activity Timeline card (see
+  // muni_buildApplicationTimeline) -- this final decision previously had no
+  // stored timestamp of its own at all (Approved could only be inferred
+  // from permit.issuedDate, and Rejected had no date anywhere on the
+  // record), unlike every earlier stage (paymentVerifiedAt/
+  // recommendationMadeAt/etc. -- see the SLA fields above).
+  a.decidedAt = new Date().toISOString();
 
   const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
   const applicantName = a.raw && a.raw.applicant && a.raw.applicant.name;
@@ -28115,6 +29020,15 @@ async function loadSubmittedApplications(silent, btnId){
         paymentVerifiedAt: rec.paymentVerifiedAt || '',
         venueApprovedAt: rec.venueApprovedAt || '',
         recommendationMadeAt: rec.recommendationMadeAt || '',
+        // Fix: these two were previously only ever read off the in-memory `a`
+        // object within the same session setFinalStatus() itself just wrote
+        // to (see cardsHtml's own `a.finalDecision` reads above) -- a fresh
+        // page load never flattened them here, so a reload after a decision
+        // lost both, and the CEO's new Activity Timeline card below would
+        // have shown no final-decision entry for any application decided in
+        // an earlier session.
+        finalDecision: rec.finalDecision || '',
+        decidedAt: rec.decidedAt || '',
         _fromStorage: true,
         _storageKey: key,
         raw: rec
@@ -28363,6 +29277,14 @@ window.closeWatchlistAddModal = closeWatchlistAddModal;
 window.closeWatchlistViewModal = closeWatchlistViewModal;
 window.closeJcfPermitModal = closeJcfPermitModal;
 window.openJcfPermitModal = openJcfPermitModal;
+window.printJcfPermitFromModal = printJcfPermitFromModal;
+window.viewIssuedPermit = viewIssuedPermit;
+window.closePermitViewModal = closePermitViewModal;
+window.printIssuedPermitFromModal = printIssuedPermitFromModal;
+window.openActivityTimelineModal = openActivityTimelineModal;
+window.closeActivityTimelineModal = closeActivityTimelineModal;
+window.atdMuniModuleLocked = atdMuniModuleLocked;
+window.muni_buildApplicationTimeline = muni_buildApplicationTimeline;
 window.saveMuniSettings = saveMuniSettings;
 window.saveMuniProfile = saveMuniProfile;
 window.archiveCurrentLicensingYear = archiveCurrentLicensingYear;
@@ -31805,9 +32727,11 @@ function prefillFromPoa(){
     permissionLetterBoxEl.style.cursor = 'default';
   }
 
-  // JAMMS/JCAP Approval: no upload box in this wizard to fill in (see the
-  // note above their declaration) — just stash the carried-over file so
-  // submitJcfApp() can bundle it into jcfApplicationFiles.
+  // JAMMS/JCAP Approval: carried over if already uploaded from the Main
+  // Menu — stash it and render the upload box as already-uploaded/locked
+  // (see renderJamsPreview/renderJcapPreview) instead of asking again. If
+  // neither has arrived yet, both render as their normal, clickable upload
+  // boxes so the applicant can upload right here instead.
   if(poaData.jamsFileData){
     jamsFileData = poaData.jamsFileData;
     jamsFileName = poaData.jamsFileName || 'JAMMS Approval';
@@ -31816,6 +32740,8 @@ function prefillFromPoa(){
     jcapFileData = poaData.jcapFileData;
     jcapFileName = poaData.jcapFileName || 'JCAP Approval';
   }
+  renderJamsPreview();
+  renderJcapPreview();
 
   if(poaData.securityRecords && poaData.securityRecords.length){
     const secYes = document.querySelector('input[name="securityArrangements"][value="Yes"]');
@@ -32504,19 +33430,179 @@ function renderPermissionLetterPreview(){
 }
 window.permissionLetterFileChosen = permissionLetterFileChosen;
 
-// ==================== JAMMS/JCAP Approval (carried over from POA) ====================
-// Unlike Photo ID/Flyer/Permission Letter above, these have no upload box of
-// their own in this wizard — they're only ever collected on the linked POA
-// application's Main Menu (see JCF_REQUIRED_DOC_LIST/renderMmJcfDocuments()
-// in atendify.html) and carried over here by prefillFromPoa(), purely to be
-// bundled into jcfApplicationFiles at submission so a JCF officer reviewing
-// this filing can see them without the applicant uploading anything twice.
-// A standalone JCF filing (no linked POA application at all) simply has
-// neither — there's no Main Menu for it to have come from.
+// ==================== JAMMS/JCAP Approval ====================
+// Can arrive two ways: carried over from the linked POA application's Main
+// Menu (see JCF_REQUIRED_DOC_LIST/renderMmJcfDocuments() in atendify.html,
+// via prefillFromPoa() below), OR uploaded directly here on this
+// Entertainment Details step (jamsFileChosen/jcapFileChosen just below). A
+// standalone JCF filing (no linked POA application at all) has no Main Menu
+// to carry over from AND no application record to persist a direct upload
+// to — jcf_persistJcfDocToPoa() below no-ops for exactly that case, same as
+// every other poaData-dependent feature on this form.
 let jamsFileName = '';
 let jamsFileData = null;
 let jcapFileName = '';
 let jcapFileData = null;
+
+// Writes a JAMMS/JCAP upload made HERE back onto the linked POA
+// application's own r.jcfDocuments[docName] — the same field
+// renderMmJcfDocuments()/mmJcfDocFileChosen() (atendify.html) read and write
+// — so the Main Menu immediately shows it as already uploaded too, instead
+// of asking the applicant to upload it a second time there. Mirrors
+// mmPersist()'s own two-path shape exactly (the tracking-code-verified RPC
+// pair when a real backend is configured, since a genuinely anonymous
+// "Track Application" guest has no RLS SELECT/UPDATE grant on `application:`
+// rows at all — see Fix #26/#49's comments on trackApplication/
+// saveTrackedApplication for why; a plain get/set against the local-storage
+// shim otherwise). Unlike mmPersist(), there's no already-loaded
+// currentAppRecord to update in place here, so this re-fetches the full,
+// current record fresh each time, right before writing it back.
+async function jcf_persistJcfDocToPoa(docName, fileName, fileData){
+  if(!poaData || !poaData.appNumber) return false;
+  const docPayload = {
+    uploaded: true, fileName, fileData,
+    uploadedDate: new Date().toISOString().slice(0,10),
+    status: 'Submitted', officerNote: ''
+  };
+  // Notifies the JCF branch bell on a REJECTED -> re-uploaded transition,
+  // same as mmJcfDocFileChosen's own matching upload path on the Main Menu
+  // side (both write the exact same r.jcfDocuments field) -- kept as a
+  // shared tail step here so either upload path behaves identically.
+  function notifyIfWasRejected(fullRecord){
+    const wasRejected = fullRecord.jcfDocuments && fullRecord.jcfDocuments[docName] && fullRecord.jcfDocuments[docName].status === 'Rejected';
+    if(wasRejected && window.atdFindJcfBranchForMuniId && window.atdNotify){
+      window.atdFindJcfBranchForMuniId(fullRecord.muniId).then(branch => {
+        if(branch) window.atdNotify(branch.id, 'checklist', 'document_reuploaded', `${docName} was re-uploaded for ${fullRecord.appNumber} after being rejected.`, fullRecord.appNumber);
+      });
+    }
+  }
+  try{
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.trackApplication && window.ATDBackend.saveTrackedApplication && poaData.trackingCode){
+      const fullRecord = await window.ATDBackend.trackApplication(poaData.appNumber, poaData.trackingCode);
+      if(!fullRecord) return false;
+      notifyIfWasRejected(fullRecord);
+      if(!fullRecord.jcfDocuments) fullRecord.jcfDocuments = {};
+      fullRecord.jcfDocuments[docName] = docPayload;
+      return await window.ATDBackend.saveTrackedApplication(poaData.appNumber, poaData.trackingCode, fullRecord);
+    } else if(window.storage){
+      const raw = await window.storage.get('application:' + poaData.appNumber, true);
+      const fullRecord = raw && raw.value ? JSON.parse(raw.value) : null;
+      if(!fullRecord) return false;
+      notifyIfWasRejected(fullRecord);
+      if(!fullRecord.jcfDocuments) fullRecord.jcfDocuments = {};
+      fullRecord.jcfDocuments[docName] = docPayload;
+      await window.storage.set('application:' + poaData.appNumber, JSON.stringify(fullRecord), true);
+      return true;
+    }
+  }catch(err){
+    console.warn('jcf_persistJcfDocToPoa: save failed —', err);
+  }
+  return false;
+}
+
+// Once a JAMMS/JCAP file exists (from either place), the upload slot locks
+// — same "can't silently replace what's pending/approved" reasoning as
+// every other reviewable document box on this form (permissionLetterBox,
+// renderMmJcfDocuments()'s own locked state). There's no live view of a
+// Rejected status from inside this wizard (poaData is a one-time snapshot,
+// same limitation Photo ID/Flyer/Ownership carry-over already has) — an
+// applicant whose upload gets rejected after this step was opened re-opens
+// via their Main Menu (which IS live) to re-upload, same as today.
+function renderJamsPreview(){
+  const wrap = document.getElementById('jamsPreviewWrap');
+  const box = document.getElementById('jamsBox');
+  const tag = document.getElementById('jamsFromMmTag');
+  if(!wrap || !box) return;
+  if(jamsFileData){
+    wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jamsFileName || 'JAMMS Approval')}</div>`;
+    box.onclick = null;
+    box.style.cursor = 'default';
+    if(tag) tag.classList.remove('hidden');
+  } else {
+    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload JAMMS Approval</div>`;
+    box.onclick = () => document.getElementById('jamsFile').click();
+    box.style.cursor = 'pointer';
+    if(tag) tag.classList.add('hidden');
+  }
+}
+function renderJcapPreview(){
+  const wrap = document.getElementById('jcapPreviewWrap');
+  const box = document.getElementById('jcapBox');
+  const tag = document.getElementById('jcapFromMmTag');
+  if(!wrap || !box) return;
+  if(jcapFileData){
+    wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jcapFileName || 'JCAP Approval')}</div>`;
+    box.onclick = null;
+    box.style.cursor = 'default';
+    if(tag) tag.classList.remove('hidden');
+  } else {
+    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload JCAP Approval</div>`;
+    box.onclick = () => document.getElementById('jcapFile').click();
+    box.style.cursor = 'pointer';
+    if(tag) tag.classList.add('hidden');
+  }
+}
+
+async function jamsFileChosen(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
+  // A standalone JCF filing (no linked POA application) has no Main Menu to
+  // mirror this to — same as photoIdFileChosen/flyerFileChosen above, just
+  // keep it local to this filing. Only a LINKED filing attempts the
+  // Main-Menu round-trip, and only then does a save failure block the
+  // upload (there's really nowhere else for the file to live in that case).
+  if(poaData){
+    const ok = await jcf_persistJcfDocToPoa('JAMMS Approval', file.name, fileData);
+    if(!ok){
+      input.value = '';
+      jcf_showToast('Could not save JAMMS Approval right now. Please try again.');
+      return;
+    }
+    poaData.jamsFileName = file.name;
+    poaData.jamsFileData = fileData;
+  }
+  jamsFileName = file.name;
+  jamsFileData = fileData;
+  input.value = '';
+  renderJamsPreview();
+  jcf_showToast('JAMMS Approval uploaded.');
+}
+window.jamsFileChosen = jamsFileChosen;
+
+async function jcapFileChosen(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
+  // See jamsFileChosen's matching comment: a standalone filing (no linked
+  // POA application) just keeps this local, same as photoId/flyer.
+  if(poaData){
+    const ok = await jcf_persistJcfDocToPoa('JCAP Approval', file.name, fileData);
+    if(!ok){
+      input.value = '';
+      jcf_showToast('Could not save JCAP Approval right now. Please try again.');
+      return;
+    }
+    poaData.jcapFileName = file.name;
+    poaData.jcapFileData = fileData;
+  }
+  jcapFileName = file.name;
+  jcapFileData = fileData;
+  input.value = '';
+  renderJcapPreview();
+  jcf_showToast('JCAP Approval uploaded.');
+}
+window.jcapFileChosen = jcapFileChosen;
 
 // ==================== Signature: type / upload / draw ====================
 let sigMode = 'type';
