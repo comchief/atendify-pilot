@@ -13069,7 +13069,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // linked POA application instead of taking an upload — see
   // jcfAnnual_step5 in the applicant scope). Keyed the same way on both
   // sides so a stored otherLicenseFiles.<key> always has a label to show
-  // here.
+  // here. NOTE: jamms/jacap were removed from JCFANNUAL_OTHER_LICENSE_KEYS
+  // (the Section 5 list an applicant fills in AT SUBMISSION — see that
+  // constant's own comment) but deliberately stay in THIS map — Task E's
+  // Main Menu upload (mmAnnualOtherLicenseWidget/renderMmNoise) still writes
+  // JAMMS/JCAP under rec.otherLicenses.jamms/.jacap at any time after
+  // submission, and this map is what makes that data reviewable here (via
+  // JCFD_REVIEWABLE_DOC_KINDS' otherLicense_<key> kinds) and visible on the
+  // Other Licenses & Approvals card below — removing them here would hide
+  // and un-review a document the applicant can still upload.
   const JCFD_OTHER_LICENSE_LABELS = {
     trade: 'Trade Licence', liquor: 'Liquor Licence', fire: 'Fire Certificate',
     health: 'Health approval', jamms: 'JAMMS', jacap: 'JACAP'
@@ -14185,7 +14193,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // dispatch to the Annual-shaped renderer instead of reading fields that
     // simply don't exist on an Annual record.
     if(rec.formVariant === 'Annual'){
-      jcfd_renderAnnualSubmissionColumn(rec);
+      await jcfd_renderAnnualSubmissionColumn(rec);
       return;
     }
     const col = document.getElementById('jcfd_submissionColumn');
@@ -14296,6 +14304,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
   }
 
+  // Like jcfd_detailRowDoc above, but for a document the MUNICIPALITY (not
+  // this JCF Division) holds review authority over — Company Logo and
+  // Business Registration Document, uploaded on the applicant's linked POA
+  // application and already subject to Municipal officer Approve/Reject
+  // there (see MUNI_FIXED_DOC_META). Shows the same live status badge so a
+  // JCF reviewer can see at a glance whether the Municipality has already
+  // approved it, but the button reads "View" (not "Review") and
+  // jcfd_openDocModal renders no Approve/Reject controls for these kinds —
+  // this filing has no authority to change that status.
+  function jcfd_detailRowDocViewOnly(label, fileName, status, kind){
+    const hasFile = !!fileName;
+    const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
+    const badge = hasFile ? ` <span class="badge ${jcfd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
+    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>` : '';
+    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
+  }
+
   // Annual variant of jcfd_renderSubmissionColumn — reads the
   // applicantInfo/premisesInfo/entertainment/communityImpact/otherLicenses
   // shape jcfAnnual_submitApp() (applicant scope) actually writes, mirroring
@@ -14303,7 +14328,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Special Event layout above with a bunch of isAnnual conditionals sprinkled
   // through it — the two filings don't share enough fields for that to read
   // any cleaner.
-  function jcfd_renderAnnualSubmissionColumn(rec){
+  async function jcfd_renderAnnualSubmissionColumn(rec){
     const col = document.getElementById('jcfd_submissionColumn');
     const ai = rec.applicantInfo || {}, pi = rec.premisesInfo || {}, ent = rec.entertainment || {}, ci = rec.communityImpact || {}, ol = rec.otherLicenses || {};
     const isCompany = ai.applicantType === 'Company';
@@ -14323,6 +14348,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         html += jcfd_detailRow('Company Directors', 'None on file');
       }
     }
+    html += `</div>`;
+
+    // Documents card — previously missing entirely from this Annual view,
+    // so an Officer had no way to see whether the applicant's Company Logo
+    // or Business Registration Document (both uploaded on the linked POA
+    // application's Main Menu, not on this filing) had ever been uploaded.
+    // JAMMS/JCAP are grouped here too (required documents, uploaded via the
+    // applicant's own Main Menu Noise Abatement tab — see
+    // mmAnnualOtherLicenseWidget/renderMmNoise) rather than left under
+    // Other Licenses & Approvals below with the four genuinely optional
+    // licences — see JCFANNUAL_OTHER_LICENSE_KEYS's own comment on why
+    // they're no longer collected as an optional checkbox at submission.
+    // Still the SAME otherLicense_jamms/otherLicense_jacap review kind as
+    // before (jcfd_updateDocStatus writes back to rec.otherLicenses.jamms/
+    // .jacap either way) — only where they're displayed changes; the Other
+    // Licenses & Approvals card below excludes these two keys so they don't
+    // render twice.
+    const { logo, bizReg } = await jcfd_getLivePoaFixedDocs(rec);
+    html += `<div class="panel"><div class="detail-section-title">Documents</div>`;
+    if(isCompany){
+      html += jcfd_detailRowDocViewOnly('Company Logo', logo && logo.fileName, logo && logo.status, 'logo');
+    }
+    html += jcfd_detailRowDocViewOnly('Business Registration Document', bizReg && bizReg.fileName, bizReg && bizReg.status, 'bizRegistration');
+    html += jcfd_detailRowDoc('JAMMS Approval', ol.jamms && ol.jamms.fileName, ol.jamms && ol.jamms.status, 'otherLicense_jamms');
+    html += jcfd_detailRowDoc('JCAP Approval', ol.jacap && ol.jacap.fileName, ol.jacap && ol.jacap.status, 'otherLicense_jacap');
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Premises Information</div>`;
@@ -14374,13 +14424,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(ol.poa && ol.poa.checked){
       html += jcfd_detailRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || rec.poaAppNumber || 'N/A'}`);
     }
-    Object.keys(JCFD_OTHER_LICENSE_LABELS).forEach(key => {
+    // JAMMS/JCAP moved to the Documents card above (see its own comment) —
+    // excluded here so they don't render twice.
+    const otherLicenseKeysHere = Object.keys(JCFD_OTHER_LICENSE_LABELS).filter(k => k !== 'jamms' && k !== 'jacap');
+    otherLicenseKeysHere.forEach(key => {
       const item = ol[key];
       if(!item || !item.checked) return;
       html += jcfd_detailRow(JCFD_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'}`);
       html += jcfd_detailRowDoc(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName, item.status, 'otherLicense_' + key);
     });
-    if(!(ol.poa && ol.poa.checked) && !Object.keys(JCFD_OTHER_LICENSE_LABELS).some(k => ol[k] && ol[k].checked)){
+    if(!(ol.poa && ol.poa.checked) && !otherLicenseKeysHere.some(k => ol[k] && ol[k].checked)){
       html += jcfd_detailRow('Licenses/approvals on file', 'None declared');
     }
     html += `</div>`;
@@ -14430,6 +14483,36 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return { jams, jcap };
   }
 
+  // Company Logo and Business Registration Document are uploaded on the
+  // applicant's linked POA (Places of Amusement) application, not on this
+  // JCF filing — same "read the live record, not a stale snapshot" reasoning
+  // as jcfd_getLiveJcfDocuments above. Unlike JAMMS/JCAP, review authority
+  // over these two stays with the Municipality (see MUNI_FIXED_DOC_META) —
+  // this only reads their filename/status for display, it never writes to
+  // them. Business Registration Document only exists for an Annual POA
+  // licence, which is fine since this is only ever called for an Annual JCF
+  // filing (see jcfd_renderAnnualSubmissionColumn). Was previously missing
+  // from this filing's own view entirely — the Officer had no way to see
+  // either document had been uploaded at all.
+  async function jcfd_getLivePoaFixedDocs(rec){
+    let logo = null, bizReg = null;
+    if(rec.poaAppNumber && window.storage){
+      try{
+        const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        const poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+        if(poaRec){
+          const docs = poaRec.documents || {};
+          const normalize = raw => (raw && typeof raw === 'object') ? raw : { uploaded: !!raw, status: raw ? 'Submitted' : 'Not Uploaded' };
+          const logoFileName = (poaRec.applicant && poaRec.applicant.logoFileName) || '';
+          const bizRegFileName = (poaRec.amusement && poaRec.amusement.bizRegFileName) || '';
+          if(logoFileName) logo = Object.assign({ fileName: logoFileName }, normalize(docs.logo));
+          if(bizRegFileName) bizReg = Object.assign({ fileName: bizRegFileName }, normalize(docs.bizRegistration));
+        }
+      } catch(e){ /* leave logo/bizReg null */ }
+    }
+    return { logo, bizReg };
+  }
+
   // Computes the auto-checked Official Use Checklist fields for a Special
   // Event filing (Annual filings keep their original, fully-manual
   // checklist — see the user's confirmed scope decision — and never call
@@ -14465,7 +14548,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const ci = rec.communityImpact || {};
     const ol = rec.otherLicenses || {};
 
-    let requiredDocsUploaded = true;
+    // JAMMS/JCAP are no longer collected at submission (removed from the
+    // Section 5 Other Licenses checklist — see JCFANNUAL_OTHER_LICENSE_KEYS's
+    // own comment) since they're required, not optional, but they're still
+    // STORED under rec.otherLicenses.jamms/.jacap exactly as before — Task
+    // E's Main Menu upload (mmAnnualOtherLicenseWidget/renderMmNoise) writes
+    // there at any time after submission and auto-checks the item the
+    // moment a file is uploaded. The generic "if checked, must be Approved"
+    // loop below already enforces approval status once uploaded; this adds
+    // the one thing it couldn't — failing the requirement when one has
+    // never been uploaded at all (item missing/unchecked), which that loop
+    // treats as "not applicable" rather than "still outstanding." Exempts a
+    // standalone filing with no linked POA application (no Main Menu to
+    // upload either from in the first place), same reasoning as the Special
+    // Event checklist's own jamsJcapSatisfied above.
+    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(ol.jamms && ol.jamms.checked) && !!(ol.jacap && ol.jacap.checked));
+
+    let requiredDocsUploaded = jamsJcapSatisfied;
     if(ci.existingNotices === 'Yes' && ci.noiseNoticeStatus !== 'Approved') requiredDocsUploaded = false;
     Object.keys(JCFD_OTHER_LICENSE_LABELS).forEach(key => {
       const item = ol[key];
@@ -14633,7 +14732,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const premisesChecked = !!cl.premisesInformationVerified;
         html += `<label class="checkbox-row"><input type="checkbox" ${premisesChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('premisesInformationVerified', this.checked)"> Premises Information Verified</label>`;
         html += autoRow(auto.promoterBriefedNoiseAct, 'Applicant Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
-        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when every uploaded document on this filing (Noise Notice, Other Licenses, Signature) has been Approved.');
+        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when JAMMS Approval and JCAP Approval have been uploaded on the Main Menu, and every uploaded document on this filing (Noise Notice, Other Licenses, Signature) has been Approved.');
       }
       if(cl.updatedBy){
         html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
@@ -14813,7 +14912,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           applicantIdentityVerified: 'applicant identity has not been verified',
           premisesInformationVerified: 'the premises information has not been verified',
           promoterBriefedNoiseAct: 'the applicant has not been briefed on the Noise Abatement Act',
-          requiredDocsUploaded: 'not all uploaded documents on this filing have been Approved'
+          requiredDocsUploaded: "JAMMS Approval and JCAP Approval must be uploaded (from the applicant's Main Menu), and every uploaded document on this filing must be Approved"
         };
         const annualChecklistValues = { ...auto, applicantIdentityVerified: !!cl.applicantIdentityVerified, premisesInformationVerified: !!cl.premisesInformationVerified };
         missingChecklistItems = Object.keys(annualChecklistLabels).filter(key => !annualChecklistValues[key]).map(key => annualChecklistLabels[key]);
@@ -15871,6 +15970,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
         : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
         : kind === 'jams' ? 'JAMMS Approval' : kind === 'jcap' ? 'JCAP Approval'
+        : kind === 'logo' ? 'Company Logo' : kind === 'bizRegistration' ? 'Business Registration Document'
         : kind === 'signature' ? 'Signature on File' : kind;
       await window.atdLogAudit({
         portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
@@ -15990,6 +16090,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           status = (rec.venueInfo && rec.venueInfo.permissionLetterStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
           officerNote = (rec.venueInfo && rec.venueInfo.permissionLetterOfficerNote) || '';
         }
+      }
+    } else if(kind === 'logo' || kind === 'bizRegistration'){
+      // Company Logo and Business Registration Document are uploaded on the
+      // applicant's LINKED POA APPLICATION Main Menu, not on this filing —
+      // same "read the live record" reasoning as JAMMS/JCAP above. This
+      // stays view-only: 'logo'/'bizRegistration' are deliberately NOT in
+      // JCFD_REVIEWABLE_DOC_KINDS, so no status badge or Approve/Reject
+      // controls render below (see jcfd_detailRowDocViewOnly, which already
+      // shows the Municipality's own status badge in the list row itself) —
+      // review authority over these two stays with the Municipality.
+      title = kind === 'logo' ? 'Company Logo' : 'Business Registration Document';
+      if(rec.poaAppNumber){
+        try{
+          const poaR = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+          const poaRec = (poaR && poaR.value) ? JSON.parse(poaR.value) : null;
+          fileName = poaRec ? ((kind === 'logo' ? (poaRec.applicant && poaRec.applicant.logoFileName) : (poaRec.amusement && poaRec.amusement.bizRegFileName)) || '') : '';
+          const storageKey = kind === 'logo' ? `applicationLogo:${rec.poaAppNumber}` : `applicationBizReg:${rec.poaAppNumber}`;
+          const fileR = await window.storage.get(storageKey, true);
+          const fileRec = (fileR && fileR.value) ? JSON.parse(fileR.value) : null;
+          dataUrl = fileRec ? (fileRec.fileData || '') : '';
+        } catch(e){ /* leave dataUrl/fileName empty */ }
       }
     } else if(kind === 'signature'){
       title = 'Signature on File';
@@ -34284,9 +34405,21 @@ let jcfAnnualNoiseNoticeFileData = null;
 // Section 5 — Other Licenses & Approvals. The Municipal Places of Amusement
 // Licence itself is handled separately in the markup (jcfAnnual_step5) since
 // it auto-tracks the linked POA application instead of taking an upload/
-// expiry date like these six.
-const JCFANNUAL_OTHER_LICENSE_KEYS = ['trade','liquor','fire','health','jamms','jacap'];
-const JCFANNUAL_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
+// expiry date like these four.
+// JAMMS and JCAP used to be two more checkbox items here (an applicant could
+// optionally check them and attach a licence #/expiry/file, exactly like
+// Trade/Liquor/Fire/Health) — removed per instruction: JAMMS/JCAP are their
+// own dedicated, REQUIRED "JCF Required Documents" upload already on the
+// applicant's Main Menu (see JCF_REQUIRED_DOC_LIST / renderMmJcfDocuments),
+// so having them ALSO appear here as optional Other Licenses was redundant
+// and let an applicant submit believing an optional checkbox covered a
+// requirement it didn't. Submission still never requires them (same as
+// before — there's no upload control for either inside this wizard), but
+// jcfd_computeAnnualChecklistAutoFields now requires both be uploaded (read
+// live from the linked POA application, same as the Special Event flow)
+// before this filing can be Approved.
+const JCFANNUAL_OTHER_LICENSE_KEYS = ['trade','liquor','fire','health'];
+const JCFANNUAL_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval' };
 let jcfAnnualOtherLicenseFiles = {}; // { [key]: { fileData, fileName } }
 
 // Section 6 — Declaration/signature capture. Duplicated from the Special
