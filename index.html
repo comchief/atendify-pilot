@@ -13331,7 +13331,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jcfd_renderDashboardNotices(visible){
     const container = document.getElementById('jcfd_dashboardNotices');
     if(!container) return;
-    const unactioned = visible.filter(a => a.rec.assignedOfficerId && (a.rec.comments || []).length === 0);
+    // Fix: this used to flag an application as "unactioned" purely on having
+    // zero comments, with no check on rec.status — so an application an
+    // officer had already Approved or Rejected (without ever leaving a
+    // comment first, which is a completely normal path) kept surfacing as
+    // "not actioned"/"overdue" forever, even hours or days after the actual
+    // decision. Approving/rejecting IS the action; a decided application is
+    // never still "unactioned" regardless of its comment history.
+    const unactioned = visible.filter(a => a.rec.assignedOfficerId && (a.rec.comments || []).length === 0 && a.rec.status !== 'Approved' && a.rec.status !== 'Rejected');
     const now = Date.now();
     const withAge = unactioned.map(a => {
       const assignedAt = a.rec.assignedAt ? Date.parse(a.rec.assignedAt) : NaN;
