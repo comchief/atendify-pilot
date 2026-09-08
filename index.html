@@ -26442,6 +26442,18 @@ function openJcfOnlyWatchlistViewModal(trn){
       document.getElementById('watchlistViewBody').innerHTML = '<div class="readback-row">This entry could not be loaded.</div>';
       return;
     }
+    // Read-side audit trail (Phase D finding #8) — same reasoning as
+    // openWatchlistViewModal's own matching comment; this is the Municipal
+    // side's other watchlist-lookup path (viewing a JCF-only flag from a
+    // Municipal application's Watchlist card).
+    if(window.atdLogAudit && currentUser){
+      window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'watchlist.viewed',
+        details: `Viewed JCF watchlist entry for ${w.fullName} (${formatTrnDisplay(w.trn)}).`,
+        muniId: currentUser.muniId
+      });
+    }
     document.getElementById('watchlistViewTitle').textContent = w.fullName;
     document.getElementById('watchlistViewSub').textContent = 'Active flag — JCF Watch List';
     const rows = [
@@ -26626,6 +26638,21 @@ async function openWatchlistViewModal(trn){
   const w = watchlist.find(w => w.trn === trn);
   if(!w) return;
   viewingWatchlistTrn = trn;
+
+  // Read-side audit trail (Phase D finding #8) — the JCF portal's own
+  // watchlist-view functions (jcfd_openWatchlistViewModal/
+  // jcfd_openMuniOnlyWatchlistViewModal) already log 'watchlist.viewed';
+  // this was the one place on the Municipal side doing the equivalent
+  // lookup without a matching log call, found while looking into closing
+  // out finding #8 for good.
+  if(window.atdLogAudit && currentUser){
+    window.atdLogAudit({
+      portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+      action: 'watchlist.viewed',
+      details: `Viewed watchlist entry for ${w.fullName} (${formatTrnDisplay(w.trn)}).`,
+      muniId: currentUser.muniId
+    });
+  }
 
   document.getElementById('watchlistViewTitle').textContent = w.fullName;
   document.getElementById('watchlistViewSub').textContent = w.status === 'Active' ? 'Active flag' : 'Cleared';
