@@ -6355,9 +6355,16 @@
 
         <!-- Proof of Ownership/Authorization is a Special-Event-only
              requirement (verifying the applicant may use a hired venue) --
-             dropped entirely for Annual. -->
+             dropped entirely for Annual. This section's title used to say
+             "Documents (Optional)" unconditionally -- but whether this
+             upload is actually optional is Admin's own call (Application
+             Forms > fileOwnership, see POA_FIELD_CHECKS), not a fixed fact,
+             and Admin can (and, per fileOwnership's already-existing
+             config option, sometimes does) mark it required. A static
+             "(Optional)" label that stays put even when Admin has required
+             it was actively misleading, so it's removed here. -->
         <div id="ownershipDocsSection">
-          <div class="section-title">Documents <span class="optional">(Optional)</span></div>
+          <div class="section-title">Documents</div>
           <div class="upload-row" onclick="document.getElementById('fileOwnership').click()">
             <div class="upload-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
@@ -9555,9 +9562,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <div id="jcf_stepHeader">
     <div class="step-label">Step <span id="jcf_stepNum">1</span> of 4 - <span class="current" id="jcf_stepName">Event Overview</span></div>
     <div class="progress-track"><div class="progress-fill" id="jcf_progressFill" style="width:25%"></div></div>
-    <div id="jcf_saveLaterWrap" class="hidden" style="text-align:right; margin-top:-12px; margin-bottom:20px;">
-      <a onclick="jcf_saveForLater()" style="font-size:13px; color:var(--blue); cursor:pointer; font-weight:600;">💾 Save &amp; finish later</a>
-    </div>
   </div>
 
   <!-- STEP 1: EVENT OVERVIEW (includes Noise Abatement Act briefing) -->
@@ -9721,7 +9725,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
 
-        <div class="btn-row"><button class="btn btn-primary" onclick="continueFromStep1()">Continue →</button></div>
+        <div class="btn-row"><button class="btn btn-primary" id="jcf_nextBtn1" onclick="continueFromStep1()">Continue →</button></div>
       </div>
     </div>
   </section>
@@ -9820,7 +9824,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div class="btn-row">
           <button class="btn" onclick="jcf_goStep(1)">← Back</button>
-          <button class="btn btn-primary" onclick="continueFromStep2()">Continue →</button>
+          <button class="btn btn-primary" id="jcf_nextBtn2" onclick="continueFromStep2()">Continue →</button>
         </div>
       </div>
     </div>
@@ -9989,7 +9993,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div class="btn-row">
           <button class="btn" onclick="jcf_goStep(2)">← Back</button>
-          <button class="btn btn-primary" onclick="continueFromStep3()">Continue →</button>
+          <button class="btn btn-primary" id="jcf_nextBtn3" onclick="continueFromStep3()">Continue →</button>
         </div>
       </div>
     </div>
@@ -10080,7 +10084,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div class="btn-row">
           <button class="btn" onclick="jcf_goStep(3)">← Back</button>
-          <button class="btn btn-primary" onclick="continueFromStep4()">Continue →</button>
+          <button class="btn btn-primary" id="jcf_nextBtn4" onclick="continueFromStep4()">Continue →</button>
         </div>
       </div>
     </div>
@@ -17177,6 +17181,18 @@ async function poa_goStepSaving(n){
   const missing = poa_findMissingRequiredField(currentStep, fieldCfg);
   if(missing){
     poa_showToast(`Please complete "${missing}" before continuing.`);
+    return;
+  }
+  // Private security, likewise, isn't a single DOM field POA_FIELD_CHECKS
+  // can check — answering "Yes" reveals an "Add new" security-record list
+  // (see openSecurityModal()/securityRecords above) that the applicant could
+  // previously leave completely empty and still continue, ending up with a
+  // "Private security: Yes" application with no company on file at all. Only
+  // applies when actually leaving Step 2 with Yes selected and nothing added
+  // yet — answering No, or not yet having reached this question at all,
+  // leaves this untouched.
+  if(currentStep === 2 && document.querySelector('input[name="privateSecurity"]:checked')?.value === 'Yes' && !securityRecords.length){
+    poa_showToast('Please add at least one security record, or change your answer to "No", before continuing.');
     return;
   }
   // Sign Location Assignment isn't a single DOM field POA_FIELD_CHECKS can
@@ -30005,7 +30021,7 @@ function admin_renderPaymentVerificationCard(a){
     return;
   }
 
-  html += `<div class="readback-row">Payment method: <strong>${admin_escapeHtml(payment.method || 'N/A')}</strong></div>`;
+  html += `<div class="readback-row">Payment method: <strong>${admin_escapeHtml(payment.method || 'N/A')}${payment.referenceNumber ? ' (Ref #' + admin_escapeHtml(payment.referenceNumber) + ')' : ''}</strong></div>`;
   html += `<div class="readback-row">Amount: <strong>${amount}</strong></div>`;
   html += `<div class="readback-row">Date of payment: <strong>${admin_escapeHtml(payment.uploadedDate || 'N/A')}</strong></div>`;
   if(payment.fileName){
@@ -31852,29 +31868,43 @@ function jcf_applyProfileAutofill(){
   }
 }
 
-function jcf_saveForLater(){
-  if(!window.AccountBridge || !window.AccountBridge.getCurrentUser()){
-    jcf_showToast('Please log in to save this application.');
-    return;
-  }
+// Serializes the in-progress JCF wizard's fields into a plain object, the
+// same shape jcf_resumeDraft() below restores from.
+function jcf_serializeDraftData(){
   const data = {};
   document.querySelectorAll('#jcf_applicationFlow input, #jcf_applicationFlow select, #jcf_applicationFlow textarea').forEach(el=>{
     if(!el.id) return;
     if(el.type === 'radio' || el.type === 'checkbox'){
       if(el.checked) data[el.id] = true;
     } else if(el.type === 'file'){
-      // skip
+      // file inputs can't be serialized; photo ID from profile is re-applied on resume
     } else {
       data[el.id] = el.value;
     }
   });
   data.__step = currentJcfStep;
-  window.AccountBridge.saveDraft('jcf', data);
-  jcf_showToast('Application saved. You can pick up where you left off from your Dashboard.');
-  setTimeout(function(){
-    window.showHub('account');
-    if(window.acct_goView) window.acct_goView('dashboard');
-  }, 600);
+  return data;
+}
+
+// Best-effort background save — no toast, no redirect. Called on every
+// "Save and Continue" click for a logged-in applicant, right before
+// advancing to the next step (see continueFromStep1/2/3 and submitJcfApp's
+// own step-4 case), so leaving the wizard at ANY point (closing the tab,
+// navigating to the dashboard) never loses more than the current step's own
+// edits. This replaces the standalone "💾 Save & finish later" link that
+// used to sit above the step content as a second control alongside
+// Continue — merged into the same click instead, exactly like the Places of
+// Amusement wizard's own poa_saveDraftSilently()/"Save and Continue" button
+// (see its comment). Silently does nothing for a guest (no account to
+// attach a draft to) or if the draft save itself fails — advancing to the
+// next step should never be blocked by a save hiccup.
+function jcf_saveDraftSilently(){
+  if(!window.AccountBridge || !window.AccountBridge.getCurrentUser()) return;
+  try{
+    window.AccountBridge.saveDraft('jcf', jcf_serializeDraftData());
+  } catch(err){
+    console.warn('jcf_saveDraftSilently: draft save failed —', err);
+  }
 }
 
 function jcf_resumeDraft(data){
@@ -31891,10 +31921,17 @@ function jcf_resumeDraft(data){
       el.value = data[id];
     }
   });
-  goStep(data.__step || 1);
+  // Was `goStep(...)` -- no such function exists anywhere in this file (the
+  // real one is jcf_goStep), so resuming a saved JCF draft has always thrown
+  // ReferenceError: goStep is not defined right here, silently landing the
+  // applicant on Step 1 with their fields restored but the step indicator/
+  // progress bar never advanced to match. Caught while merging Save & finish
+  // later into Save and Continue just above, which makes an applicant's
+  // draft get saved (and so, potentially resumed) far more often than the
+  // old rarely-clicked explicit save link ever did.
+  jcf_goStep(data.__step || 1);
 }
 window.jcf_resumeDraft = jcf_resumeDraft;
-window.jcf_saveForLater = jcf_saveForLater;
 
 function startWizard(){
   // Backstop: a JCF Noise Abatement application can only be started from a
@@ -31930,7 +31967,19 @@ function startWizard(){
   document.getElementById('jcf_infoPage').classList.add('hidden');
   document.getElementById('jcf_stepReview').classList.add('hidden');
   document.getElementById('jcf_applicationFlow').classList.remove('hidden');
-  document.getElementById('jcf_saveLaterWrap').classList.toggle('hidden', !(window.AccountBridge && window.AccountBridge.getCurrentUser()));
+  // Logged-in applicants get their progress auto-saved on every "Continue"
+  // click (see continueFromStep1/2/3/4 -> jcf_saveDraftSilently), so the
+  // button doubles as both "advance" and "save" — hence the different
+  // label, merging what used to be a separate "💾 Save & finish later" link
+  // into the same click instead of a second control. A guest has no account
+  // to attach a draft to, so their button just advances, same as before.
+  // Mirrors the Places of Amusement wizard's own poa_nextBtn1-4 label swap
+  // (see startApplication() there).
+  const jcfIsLoggedIn = !!(window.AccountBridge && window.AccountBridge.getCurrentUser());
+  ['jcf_nextBtn1','jcf_nextBtn2','jcf_nextBtn3','jcf_nextBtn4'].forEach(id => {
+    const btn = document.getElementById(id);
+    if(btn) btn.textContent = jcfIsLoggedIn ? 'Save and Continue' : 'Continue →';
+  });
   prefillFromPoa();
   jcf_loadBriefingVideos();
   jcf_goStep(1);
@@ -32115,6 +32164,7 @@ async function continueFromStep1(){
     jcf_showToast(`Please complete "${step1Missing}" before continuing.`);
     return;
   }
+  jcf_saveDraftSilently();
   jcf_goStep(2);
 }
 async function continueFromStep2(){
@@ -32139,30 +32189,25 @@ async function continueFromStep2(){
     jcf_showToast('Please upload Proof of Ownership/Authorization before continuing.');
     return;
   }
-  // JAMMS/JCAP Approval are likewise now required, but only ever arrive
-  // carried over from the applicant's linked Places of Amusement
-  // application (there's no upload control for them in this wizard — see
-  // prefillFromPoa's own comment on this) — so this only applies when this
-  // filing actually has one to have carried them from. A standalone filing
-  // (no linked POA application) has no way to supply either document and
-  // is left unaffected, same as JAMMS/JCAP already being treated as N/A for
-  // a standalone filing everywhere else in the JCF officer view.
-  if(poaData){
-    if(!jamsFileData){
-      jcf_showToast('JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before continuing.');
-      return;
-    }
-    if(!jcapFileData){
-      jcf_showToast('JCAP Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before continuing.');
-      return;
-    }
-  }
+  // JAMMS/JCAP Approval are required before SUBMITTING (see submitJcfApp's
+  // own safety-net check further down, which is the real gate for these)
+  // but only ever arrive carried over from the applicant's linked Places of
+  // Amusement application, filed there independently of this JCF wizard —
+  // there's no upload control for them here at all (see prefillFromPoa's own
+  // comment). Blocking HERE, on Step 2 -> 3, wrongly assumed that document
+  // would already exist on the linked POA application by the time an
+  // applicant reaches Venue Details, which reported live as a hard stop for
+  // any applicant who (correctly) hadn't gotten that approval yet at this
+  // early point in filing — there's no reason it needs to exist until this
+  // JCF form is actually submitted. Removed; submitJcfApp() already checks
+  // this at the one point it actually needs to be true.
   const step2FieldCfg = await window.atdLoadFormFieldConfig();
   const step2Missing = jcf_findMissingRequiredField(2, step2FieldCfg);
   if(step2Missing){
     jcf_showToast(`Please complete "${step2Missing}" before continuing.`);
     return;
   }
+  jcf_saveDraftSilently();
   jcf_goStep(3);
 }
 function continueFromStep3(){
@@ -32170,6 +32215,7 @@ function continueFromStep3(){
     jcf_showToast('Please confirm you have watched the Loud Speakers briefing before continuing.');
     return;
   }
+  jcf_saveDraftSilently();
   jcf_goStep(4);
 }
 function continueFromStep4(){
@@ -32181,6 +32227,7 @@ function continueFromStep4(){
     jcf_showToast('Please read and check the declaration before continuing.');
     return;
   }
+  jcf_saveDraftSilently();
   jcf_goReview();
 }
 
