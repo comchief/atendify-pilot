@@ -20568,6 +20568,14 @@ async function mmAnnualOtherLicenseFileChosen(key, input){
   }
 
   const fileData = await poa_readFileAsDataUrl(file);
+  // Same fix as mmJcfDocFileChosen's own comment: a file too large or
+  // unreadable returns null here — bail out before marking anything
+  // "Submitted" with no actual file behind it.
+  if(!fileData){
+    input.value = '';
+    poa_showToast(`Could not upload "${file.name}" for ${label} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
+    return;
+  }
   try{
     jcfApp.otherLicenses = jcfApp.otherLicenses || {};
     const existing = jcfApp.otherLicenses[key] || {};
@@ -20861,6 +20869,14 @@ async function mmNoiseDocFileChosen(kind, label, input){
   }
 
   const fileData = await poa_readFileAsDataUrl(file);
+  // Same fix as mmJcfDocFileChosen's own comment: bail out before writing
+  // anything if the file was too large/unreadable, rather than marking it
+  // "Submitted" with no actual file behind it.
+  if(!fileData){
+    input.value = '';
+    poa_showToast(`Could not upload "${file.name}" for ${label} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
+    return;
+  }
   const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
   const fileNameKey = kind === 'photoId' ? 'photoIdFileName' : 'permissionLetterFileName';
   const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
@@ -21205,6 +21221,20 @@ async function mmJcfDocFileChosen(index, docName, input){
   if(!currentAppRecord.jcfDocuments) currentAppRecord.jcfDocuments = {};
 
   const fileData = await poa_readFileAsDataUrl(file);
+  // Fix: poa_readFileAsDataUrl/atdReadFileSmart returns null for a non-image
+  // file over the 3MB cap (a scanned JAMMS/JCAP approval letter as a PDF can
+  // easily exceed that) or one it simply can't read — this used to fall
+  // through anyway, marking the document "uploaded"/"Submitted" with
+  // fileData: null. The applicant saw "uploaded and submitted" and the slot
+  // locked, but there was never actually a file behind it — a JCF officer
+  // opening it later saw nothing to review. Bail out before touching the
+  // record at all, so the upload slot stays open and the applicant can
+  // immediately try a smaller file instead of believing this succeeded.
+  if(!fileData){
+    input.value = '';
+    poa_showToast(`Could not upload "${file.name}" for ${docName} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
+    return;
+  }
   currentAppRecord.jcfDocuments[docName] = {
     uploaded: true,
     fileName: file.name,
@@ -21277,6 +21307,14 @@ async function mmDocFileChosen(index, docName, input){
   if(!currentAppRecord.regulatoryDocuments) currentAppRecord.regulatoryDocuments = {};
 
   const fileData = await poa_readFileAsDataUrl(file);
+  // Same fix as mmJcfDocFileChosen's own comment: a file too large (non-image
+  // over 3MB) or unreadable returns null here, and this used to still mark
+  // the document "uploaded"/"Submitted" with nothing actually behind it.
+  if(!fileData){
+    input.value = '';
+    poa_showToast(`Could not upload "${file.name}" for ${docName} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
+    return;
+  }
   currentAppRecord.regulatoryDocuments[docName] = {
     uploaded: true,
     fileName: file.name,
@@ -32236,8 +32274,20 @@ let photoIdFileData = null;
 async function photoIdFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  // Fix: jcf_readFileAsDataUrl/atdReadFileSmart returns null for a non-image
+  // file over the 3MB cap or one it can't read — this used to still set
+  // photoIdFileName and re-render, and renderPhotoIdPreview's own "no data"
+  // fallback shows a checkmark and the file name regardless, so the
+  // applicant saw what looked like a successful upload with nothing behind
+  // it. Leave the previous selection (if any) in place and warn instead.
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
   photoIdFileName = file.name;
-  photoIdFileData = await jcf_readFileAsDataUrl(file);
+  photoIdFileData = fileData;
   renderPhotoIdPreview();
 }
 function renderPhotoIdPreview(){
@@ -32257,8 +32307,15 @@ let flyerFileData = null;
 async function flyerFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  // Same fix as photoIdFileChosen's own comment above.
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
   flyerFileName = file.name;
-  flyerFileData = await jcf_readFileAsDataUrl(file);
+  flyerFileData = fileData;
   renderFlyerPreview();
 }
 function renderFlyerPreview(){
@@ -32278,8 +32335,15 @@ let permissionLetterFileData = null;
 async function permissionLetterFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  // Same fix as photoIdFileChosen's own comment above.
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
   permissionLetterFileName = file.name;
-  permissionLetterFileData = await jcf_readFileAsDataUrl(file);
+  permissionLetterFileData = fileData;
   renderPermissionLetterPreview();
 }
 function renderPermissionLetterPreview(){
@@ -32327,14 +32391,19 @@ function switchSigMode(mode){
 async function sigUploadFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
-  sigUploadFileName = file.name;
-  sigUploadFileData = await jcf_readFileAsDataUrl(file);
-  const wrap = document.getElementById('sigUploadPreviewWrap');
-  if(sigUploadFileData){
-    wrap.innerHTML = `<div class="sig-upload-preview"><img src="${sigUploadFileData}" alt="Signature"></div><div class="fu-label">${jcf_escapeHtml(sigUploadFileName)}</div>`;
-  } else {
+  const fileData = await jcf_readFileAsDataUrl(file);
+  if(!fileData){
+    // Fix: this used to still set sigUploadFileName to the failed file
+    // before checking, leaving a filename recorded with no actual image
+    // behind it if the applicant didn't notice this toast and proceeded.
+    input.value = '';
     jcf_showToast('That image is too large — please use a file under 500KB.');
+    return;
   }
+  sigUploadFileName = file.name;
+  sigUploadFileData = fileData;
+  const wrap = document.getElementById('sigUploadPreviewWrap');
+  wrap.innerHTML = `<div class="sig-upload-preview"><img src="${sigUploadFileData}" alt="Signature"></div><div class="fu-label">${jcf_escapeHtml(sigUploadFileName)}</div>`;
 }
 
 function initSigCanvasIfNeeded(){
@@ -33160,8 +33229,17 @@ function jcfAnnual_toggleNoiseNoticeUpload(){
 async function jcfAnnual_noiseNoticeFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  // Same fix as photoIdFileChosen's own comment: a too-large/unreadable file
+  // returns null here, and this used to still show a "✓ uploaded" preview
+  // with the file name regardless, with no actual file behind it.
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
   jcfAnnualNoiseNoticeFileName = file.name;
-  jcfAnnualNoiseNoticeFileData = await jcf_readFileAsDataUrl(file);
+  jcfAnnualNoiseNoticeFileData = fileData;
   document.getElementById('jcfAnnual_noiseNoticePreviewWrap').innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jcfAnnualNoiseNoticeFileName)}</div>`;
 }
 function jcfAnnual_continueFromStep4(){
@@ -33220,6 +33298,16 @@ async function jcfAnnual_otherLicenseFileChosen(key, input){
   const file = input.files && input.files[0];
   if(!file) return;
   const fileData = await jcf_readFileAsDataUrl(file);
+  // Same fix as photoIdFileChosen's own comment: this used to record the
+  // upload (and show a "✓" preview) even when fileData came back null.
+  // jcfAnnual_continueFromStep5's own hasFile check reads fileData too, so
+  // leaving jcfAnnualOtherLicenseFiles[key] untouched here (rather than
+  // storing a null-fileData entry) keeps that gate accurate as well.
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
   jcfAnnualOtherLicenseFiles[key] = { fileData, fileName: file.name };
   document.getElementById(`jcfAnnual_otherLic_${key}_previewWrap`).innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(file.name)}</div>`;
 }
@@ -33327,14 +33415,19 @@ function jcfAnnual_switchSigMode(mode){
 async function jcfAnnual_sigUploadFileChosen(input){
   const file = input.files && input.files[0];
   if(!file) return;
-  jcfAnnualSigUploadFileName = file.name;
-  jcfAnnualSigUploadFileData = await jcf_readFileAsDataUrl(file);
-  const wrap = document.getElementById('jcfAnnual_sigUploadPreviewWrap');
-  if(jcfAnnualSigUploadFileData){
-    wrap.innerHTML = `<div class="sig-upload-preview"><img src="${jcfAnnualSigUploadFileData}" alt="Signature"></div><div class="fu-label">${jcf_escapeHtml(jcfAnnualSigUploadFileName)}</div>`;
-  } else {
+  const fileData = await jcf_readFileAsDataUrl(file);
+  if(!fileData){
+    // Fix: this used to still set jcfAnnualSigUploadFileName to the failed
+    // file before checking, leaving a filename recorded with no actual
+    // image behind it if the applicant didn't notice this toast.
+    input.value = '';
     jcf_showToast('That image is too large — please use a file under 500KB.');
+    return;
   }
+  jcfAnnualSigUploadFileName = file.name;
+  jcfAnnualSigUploadFileData = fileData;
+  const wrap = document.getElementById('jcfAnnual_sigUploadPreviewWrap');
+  wrap.innerHTML = `<div class="sig-upload-preview"><img src="${jcfAnnualSigUploadFileData}" alt="Signature"></div><div class="fu-label">${jcf_escapeHtml(jcfAnnualSigUploadFileName)}</div>`;
 }
 function jcfAnnual_initSigCanvasIfNeeded(){
   const canvas = document.getElementById('jcfAnnual_sigCanvas');
