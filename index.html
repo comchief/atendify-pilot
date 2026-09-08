@@ -874,6 +874,18 @@
       position:absolute;
       top:0; left:0; width:100%;
     }
+    /* Second, separate excess-page cause found on the Annual JCF Noise
+       Abatement Permit: the fix above stops OTHER page content from
+       bleeding onto extra pages, but the permit document's own content is
+       tall enough that it still spilled onto a genuinely blank second page
+       once the browser's own default print margin (commonly ~1in, not the
+       ~0.4in Chrome uses for its "Default" preset) was applied -- verified
+       by rendering this exact template at a 1in margin and seeing a second
+       page appear that vanished again at 0.5in. Declaring @page here pins
+       the margin the browser uses for this document instead of leaving it
+       to whatever the OS/printer driver's own default happens to be, so
+       the one-page layout is no longer margin-dependent. */
+    @page{ size: letter; margin: 0.5in; }
   }
 
   .doc-sheet{
@@ -1343,6 +1355,17 @@
   .notif-item .notif-msg{ color:var(--text); line-height:1.4; }
   .notif-item .notif-meta{ font-size:11.5px; color:var(--text-muted); display:flex; justify-content:space-between; gap:8px; }
   .notif-empty{ padding:28px 16px; text-align:center; color:var(--text-muted); font-size:13px; }
+  /* Generic "needs attention" row indicator -- any applications-list row
+     (JCF or Municipal, and any future agency portal built the same way)
+     whose own appNumber matches an unread window.atdNotify() record shows
+     this dot next to its app number cell. Kept as one shared class/rule so
+     every portal's applications table renders the exact same dot rather
+     than a per-portal reimplementation drifting out of sync. */
+  .notif-row-dot{
+    display:inline-block; width:8px; height:8px; margin-right:6px;
+    border-radius:50%; background:var(--red); vertical-align:middle;
+    flex-shrink:0;
+  }
 
   .page{ padding: 28px 32px 60px; }
 
@@ -1844,6 +1867,11 @@
       position:absolute;
       top:0; left:0; width:100%;
     }
+    /* Same @page margin fix as the .printing-doc rule above (see its own
+       comment) -- this is the class the Annual JCF permit's own print
+       buttons (jcfd_printPermit/jcfd_printIssuedPermitFromModal) actually
+       use, so it needs the same pinned margin to stay on one page. */
+    @page{ size: letter; margin: 0.5in; }
   }
 
 
@@ -13995,6 +14023,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_appsHeading').textContent =
       jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'Applications assigned to me' : 'Applications in jurisdiction';
 
+    // Refreshed here (not just on the Dashboard page) so the red dot below
+    // reflects notifications that arrived since this user's last visit to
+    // the Dashboard -- jcfd_loadNotifications() already filters to what
+    // THIS signed-in user can see (jcfd_hasPerm), so a dot here only ever
+    // shows for a notification this same user would also see in the bell.
+    await jcfd_loadNotifications();
+    const attentionAppNumbers = new Set(
+      jcfdNotifPersisted.filter(n => !n.read && n.appNumber).map(n => n.appNumber)
+    );
+    // Generic "needs attention" indicator (see the shared .notif-row-dot
+    // rule) -- any application whose number matches an unread notification
+    // gets a small red dot next to its app number, so a Supervisor sees at a
+    // glance which application caused their bell to light up, e.g. after a
+    // Police Chief's jcfd_chiefRejectRecommendation().
+    const rowDot = appNumber => attentionAppNumbers.has(appNumber) ? `<span class="notif-row-dot" title="Needs attention"></span>` : '';
+
     const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
     const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
 
@@ -14007,7 +14051,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const eo = a.rec.eventOverview || {};
         const vi = a.rec.venueInfo || {};
         return `<tr>
-          <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+          <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
           <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
           <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
           <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
@@ -14028,7 +14072,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const ai = a.rec.applicantInfo || {};
         const pi = a.rec.premisesInfo || {};
         return `<tr>
-          <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+          <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
           <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
           <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
           <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
@@ -15145,6 +15189,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       rec.status = 'Under Review';
     }
     await jcfd_saveActiveApp(rec);
+    // "Action requiring attention" notification: the Supervisor who made the
+    // now-rejected recommendation needs to know a new one is needed. Reuses
+    // the same window.atdNotify(...) pipeline/'checklist' permission key the
+    // document-reupload notifications already route through elsewhere in
+    // this portal (jcfd_hasPerm('checklist') is true for Supervisor, false
+    // for Officer -- Chief always sees every notification regardless of key,
+    // same short-circuit as those other calls) -- see jcfd_loadNotifications
+    // and the applications-list "red dot" it now also feeds (jcfd_renderApplications).
+    if(window.atdNotify && jcfdCurrentBranch){
+      window.atdNotify(jcfdCurrentBranch.id, 'checklist', 'recommendation_rejected',
+        `The Police Chief rejected the recommendation on ${rec.jcfAppNumber}: "${reason}"`,
+        rec.jcfAppNumber);
+    }
     jcfd_showToast('Recommendation rejected. The Supervisor will need to submit a new one.');
     jcfd_renderApplicationDetail();
   }
@@ -16905,8 +16962,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     const issuedDate = new Date().toISOString().slice(0,10);
     const permitYear = new Date().getFullYear();
-    const numericPart = String(rec.jcfAppNumber || '').replace(/\D/g, '').slice(-5).padStart(5, '0');
-    const number = `${permitYear}-${numericPart}-JCF-${jcfdCurrentBranch.id}`;
+    // Fix: this is the function the "Approve & issue permit" button actually
+    // calls (via jcfd_openApproveModal) for BOTH Special Event and Annual
+    // filings -- the old-format `${permitYear}-${numericPart}-JCF-${branch}`
+    // number built here was never replaced when the JCF<MC#>-<MC#><YY>-<seq>
+    // format (see jcfd_generatePermitNumber's own comment) was added, since
+    // that format was only wired into the separate, dead jcfd_approve()
+    // function (see the "now-dead jcfd_approve()" note near
+    // poa_buildPermitDocHtml). Calling the real generator here instead
+    // applies that format to every permit actually issued, Annual included.
+    const number = await jcfd_generatePermitNumber(rec);
 
     // Annual permits skip the officer-entered expiry date/time entirely —
     // see jcfd_openApproveModal's own note — and instead expire on the
@@ -26587,12 +26652,18 @@ function muni_escapeHtml(s){
 }
 
 // ==================== Rendering ====================
-function muni_renderAll(){
+async function muni_renderAll(){
   muni_renderStats();
   muni_renderRecentApps();
+  // Awaited (and moved ahead of muni_renderApplications()) so that
+  // function's own "needs attention" red dot (see its rowDot) reads
+  // notifPersisted already refreshed for THIS render, not whatever was left
+  // over from the previous one. muni_renderAll was already called
+  // fire-and-forget (never awaited) everywhere it's used, so making it
+  // async doesn't change any existing caller's behavior.
+  await loadNotifications();
   muni_renderApplications();
   renderUsers();
-  loadNotifications();
 }
 
 function muni_renderStats(){
@@ -26665,12 +26736,24 @@ function muni_renderApplications(){
   const annualVisible = list.filter(a => a.licenseType === 'Annual');
   const venueNameOf = a => (a.raw && a.raw.venue && a.raw.venue.name) || 'N/A';
 
+  // Generic "needs attention" indicator -- mirrors jcfd_renderApplications'
+  // own rowDot (see its comment and the shared .notif-row-dot rule). Reads
+  // straight off the notifPersisted this portal's own bell already keeps
+  // refreshed (muni_renderAll calls loadNotifications() before this
+  // function), so any window.atdNotify() event this signed-in user can see
+  // -- a rejected recommendation, a re-uploaded document, a new submission
+  // -- lights up the matching application's row, not just the bell.
+  const attentionAppNumbers = new Set(
+    notifPersisted.filter(n => !n.read && n.appNumber).map(n => n.appNumber)
+  );
+  const rowDot = appNumber => attentionAppNumbers.has(appNumber) ? `<span class="notif-row-dot" title="Needs attention"></span>` : '';
+
   if(!specialVisible.length){
     specialBody.innerHTML = `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>`;
   } else {
     specialBody.innerHTML = specialVisible.map(a => `
       <tr>
-        <td class="cell-primary">${a.appNumber}</td>
+        <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
@@ -26688,7 +26771,7 @@ function muni_renderApplications(){
   } else {
     annualBody.innerHTML = annualVisible.map(a => `
       <tr>
-        <td class="cell-primary">${a.appNumber}</td>
+        <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
@@ -28778,6 +28861,20 @@ function ceoRejectRecommendation(){
   a.recommendationWithdrawalRequested = false;
   a.recommendationWithdrawalRequestedBy = '';
   a.recommendationWithdrawalRequestedDate = '';
+  // "Action requiring attention" notification -- mirrors the JCF Division
+  // portal's jcfd_chiefRejectRecommendation (same fix, same platform-wide
+  // request: any agency's Supervisor should be notified when their
+  // recommendation is rejected, with a red dot on the application row --
+  // see loadNotifications/muni_renderApplications). 'review' is the same
+  // permission key setRecommendation's own Supervisor-facing notifications
+  // already assume (Supervisor has it, general staff without review access
+  // don't; the CEO gets Chief-equivalent visibility into every notification
+  // via hasPerm's own short-circuit).
+  if(window.atdNotify){
+    window.atdNotify(a.muniId, 'review', 'recommendation_rejected',
+      `The CEO rejected the recommendation on ${a.appNumber}: "${reason}"`,
+      a.appNumber);
+  }
   muni_showToast('Recommendation rejected. The Supervisor will need to submit a new one.');
   persistIfFromStorage(a);
   renderAppDetail();
