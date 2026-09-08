@@ -5785,15 +5785,29 @@
     { key: 'slaBreaches', label: 'SLA Breach Tracking' },
     { key: 'activityTimeline', label: 'Activity Timeline' },
     { key: 'promotions', label: 'Promotions' },
-    { key: 'ads', label: 'Advertisement Module' }
+    { key: 'ads', label: 'Advertisement Module' },
+    // Sub-capabilities WITHIN the Advertisement Module itself -- only
+    // meaningful when 'ads' above is also included for a tier. Editing the
+    // Cost of an existing advertisement item is the one capability every
+    // tier with 'ads' gets for free (see openAdModal()/renderAdItems() in
+    // the Municipal officer portal's own scope) — these two entries are
+    // what's layered ON TOP of that baseline: 'adsManageCategories' is
+    // add/delete-an-item plus editing an existing item's Type/Name/
+    // placement-location flag; 'adsManageLocations' is the separate
+    // Standard Advertisement Locations catalog those items can point at.
+    { key: 'adsManageCategories', label: 'Advertisement Module — Add/Delete Items & Categories' },
+    { key: 'adsManageLocations', label: 'Advertisement Module — Add/Remove Standard Locations' }
   ];
   // Factory fallback, used until an Admin ever saves an edit (or if the
   // saved record is ever missing/corrupt) — matches what MUNI_TIER_MODULES
-  // shipped with before this became admin-editable.
+  // shipped with before this became admin-editable. 'ads' is included on
+  // EVERY tier here (unlike before, when it was Premium-only) because even
+  // Essential now gets baseline fee-editing access to the module — see the
+  // two sub-capability keys above for what's layered on top per tier.
   window.ATD_DEFAULT_TIER_MODULES = {
-    Essential: [],
-    Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
-    Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
+    Essential: ['ads'],
+    Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline', 'ads', 'adsManageCategories'],
+    Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline', 'adsManageCategories', 'adsManageLocations']
   };
   window.atdGetTierModulesConfig = async function(){
     const fallback = JSON.parse(JSON.stringify(window.ATD_DEFAULT_TIER_MODULES));
@@ -7366,12 +7380,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="panel">
         <div class="panel-head"><h2 style="font-size:18px;">Standard Advertisement Locations</h2></div>
         <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Locations an applicant can assign a sign to on the public application form, when an advertisement item below requires one (see "Require placement location" on each item). Only the CEO can change these.</p>
+        <!-- Subscription-tier gate — see 'adsManageLocations' in
+             MUNI_TIER_MODULES/atdMuniModuleLocked. Toggled by
+             renderAdLocationsList(), not muni_goPage(), since this is a
+             sub-capability WITHIN an already-unlocked page, not the page
+             gate itself. -->
+        <div id="adLocationsTierHint" class="field-hint" style="display:none; color:#b45309; margin:-10px 0 14px;"></div>
         <div class="field-row" style="align-items:flex-end;">
           <div class="field-group" style="flex:1;">
             <label for="adLocationInput">Location name</label>
             <input type="text" id="adLocationInput" placeholder="e.g. Main Street, near the market" onkeydown="if(event.key==='Enter'){event.preventDefault(); addAdLocation();}">
           </div>
-          <button class="btn btn-primary" type="button" style="margin-bottom:26px;" onclick="addAdLocation()">+ Add location</button>
+          <button class="btn btn-primary" type="button" id="adLocationAddBtn" style="margin-bottom:26px;" onclick="addAdLocation()">+ Add location</button>
         </div>
         <div id="adLocationsList" style="margin-top:14px;"></div>
       </div>
@@ -7381,10 +7401,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <h2>Advertisement items</h2>
           <div class="panel-tools">
             <input type="text" id="adSearchInput" placeholder="Search advertisements" oninput="renderAdItems()">
-            <button class="btn btn-primary" onclick="openAdModal()">+ Add advertisement</button>
+            <button class="btn btn-primary" id="adAddBtn" onclick="openAdModal()">+ Add advertisement</button>
           </div>
         </div>
         <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">These items and costs appear on the public application form's Advertisement step.</p>
+        <!-- Subscription-tier gate — see 'adsManageCategories' above. Every
+             tier that has the Advertisement Module at all can still edit an
+             existing item's Cost (see openAdModal()); this note only shows
+             up when Add/Delete itself is what's restricted. -->
+        <div id="adItemsTierHint" class="field-hint" style="display:none; color:#b45309; margin:-10px 0 14px;"></div>
         <div style="overflow-x:auto;">
           <table>
             <thead><tr><th>Type</th><th>Name</th><th>Cost</th><th>Placement location</th><th></th></tr></thead>
@@ -8254,6 +8279,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <div class="modal-box">
     <h3 id="adModalTitle">Add advertisement</h3>
     <p class="modal-sub">Items added here become selectable on the public application form's Advertisement step.</p>
+    <!-- Shown instead when editing under a tier that only grants
+         adsManageCategories'-free access (see openAdModal()) — Type, Name,
+         and the placement-location flag are disabled below and only Cost
+         can actually be changed. -->
+    <div id="adFormTierHint" class="field-hint" style="display:none; color:#b45309; margin:-4px 0 14px;"></div>
 
     <div class="field-group">
       <label for="adFormCategory">Type</label>
@@ -23907,7 +23937,15 @@ async function renderMuniBilling(){
   const tier = m.subscriptionTier || 'Premium';
   document.getElementById('billingTierBadge').textContent = tier + ' Plan';
   document.getElementById('billingMuniName').textContent = m.name;
-  const moduleLabels = { reports: 'Reports & Analytics', eventsCalendar: 'Events Calendar', slaBreaches: 'SLA Breach Tracking', promotions: 'Promotions', ads: 'Advertisement Module' };
+  // Sourced from the same canonical catalog the Admin Subscription &
+  // Licensing page's Tiers & Features matrix uses (window.ATD_TIER_FEATURE_CATALOG)
+  // rather than a second, hand-maintained label dictionary here — the
+  // previous copy had drifted out of sync (missing 'activityTimeline'
+  // entirely, so it rendered as a raw key instead of "Activity Timeline")
+  // and would have drifted further the moment a new tier-gated feature was
+  // added anywhere else. One source of truth for the key-to-label mapping.
+  const moduleLabels = {};
+  (window.ATD_TIER_FEATURE_CATALOG || []).forEach(f => { moduleLabels[f.key] = f.label; });
   const baseModules = ['Applications & Venue Registry', 'Permits & Signatures', `Up to ${MUNI_TIER_SEAT_CAP} staff seats`];
   const tierModules = (window.MUNI_TIER_MODULES && window.MUNI_TIER_MODULES[tier]) || [];
   const allModules = baseModules.concat(tierModules.map(k => moduleLabels[k] || k));
@@ -25508,11 +25546,42 @@ async function loadAdItems(){
 
 const AD_CATEGORY_ORDER = ["Banners", "Sign Boards", "Stages", "Tents", "Other"];
 
+// True when this municipality's subscription tier grants add/delete access
+// to the advertisement item catalog (see 'adsManageCategories' in
+// MUNI_TIER_MODULES/atdMuniModuleLocked). Every tier that has the
+// Advertisement Module page at all — Essential included — can still edit
+// an existing item's Cost regardless of this; it's only Add/Delete (and
+// changing an existing item's Type/Name/placement-location flag) that this
+// gates. Checked fresh on every render/open rather than cached, so a tier
+// change an Admin makes elsewhere is reflected the next time this page (or
+// this modal) is touched, with no separate refresh step needed.
+function muniCanManageAdCategories(){
+  return !atdMuniModuleLocked('adsManageCategories');
+}
+// Same idea for the separate Standard Advertisement Locations catalog (see
+// 'adsManageLocations').
+function muniCanManageAdLocations(){
+  return !atdMuniModuleLocked('adsManageLocations');
+}
+
 function renderAdItems(){
   const body = document.getElementById('adItemsBody');
   const search = document.getElementById('adSearchInput').value.trim().toLowerCase();
   let list = myAdItems().filter(a => !search || a.name.toLowerCase().includes(search) || a.category.toLowerCase().includes(search));
   list.sort((a,b)=> AD_CATEGORY_ORDER.indexOf(a.category) - AD_CATEGORY_ORDER.indexOf(b.category) || a.name.localeCompare(b.name));
+
+  const canManageCategories = muniCanManageAdCategories();
+  const tierLockTitle = "This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.";
+  const addBtn = document.getElementById('adAddBtn');
+  if(addBtn){
+    addBtn.disabled = !canManageCategories;
+    addBtn.title = canManageCategories ? '' : tierLockTitle;
+  }
+  const tierHint = document.getElementById('adItemsTierHint');
+  if(tierHint){
+    tierHint.style.display = canManageCategories ? 'none' : '';
+    tierHint.textContent = canManageCategories ? '' : 'Your subscription tier lets you edit the cost of an existing item, but adding or removing items requires an upgrade. Contact your Atendify administrator.';
+  }
 
   if(!list.length){
     body.innerHTML = `<tr><td colspan="5" class="table-empty">No advertisement items found.</td></tr>`;
@@ -25530,7 +25599,7 @@ function renderAdItems(){
           <button class="icon-btn" title="Edit" onclick='openAdModal(${JSON.stringify(a.id)})'>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
-          <button class="icon-btn" title="Remove" onclick='deleteAdItem(${JSON.stringify(a.id)})'>
+          <button class="icon-btn" title="${canManageCategories ? 'Remove' : tierLockTitle}" ${canManageCategories ? '' : 'disabled'} onclick='deleteAdItem(${JSON.stringify(a.id)})'>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
@@ -25544,8 +25613,37 @@ function openAdModal(id){
     muni_showToast("You don't have permission to manage advertisements.");
     return;
   }
+  // Adding a brand-new item is itself an 'adsManageCategories' action — the
+  // "+ Add advertisement" button is already disabled for a tier that lacks
+  // it (see renderAdItems()), this is just the defense-in-depth backstop
+  // for that same rule, same posture as the hasPerm check just above.
+  if(!id && !muniCanManageAdCategories()){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
+    return;
+  }
   editingAdId = id || null;
   const title = document.getElementById('adModalTitle');
+  // Editing an EXISTING item under a tier that only grants fee-editing
+  // access (Essential, by default) still opens this same modal — Cost
+  // stays editable, but Type/Name/placement-location are locked so the
+  // only thing that can actually change is the price. See
+  // muniCanManageAdCategories()'s own comment for why Add stays blocked
+  // above rather than reaching this point with an empty record to fill in.
+  const canManageCategories = muniCanManageAdCategories();
+  const categoryEl = document.getElementById('adFormCategory');
+  const nameEl = document.getElementById('adFormName');
+  const requiresLocationEl = document.getElementById('adFormRequiresLocation');
+  const tierHint = document.getElementById('adFormTierHint');
+  const fieldsLocked = !!id && !canManageCategories;
+  categoryEl.disabled = fieldsLocked;
+  nameEl.disabled = fieldsLocked;
+  requiresLocationEl.disabled = fieldsLocked;
+  if(tierHint){
+    tierHint.style.display = fieldsLocked ? '' : 'none';
+    tierHint.textContent = fieldsLocked
+      ? "Your subscription tier only allows editing this item's cost. Contact your Atendify administrator to change its type, name, or placement-location requirement."
+      : '';
+  }
 
   if(id){
     const a = adItems.find(a => a.id === id);
@@ -25615,6 +25713,10 @@ async function persistAdItem(a){
 }
 
 async function deleteAdItem(id){
+  if(!muniCanManageAdCategories()){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
+    return;
+  }
   const a = adItems.find(a => a.id === id);
   if(!a) return;
   if(!(await window.atdConfirm(`Remove "${a.name}" from your advertisement list? Applicants will no longer be able to select it.`))) return;
@@ -25653,6 +25755,21 @@ async function loadAdLocations(){
 function renderAdLocationsList(){
   const container = document.getElementById('adLocationsList');
   if(!container) return;
+  const canManageLocations = muniCanManageAdLocations();
+  const tierLockTitle = "This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.";
+  const input = document.getElementById('adLocationInput');
+  const addBtn = document.getElementById('adLocationAddBtn');
+  if(input) input.disabled = !canManageLocations;
+  if(addBtn){
+    addBtn.disabled = !canManageLocations;
+    addBtn.title = canManageLocations ? '' : tierLockTitle;
+  }
+  const tierHint = document.getElementById('adLocationsTierHint');
+  if(tierHint){
+    tierHint.style.display = canManageLocations ? 'none' : '';
+    tierHint.textContent = canManageLocations ? '' : 'Your subscription tier doesn\'t include managing standard advertisement locations. Contact your Atendify administrator to upgrade.';
+  }
+
   if(!adLocations.length){
     container.innerHTML = `<p style="font-size:13.5px; color:var(--text-muted);">No standard locations added yet.</p>`;
     return;
@@ -25661,7 +25778,7 @@ function renderAdLocationsList(){
     adLocations.map((loc, i) => `
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 14px; border:1px solid var(--border); border-radius:8px;">
         <span style="font-size:14px;">${muni_escapeHtml(loc)}</span>
-        <button class="icon-btn" title="Remove" onclick="removeAdLocation(${i})">
+        <button class="icon-btn" title="${canManageLocations ? 'Remove' : tierLockTitle}" ${canManageLocations ? '' : 'disabled'} onclick="removeAdLocation(${i})">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
@@ -25671,6 +25788,10 @@ function renderAdLocationsList(){
 async function addAdLocation(){
   if(!hasPerm('review')){
     muni_showToast("You don't have permission to manage advertisements.");
+    return;
+  }
+  if(!muniCanManageAdLocations()){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
     return;
   }
   const input = document.getElementById('adLocationInput');
@@ -25703,6 +25824,10 @@ async function addAdLocation(){
 async function removeAdLocation(index){
   if(!hasPerm('review')){
     muni_showToast("You don't have permission to manage advertisements.");
+    return;
+  }
+  if(!muniCanManageAdLocations()){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
     return;
   }
   const name = adLocations[index];
