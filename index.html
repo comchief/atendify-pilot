@@ -3188,7 +3188,28 @@
   }
 
   async function offloadLargeFields(key, obj) {
-    var out = Object.assign({}, obj);
+    // Fix #50 follow-up, 2nd pass: adLocations's value is a plain ARRAY of
+    // location names (persistAdLocations() does JSON.stringify(adLocations),
+    // an array) -- every other kv_store prefix's value has always been a
+    // plain OBJECT, so this line never needed to care about the distinction
+    // before. Object.assign({}, obj) on an array silently produces an
+    // indexed plain object instead (['A','B'] -> {0:'A', 1:'B'}), which is
+    // still perfectly valid JSON and writes/upserts into the jsonb column
+    // with NO error at all -- explaining exactly what re-testing after the
+    // useUpdateOnly fix above showed: the write reports success (even the
+    // very first save), yet the location is gone on the very next read.
+    // rehydrateLargeFields() (this function's read-side counterpart, right
+    // below) already gets this right with its own
+    // `Array.isArray(obj) ? obj.slice() : Object.assign({}, obj)` -- but by
+    // the time a read ever reaches it, offloadLargeFields() has already
+    // corrupted the shape at write time, so loadAdLocations()'s/
+    // loadMunicipalityAdLocations()'s own `if(Array.isArray(saved))` guard
+    // silently (and correctly, given what it was actually handed back)
+    // treats the now-object value as "not a list" and leaves the locations
+    // list empty. Mirroring rehydrateLargeFields()'s own array handling here
+    // fixes this at the source instead of layering another guard on every
+    // reader.
+    var out = Array.isArray(obj) ? obj.slice() : Object.assign({}, obj);
     var fields = FILE_FIELDS_BY_PREFIX[prefixOf(key)];
     if (fields && client) {
       for (var i = 0; i < fields.length; i++) {
@@ -3644,14 +3665,24 @@
         // Fix #50 follow-up: fix50_adlocations_rls.sql's own policies check
         // out fine (all three confirmed present in pg_policies) and a CEO's
         // very first "+ Add location" appears to work, but every location
-        // vanishes on a hard refresh — including the first one. That means
-        // the plain upsert() below (INSERT ... ON CONFLICT DO UPDATE) isn't
-        // actually persisting, even though it reports no error, which
-        // matches this exact file's own already-documented upsert() quirks
-        // (see isAuditLog/isWriteOnceAnonPrefix's comments above — upsert()
-        // has repeatedly proven unreliable under this schema regardless of
-        // which policies exist, not just for the specific
-        // WITH-CHECK-asymmetry case those two describe). adLocations is
+        // vanishes on a hard refresh — including the first one. Re-tested
+        // live after this useUpdateOnly change alone shipped and the symptom
+        // was UNCHANGED — the real cause turned out to be a completely
+        // separate, simpler bug: offloadLargeFields() above was silently
+        // corrupting adLocations's array value into a plain indexed object
+        // before it ever reached the database (see its own comment, further
+        // up this file, for the full explanation) — that write always
+        // reported success regardless of upsert vs. update+insert, since
+        // Postgres has no complaint about storing {0:'A'} instead of ['A']
+        // in a jsonb column; only the READ side's `Array.isArray(saved)`
+        // guard silently rejected the corrupted shape. That's now fixed at
+        // the source. This useUpdateOnly routing turned out not to be what
+        // was actually causing the reported symptom, but is kept anyway as
+        // defense-in-depth: it's still a correct, harmless application of
+        // this exact file's own documented upsert()-under-RLS quirks (see
+        // isAuditLog/isWriteOnceAnonPrefix's comments above) for a prefix
+        // that, unlike those two, has no anonymous-writer case to check
+        // first. adLocations is
         // ALWAYS written by an authenticated 'muni' session — never an
         // anonymous one — so unlike isWriteOnceAnonPrefix above, there's no
         // need to check who's signed in first: route every write straight
