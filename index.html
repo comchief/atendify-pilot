@@ -7233,7 +7233,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Venues Pending Review</h2>
         </div>
-        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Manually typed in by an applicant on a Places of Amusement application rather than picked from your registered venues — not a real venue in your database until you accept it. Accepting requires a cost (billed to the applicant as an additional payment, on top of the Venue Inspection Fee they already paid); rejecting requires a reason.</p>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Manually typed in by an applicant on a Places of Amusement application rather than picked from your registered venues — not a real venue in your database until you accept it. Accepting requires a cost (saved to the venue database, and billed to the applicant as an additional payment unless this came from an Annual application — see the Accept venue popup); rejecting requires a reason.</p>
         <div style="overflow-x:auto;">
           <table>
             <thead><tr><th>Venue</th><th>Location</th><th>Max Capacity</th><th>From Application</th><th></th></tr></thead>
@@ -8323,8 +8323,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="field-group">
       <label for="venueAcceptCostInput">Venue Cost (JMD)</label>
       <input type="number" id="venueAcceptCostInput" min="0" placeholder="e.g. 15000">
-      <div class="field-hint">Required. Billed to the applicant as an additional payment, on top of the flat Venue Inspection Fee they already paid.</div>
+      <div class="field-hint">Required. This is the venue's own assessed cost — it's saved to your venue database either way, whether or not it's billed to the applicant below.</div>
     </div>
+    <!-- Was a hard "Required" rule that always billed the applicant. A venue
+         entered on an Annual application only registers the location — it
+         isn't billed this cost the way a Special Event application's venue
+         is — so this is now a checkbox the CEO controls per venue instead of
+         an unconditional charge. Pre-checked/unchecked by
+         openVenueAcceptModal based on the source application's licence
+         type, but always overridable here. -->
+    <label class="checkbox-row" id="venueAcceptBillRow" style="margin-top:2px; cursor:pointer;">
+      <input type="checkbox" id="venueAcceptBillApplicantCheckbox" checked>
+      <span>Bill this cost to the applicant as an additional payment, on top of the flat Venue Inspection Fee they already paid.</span>
+    </label>
+    <div class="field-hint" id="venueAcceptAnnualHint" style="display:none; margin-top:6px;">Unchecked by default — this venue was entered on an Annual application, which only registers the location and isn't billed this cost.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeVenueAcceptModal()">Cancel</button>
       <button class="btn btn-primary" onclick="submitAcceptPendingVenue()">Accept &amp; add to database</button>
@@ -24933,8 +24945,19 @@ function openVenueAcceptModal(id){
   if(!v) return;
   acceptingVenueId = id;
   document.getElementById('venueAcceptModalSub').textContent =
-    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database and bills the applicant the cost you enter below as an additional payment, on top of the Venue Inspection Fee they already paid at submission.`;
+    `"${v.name}" was entered on application ${v.sourceAppNumber || 'an application'}. Accepting it adds it to your venue database with the cost you enter below.`;
   document.getElementById('venueAcceptCostInput').value = '';
+
+  // Default the billing checkbox off for a venue entered on an Annual
+  // application (it only registers the location — see the checkbox's own
+  // comment above the modal in the HTML) and on for everything else
+  // (Special Event, or no linked application at all). The CEO can still
+  // flip it either way before accepting.
+  const sourceApp = v.sourceAppNumber ? applications.find(a => a.appNumber === v.sourceAppNumber) : null;
+  const isAnnualSource = !!(sourceApp && sourceApp.licenseType === 'Annual');
+  document.getElementById('venueAcceptBillApplicantCheckbox').checked = !isAnnualSource;
+  document.getElementById('venueAcceptAnnualHint').style.display = isAnnualSource ? 'block' : 'none';
+
   document.getElementById('venueAcceptModal').classList.remove('hidden');
 }
 function closeVenueAcceptModal(){
@@ -25005,6 +25028,10 @@ async function submitAcceptPendingVenue(){
     muni_showToast('Please enter the venue cost — this is required before a pending venue can be accepted.');
     return;
   }
+  // Whether to bill this cost to the applicant as an additional payment --
+  // see the checkbox's own comment in the HTML. Either way, the cost itself
+  // is still saved to the venue database just below (v.cost = cost).
+  const billApplicant = document.getElementById('venueAcceptBillApplicantCheckbox').checked;
   const v = venues.find(v => v.id === acceptingVenueId);
   if(!v) return;
 
@@ -25015,20 +25042,24 @@ async function submitAcceptPendingVenue(){
   v.approvedAt = new Date().toISOString();
   await persistVenue(v);
 
-  let billing = { additionalDue: cost, alreadyPaid: 0 };
+  let billing = { additionalDue: 0, alreadyPaid: 0 };
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
     if(a){
       a.venueRegistryStatus = 'accepted';
       await persistIfFromStorage(a);
     }
-    billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+    if(billApplicant){
+      billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+    }
   }
 
   const billedMsg = !v.sourceAppNumber ? ''
-    : billing.additionalDue > 0
-      ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`
-      : ` No additional payment is due on ${v.sourceAppNumber}.`;
+    : !billApplicant
+      ? ` The assessed cost of ${muni_formatCurrency(cost)} has been saved to the venue database — no additional payment was charged to ${v.sourceAppNumber}.`
+      : billing.additionalDue > 0
+        ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`
+        : ` No additional payment is due on ${v.sourceAppNumber}.`;
   muni_showToast(`${v.name} added to your venue database.${billedMsg}`);
   closeVenueAcceptModal();
   renderVenues();
