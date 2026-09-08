@@ -5474,6 +5474,27 @@
     }catch(e){ return []; }
   };
 
+  // ---- Debounce helper ----
+  // Several search boxes across the platform (Municipal/JCF Watch List,
+  // JCF officer Applications/Permits, Admin Audit Log) are wired to re-run
+  // their whole search on the input's oninput event, but that search itself
+  // does one or more live network round-trips (list + fetch-every-row)
+  // before it can even filter and re-render — so typing fast used to fire
+  // a fresh round-trip PER KEYSTROKE rather than once the applicant/officer
+  // actually finished typing what they meant to search for. Worse, those
+  // per-keystroke calls can resolve out of order (typing "abc" quickly can
+  // let the "a" search's slower response land after "abc"'s, silently
+  // showing stale results) — this fixes both: only the last call in a burst
+  // ever actually runs, once the burst has paused for `delayMs`.
+  window.atdDebounce = function(fn, delayMs){
+    var t = null;
+    return function(){
+      var args = arguments, self = this;
+      clearTimeout(t);
+      t = setTimeout(function(){ fn.apply(self, args); }, delayMs || 300);
+    };
+  };
+
   // ---- Unified permission catalog ----
   // Admin, the Municipal officer portal, and the JCF officer portal each
   // grew their own permission vocabulary independently (Admin's agency-level
@@ -5788,13 +5809,13 @@
 
       <div class="info-section">
         <h2>Types of Places of Amusement License</h2>
-        <p><strong>1. Annual Licence</strong> - The annual licence is appropriate for businesses that offer entertainment to the public as part of their routine daily operations. This is granted from the 1st of April of on year to the 31st of March of the following year. Applications for an annual licence should be done no later than March 1st of each year. Failure to do so will attract a penalty charge.</p>
+        <p><strong>1. Annual Licence</strong> - The annual licence is appropriate for businesses that offer entertainment to the public as part of their routine daily operations. This is granted from the 1st of April of one year to the 31st of March of the following year. Applications for an annual licence should be done no later than March 1st of each year. Failure to do so will attract a penalty charge.</p>
         <p><strong>2. Special Event</strong> - This type of Amusement Licence is granted to persons or businesses hosting special entertainment events through out the year at locations within the municipality. Application deadline should be at least ten (10) working days before the date of the event for events that are expected to have less than 1000 patrons. Amusement Licence application should be received no later than twenty one (21)working days before the date of the event. Failure to comply will result in a penalty charge.</p>
       </div>
 
       <div class="info-section">
         <h2>Approval/Refusal/Revocation of Licence</h2>
-        <p>Completed application for annual licences will be processed and forwarded to the Building and Town Planning Committee of the Municipal Corporation for its decision. Applications for annual licences will be processed within 21 days of receipt unless there are issues raised by other agencies such as Health, JCF, NWA and Fire Department that require further investigation or clarification. With regards to Special events licences, approval or refusal will be communicated to applicant within 5 to 10 working days of receipt of the application. Application should also be made to JCF for Noise Abatement Permit which will be needed by Municipal Corporation for approving permit.</p>
+        <p>Applications for annual licences will be processed within 21 days of receipt unless there are issues raised by other agencies such as Health, JCF, NWA and Fire Department that require further investigation or clarification. With regards to Special events licences, approval or refusal will be communicated to applicant within 5 to 10 working days of receipt of the application. Application should also be made to JCF for Noise Abatement Permit which will be needed by Municipal Corporation for approving permit.</p>
       </div>
 
       <div class="info-section">
@@ -7121,7 +7142,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Watchlist</h2>
           <div class="panel-tools">
-            <input type="text" id="watchlistSearchInput" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="renderWatchlist()">
+            <input type="text" id="watchlistSearchInput" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="renderWatchlistDebounced()">
             <select id="watchlistStatusFilter" onchange="renderWatchlist()">
               <option value="">All statuses</option>
               <option>Active</option>
@@ -8678,7 +8699,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Platform audit log</h2>
           <div class="panel-tools">
-            <input type="text" id="admin_auditSearch" placeholder="Search actor or details" oninput="renderAuditLogs()">
+            <input type="text" id="admin_auditSearch" placeholder="Search actor or details" oninput="renderAuditLogsDebounced()">
             <select id="admin_auditPortalFilter" onchange="renderAuditLogs()">
               <option value="">All portals</option>
               <option value="admin">Admin</option>
@@ -10753,7 +10774,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2 id="jcfd_appsHeading">Applications</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_appSearch" placeholder="Search promoter/applicant, application #, or tracking code" aria-label="Search promoter/applicant, application #, or tracking code" oninput="jcfd_renderApplications()">
+              <input type="text" id="jcfd_appSearch" placeholder="Search promoter/applicant, application #, or tracking code" aria-label="Search promoter/applicant, application #, or tracking code" oninput="jcfd_renderApplicationsDebounced()">
             </div>
           </div>
         </div>
@@ -10814,7 +10835,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2>Watch List</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_watchlistSearch" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="jcfd_renderWatchlist()">
+              <input type="text" id="jcfd_watchlistSearch" placeholder="Search by name or TRN" aria-label="Search watchlist by name or TRN" oninput="jcfd_renderWatchlistDebounced()">
               <select id="jcfd_watchlistTypeFilter" onchange="jcfd_renderWatchlist()">
                 <option value="">All types</option>
                 <option>Promoter</option>
@@ -10897,7 +10918,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="panel-head">
             <h2>Issued Permits</h2>
             <div class="panel-tools">
-              <input type="text" id="jcfd_permitSearch" placeholder="Search permit #, promoter, or app #" aria-label="Search permits by permit #, promoter, or application #" oninput="jcfd_renderPermitsList()">
+              <input type="text" id="jcfd_permitSearch" placeholder="Search permit #, promoter, or app #" aria-label="Search permits by permit #, promoter, or application #" oninput="jcfd_renderPermitsListDebounced()">
             </div>
           </div>
           <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Every Noise Abatement Permit issued by your division, with a link back to its source application.</p>
@@ -13456,6 +13477,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
+  // Debounced wrapper for the search box's oninput — jcfd_renderApplications()
+  // re-fetches the whole jurisdiction's applications from the backend on
+  // every call.
+  window.jcfd_renderApplicationsDebounced = window.atdDebounce(jcfd_renderApplications, 300);
 
   // ---- 5-minute platform auto-refresh (JCF Division portal) ----
   // Both of these already read live from storage on every call (no cached
@@ -15639,6 +15664,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     body.innerHTML = rows.join('');
   }
   window.jcfd_renderWatchlist = jcfd_renderWatchlist;
+  // Debounced wrapper for the search box's oninput — jcfd_renderWatchlist()
+  // is the worst offender of this class of bug: it re-fetches both watch
+  // lists AND makes one more network call per row to cross-check each
+  // entry's Municipal flag status, all before it can even filter by what
+  // was typed.
+  window.jcfd_renderWatchlistDebounced = window.atdDebounce(jcfd_renderWatchlist, 300);
 
   // Read-only view for a TRN that only appears on the Municipal
   // Corporation's watchlist (no JCF Watch List record exists for it yet) —
@@ -15861,6 +15892,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }).join('');
   }
   window.jcfd_renderPermitsList = jcfd_renderPermitsList;
+  // Debounced wrapper for the search box's oninput — same
+  // jcfd_findJurisdictionApplications() full-jurisdiction re-fetch as
+  // jcfd_renderApplications() above.
+  window.jcfd_renderPermitsListDebounced = window.atdDebounce(jcfd_renderPermitsList, 300);
 
   // ==================== Permit Signature ====================
   let jcfdCachedSignature = null;
@@ -28324,6 +28359,10 @@ window.renderPermitsList = renderPermitsList;
 window.renderUsers = renderUsers;
 window.renderVenues = renderVenues;
 window.renderWatchlist = renderWatchlist;
+// Debounced wrapper for the search box's oninput — see atdDebounce's own
+// comment for why the raw (network-backed) renderWatchlist can't be called
+// directly on every keystroke.
+window.renderWatchlistDebounced = window.atdDebounce(renderWatchlist, 300);
 window.requestAdditionalPayment = requestAdditionalPayment;
 window.resetUserPassword = resetUserPassword;
 window.saveAdItem = saveAdItem;
@@ -31427,6 +31466,10 @@ window.adminResetUserPassword = adminResetUserPassword;
 window.adminToggleUserStatus = adminToggleUserStatus;
 window.adminDeleteUser = adminDeleteUser;
 window.renderAuditLogs = renderAuditLogs;
+// Debounced wrapper for the search box's oninput — renderAuditLogs()
+// re-fetches and re-parses EVERY audit log entry ever recorded on each
+// call, so this matters even more here than on the other search boxes.
+window.renderAuditLogsDebounced = window.atdDebounce(renderAuditLogs, 300);
 window.admin_exportAuditCsv = admin_exportAuditCsv;
 window.admin_exportApplicationsCsv = admin_exportApplicationsCsv;
 window.admin_exportAgenciesCsv = admin_exportAgenciesCsv;
