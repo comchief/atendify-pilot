@@ -3632,6 +3632,45 @@
     } catch (e) { window.atdShowDebugError('atdPruneSessionLog()', e); }
   }
 
+  // Retention for the read-side half of the audit log (application.viewed /
+  // document.viewed / watchlist.viewed -- anything ending in '.viewed'):
+  // kept for 90 days, then pruned. Login/create/update/delete entries are
+  // deliberately left alone -- those are comparatively rare and exactly the
+  // ones a real investigation is most likely to need kept around; it's
+  // specifically "an officer opened this filing" rows, generated every time
+  // anyone looks at anything, that would otherwise grow unbounded. Same
+  // direct client.from(TABLE) bulk-delete shape as atdPruneSessionLog just
+  // above (rather than N individual storage.delete() calls, since a stale
+  // batch here can be large), which is also why this lives here rather than
+  // next to atdLogAudit/atdLoadAuditLogs below -- this is the one script
+  // block with direct access to `client`/`TABLE`. Exposed on window so the
+  // Admin portal's own (separate-scope) renderAuditLogs() can call it.
+  // Best-effort, fire-and-forget -- called from the Admin Audit Logs page
+  // rather than on every login, so it doesn't add scan latency to a hot
+  // path that isn't the one place a human is actually looking at this data.
+  var READ_AUDIT_RETENTION_DAYS = 90;
+  window.atdPruneReadAuditLog = async function(){
+    if(!client) return;
+    try{
+      var res = await atdWithClockSkewRetry(function(){
+        return client.from(TABLE).select('key, value').like('key', 'auditLog:%');
+      });
+      if(res.error){ window.atdShowDebugError('atdPruneReadAuditLog()', res.error); return; }
+      var rows = res.data || [];
+      var cutoff = Date.now() - READ_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      var staleKeys = rows.filter(function(r){
+        var v = r.value || {};
+        return typeof v.action === 'string' && v.action.endsWith('.viewed')
+          && v.ts && new Date(v.ts).getTime() < cutoff;
+      }).map(function(r){ return r.key; });
+      if(!staleKeys.length) return;
+      var delRes = await atdWithClockSkewRetry(function(){
+        return client.from(TABLE).delete().in('key', staleKeys);
+      });
+      if(delRes.error) window.atdShowDebugError('atdPruneReadAuditLog() delete', delRes.error);
+    } catch(e){ window.atdShowDebugError('atdPruneReadAuditLog()', e); }
+  };
+
   var ATDBackend = {
     isConfigured: function () { return !!client; },
 
@@ -32431,6 +32470,13 @@ function admin_downloadCsv(filename, headers, rows){
 async function renderAuditLogs(){
   const body = document.getElementById('admin_auditLogBody');
   if(!body) return;
+  // Fire-and-forget housekeeping: prunes read-audit entries (application.
+  // viewed/document.viewed/watchlist.viewed) older than 90 days every time
+  // an Admin opens this page -- see atdPruneReadAuditLog()'s own comment
+  // for why login/create/update/delete entries are untouched and why this
+  // runs here rather than on every sign-in. Not awaited, so it never delays
+  // the table below from rendering with whatever's already loaded.
+  if(window.atdPruneReadAuditLog) window.atdPruneReadAuditLog();
   const logs = await window.atdLoadAuditLogs();
 
   const actionFilterEl = document.getElementById('admin_auditActionFilter');
