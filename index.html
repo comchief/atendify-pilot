@@ -819,7 +819,7 @@
   .pdg-label{ font-size: 10.5px; font-weight:700; color:#666; text-align:center; margin-top:3px; letter-spacing:0.03em; }
   .permit-doc-body{ font-size: 14px; line-height:1.75; margin: 0 0 16px; }
   .permit-doc-signed{ margin-top: 22px; font-size:14px; }
-  .permit-doc-sign-line{ display:inline-block; border-bottom:1px solid #1a1a1a; width:220px; margin: 0 6px; }
+  .permit-doc-sign-line{ display:inline-block; border-bottom:1px solid #1a1a1a; width:220px; margin: 0 6px; text-align:center; font-weight:600; }
   .permit-doc-sign-note{ font-size:11px; color:#666; }
   .permit-doc-signature{ margin-top: 26px; min-height: 40px; }
   .permit-doc-signature img{ max-height:50px; }
@@ -1819,7 +1819,7 @@
   .pdg-label{ font-size: 10.5px; font-weight:700; color:#666; text-align:center; margin-top:3px; letter-spacing:0.03em; }
   .permit-doc-body{ font-size: 14px; line-height:1.75; margin: 0 0 16px; }
   .permit-doc-signed{ margin-top: 22px; font-size:14px; }
-  .permit-doc-sign-line{ display:inline-block; border-bottom:1px solid #1a1a1a; width:220px; margin: 0 6px; }
+  .permit-doc-sign-line{ display:inline-block; border-bottom:1px solid #1a1a1a; width:220px; margin: 0 6px; text-align:center; font-weight:600; }
   .permit-doc-sign-note{ font-size:11px; color:#666; }
   .permit-doc-signature{ margin-top: 26px; min-height: 40px; }
   .permit-doc-signature img{ max-height:50px; }
@@ -22328,7 +22328,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
 
       <p class="permit-doc-body">This license may be revoked pursuant to regulations 6 &amp; 13 of the Places of Amusement Regulation 1999 or in the event of the licensed premises being altered in construction or layout without the approval of the Municipal Corporation.</p>
 
-      <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line"></span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
+      <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
       <div>On behalf of the <strong>${poa_escapeHtml(p.municipalityName)}.</strong></div>
 
       <div class="permit-doc-signature">
@@ -27845,7 +27845,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
 
       <p class="permit-doc-body">This license may be revoked pursuant to regulations 6 &amp; 13 of the Places of Amusement Regulation 1999 or in the event of the licensed premises being altered in construction or layout without the approval of the Municipal Corporation.</p>
 
-      <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line"></span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
+      <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line">${muni_escapeHtml(muni_formatLongDate(p.issuedDate))}</span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
       <div>On behalf of the <strong>${muni_escapeHtml(p.municipalityName)}.</strong></div>
 
       <div class="permit-doc-signature">
