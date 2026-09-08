@@ -11031,10 +11031,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="stat-grid" id="jcfd_statGrid"></div>
         <div class="panel" style="margin-top:20px;">
           <div class="panel-head"><h2>Recently Commented</h2></div>
+          <p style="font-size:12.5px; color:var(--text-muted); margin:-8px 0 12px;">Only applications commented on in the last 7 days.</p>
           <div style="overflow-x:auto;">
             <table>
               <thead><tr><th>App #</th><th>Event Name</th><th>Event Date</th><th>Status</th></tr></thead>
               <tbody id="jcfd_commentedBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Same Special Event / Annual split as the Applications page (see
+             jcfd_renderDashboardAppTables) -- a jurisdiction-wide recap
+             right on the Dashboard, not just applications someone commented
+             on. -->
+        <div class="panel" style="margin-top:20px;">
+          <div class="panel-head"><h3 style="font-size:15px; margin:0;">Special Event Applications</h3></div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>JCF Application #</th><th>Tracking Code</th><th>Promoter</th><th>Venue</th><th>Event Date</th><th>Assigned To</th><th>Status</th><th></th></tr></thead>
+              <tbody id="jcfd_dashboardSpecialBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:20px;">
+          <div class="panel-head"><h3 style="font-size:15px; margin:0;">Annual Applications</h3></div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>Premises</th><th>Status</th><th></th></tr></thead>
+              <tbody id="jcfd_dashboardAnnualBody"></tbody>
             </table>
           </div>
         </div>
@@ -11546,6 +11570,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="modal-actions">
       <button class="btn" onclick="jcfd_closePermitViewModal()">Close</button>
       <button class="btn btn-primary" onclick="jcfd_printIssuedPermitFromModal()">🖨 Print permit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Activity Timeline Modal (Police Chief) — mirrors the Municipal
+     Officer's own Activity Timeline card/modal (see muni_buildApplicationTimeline/
+     openActivityTimelineModal in that portal's own script) so the Chief gets
+     the same complete, vertical timeline of an application's activity, built
+     from jcfd_buildApplicationTimeline below. Own modal ids/functions since
+     that muni modal lives inside #shell-muni and is unreachable while
+     #shell-jcfd is the active shell. ===== -->
+<div class="modal-overlay hidden" id="jcfd_activityTimelineModal">
+  <div class="modal-box modal-wide">
+    <h3>Activity Timeline</h3>
+    <p class="modal-sub" id="jcfd_activityTimelineModalSub">—</p>
+    <div id="jcfd_activityTimelineModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeActivityTimelineModal()">Close</button>
     </div>
   </div>
 </div>
@@ -13775,7 +13817,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     jcfd_renderDashboardNotices(visible);
     jcfd_renderCommentedTable(visible);
-    jcfd_loadNotifications();
+    // Awaited (moved ahead of the two new tables below) so their own
+    // "needs attention" red dot -- see jcfd_renderApplications' identical
+    // pattern -- reflects notifications current as of this render, not
+    // whatever was left over from the last one.
+    await jcfd_loadNotifications();
+    const attentionAppNumbers = new Set(
+      jcfdNotifPersisted.filter(n => !n.read && n.appNumber).map(n => n.appNumber)
+    );
+    jcfd_renderDashboardAppTables(visible, attentionAppNumbers);
     if(refreshBtn){ refreshBtn.disabled = false; refreshBtn.textContent = '↻ Refresh'; }
   }
   // Exposed so the Dashboard page's own "↻ Refresh" button (plain inline
@@ -13997,12 +14047,25 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
   });
 
+  // Only an application with a comment posted in the last 7 days belongs
+  // here -- otherwise this table just accumulated every commented
+  // application ever, forever, which stopped being a useful "needs a look"
+  // list once a jurisdiction had any history. A malformed/missing comment
+  // date is treated as NOT recent (excluded) rather than crashing the sort.
+  function jcfd_hasRecentComment(rec){
+    const comments = rec.comments || [];
+    if(!comments.length) return false;
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    return comments.some(c => c && c.date && new Date(c.date) >= oneWeekAgo);
+  }
+
   function jcfd_renderCommentedTable(visible){
     const body = document.getElementById('jcfd_commentedBody');
     if(!body) return;
-    const commented = visible.filter(a => (a.rec.comments || []).length > 0);
+    const commented = visible.filter(a => jcfd_hasRecentComment(a.rec));
     if(!commented.length){
-      body.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No commented applications yet.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No applications commented on in the last 7 days.</td></tr>`;
       return;
     }
     body.innerHTML = commented.map(a => {
@@ -14014,6 +14077,62 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td><span class="badge badge-green">Commented</span></td>
       </tr>`;
     }).join('');
+  }
+
+  // Shared row templates for the two per-variant application tables --
+  // used by both the Applications page (jcfd_renderApplications) and the
+  // Dashboard's own recap tables (jcfd_renderDashboardAppTables) below, so
+  // the two never drift out of sync. `rowDot` is the same "needs attention"
+  // marker function jcfd_renderApplications already built (see its own
+  // comment) -- pass a no-op (() => '') to render without it.
+  function jcfd_specialAppRowHtml(a, rowDot){
+    const eo = a.rec.eventOverview || {};
+    const vi = a.rec.venueInfo || {};
+    return `<tr>
+      <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+      <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
+      <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
+      <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
+      <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
+      <td>${jcfd_statusBadge(a.rec)}</td>
+      <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+    </tr>`;
+  }
+  function jcfd_annualAppRowHtml(a, rowDot){
+    const ai = a.rec.applicantInfo || {};
+    const pi = a.rec.premisesInfo || {};
+    return `<tr>
+      <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+      <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
+      <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
+      <td>${jcfd_statusBadge(a.rec)}</td>
+      <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+    </tr>`;
+  }
+
+  // Dashboard recap of the same two Special Event / Annual tables the
+  // Applications page shows (jcfd_renderApplications) -- the CEO/Chief-
+  // equivalent Municipal dashboard shows recent applications too, and the
+  // Dashboard's own "Recently Commented" table only ever surfaced
+  // commented-on applications, not the full jurisdiction picture. Placed
+  // directly below Recently Commented in the Dashboard page markup.
+  function jcfd_renderDashboardAppTables(visible, attentionAppNumbers){
+    const specialBody = document.getElementById('jcfd_dashboardSpecialBody');
+    const annualBody = document.getElementById('jcfd_dashboardAnnualBody');
+    if(!specialBody || !annualBody) return;
+    const rowDot = appNumber => (attentionAppNumbers && attentionAppNumbers.has(appNumber)) ? `<span class="notif-row-dot" title="Needs attention"></span>` : '';
+    const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
+    const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
+
+    specialBody.innerHTML = specialVisible.length
+      ? specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('')
+      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No Special Event applications found.</td></tr>`;
+
+    annualBody.innerHTML = annualVisible.length
+      ? annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('')
+      : `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No Annual applications found.</td></tr>`;
   }
 
   async function jcfd_renderApplications(){
@@ -14059,20 +14178,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}
       </td></tr>`;
     } else {
-      specialBody.innerHTML = specialVisible.map(a => {
-        const eo = a.rec.eventOverview || {};
-        const vi = a.rec.venueInfo || {};
-        return `<tr>
-          <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
-          <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
-          <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
-          <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
-          <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
-          <td>${jcfd_statusBadge(a.rec)}</td>
-          <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
-        </tr>`;
-      }).join('');
+      specialBody.innerHTML = specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('');
     }
 
     if(!annualVisible.length){
@@ -14080,18 +14186,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}
       </td></tr>`;
     } else {
-      annualBody.innerHTML = annualVisible.map(a => {
-        const ai = a.rec.applicantInfo || {};
-        const pi = a.rec.premisesInfo || {};
-        return `<tr>
-          <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
-          <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
-          <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
-          <td>${jcfd_statusBadge(a.rec)}</td>
-          <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
-        </tr>`;
-      }).join('');
+      annualBody.innerHTML = annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('');
     }
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
@@ -14868,6 +14963,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     html += `</div>`;
 
+    // Activity Timeline card (Police Chief only) -- mirrors the Municipal
+    // Officer portal's own CEO-only Activity Timeline card (see that
+    // portal's renderAppDetail, right before its own Review & Recommendation
+    // card). Built from jcfd_buildApplicationTimeline, which also pulls in
+    // the linked Places of Amusement application's own milestones when one
+    // exists, the same way the Municipal side's timeline pulls in this JCF
+    // filing's milestones.
+    if(jcfdCurrentUser.role === JCFD_ROLE_CHIEF){
+      html += `<div class="official-card"><h4>Activity Timeline</h4>
+        <p class="col-desc">See a complete, vertical timeline of every stage this application has passed through — from submission to the final decision — including the linked Places of Amusement application, if any.</p>
+        <div class="action-btn-row"><button class="btn btn-sm" onclick="jcfd_openActivityTimelineModal()">View Activity Timeline</button></div>
+      </div>`;
+    }
+
     // Recommendation card. Only a Supervisor picks a recommendation — once
     // picked it locks (color-coded badge, green/amber/red) and the picker is
     // removed; a Supervisor can only "request" a withdrawal, which the Chief
@@ -15067,6 +15176,96 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_renderApplicationDetail();
   }
   window.jcfd_addComment = jcfd_addComment;
+
+  // ==================== Activity Timeline (Police Chief) ====================
+  // Own copy of the Municipal Officer portal's muni_timelineDateTime/
+  // muni_buildApplicationTimeline/muni_renderApplicationTimeline (that
+  // portal is a separate, non-exposed scope -- see this file's per-scope-
+  // helper convention) built from this JCF filing's own fields, plus the
+  // linked Places of Amusement application's milestones when one exists
+  // (mirroring how the Municipal side's own timeline pulls in THIS filing's
+  // milestones -- see muni_buildApplicationTimeline's "Linked JCF Noise
+  // Abatement filing" section).
+  function jcfd_timelineDateTime(iso){
+    if(!iso) return { date: '—', time: '' };
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return { date: String(iso), time: '' };
+    const hasTime = /T\d{2}:\d{2}/.test(String(iso));
+    return {
+      date: d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+      time: hasTime ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''
+    };
+  }
+
+  function jcfd_buildApplicationTimeline(rec, poaRec){
+    const entries = [];
+    function add(iso, office, description){
+      if(!iso) return;
+      entries.push({ iso, office, description });
+    }
+
+    // ---- JCF Division side ----
+    add(rec.submittedDate, 'Applicant', `JCF application ${acctEscapeHtml(rec.jcfAppNumber || '')} submitted.`);
+    add(rec.assignedAt, 'JCF Division', `Assigned to ${acctEscapeHtml(rec.assignedOfficerName || 'an officer')}.`);
+    add(rec.recommendedAt, 'JCF Division', `Recommendation recorded: ${acctEscapeHtml(rec.recommendation || '—')}${rec.recommendedBy ? ' (by ' + acctEscapeHtml(rec.recommendedBy) + ')' : ''}.`);
+    add(rec.recommendationWithdrawalRequestedDate, 'JCF Division', `Withdrawal of recommendation requested${rec.recommendationWithdrawalRequestedBy ? ' by ' + acctEscapeHtml(rec.recommendationWithdrawalRequestedBy) : ''}.`);
+    add(rec.recommendationChiefRejectedDate, 'JCF Division (Chief)', `Recommendation rejected by the Chief${rec.recommendationChiefRejectionReason ? ': ' + acctEscapeHtml(rec.recommendationChiefRejectionReason) : ''}.`);
+    add(rec.decidedAt, 'JCF Division (Chief)', `Final decision: ${acctEscapeHtml(rec.status || '')}${rec.finalDecision ? ' — ' + acctEscapeHtml(rec.finalDecision) : ''}.`);
+    (rec.comments || []).forEach(c => add(c.date, `JCF Division${c.role ? ' (' + acctEscapeHtml(c.role) + ')' : ''}`, `Comment by ${acctEscapeHtml(c.by || 'an officer')}: "${acctEscapeHtml(c.text || '')}"`));
+
+    // ---- Linked Places of Amusement application, if any ----
+    if(poaRec){
+      add(poaRec.submittedDate, 'Applicant', `Linked Places of Amusement application ${acctEscapeHtml(poaRec.appNumber || '')} submitted.`);
+      add(poaRec.paymentVerifiedAt, 'Municipal Corporation', `License fee payment verified${poaRec.paymentReceiptNumber ? ' (receipt #' + acctEscapeHtml(poaRec.paymentReceiptNumber) + ')' : ''}.`);
+      add(poaRec.venueApprovedAt, 'Municipal Corporation', 'Venue inspection/approval recorded.');
+      add(poaRec.recommendationMadeAt, 'Municipal Corporation', `Recommendation recorded: ${acctEscapeHtml(poaRec.recommendation || '—')}${poaRec.recommendedBy ? ' (by ' + acctEscapeHtml(poaRec.recommendedBy) + ')' : ''}.`);
+      add(poaRec.recommendationCeoRejectedDate, 'Municipal Corporation (CEO)', `Recommendation rejected by the CEO${poaRec.recommendationCeoRejectionReason ? ': ' + acctEscapeHtml(poaRec.recommendationCeoRejectionReason) : ''}.`);
+      add(poaRec.decidedAt, 'Municipal Corporation (CEO)', `Final decision: ${acctEscapeHtml(poaRec.status || '')}${poaRec.finalDecision ? ' — ' + acctEscapeHtml(poaRec.finalDecision) : ''}.`);
+    }
+
+    entries.sort((x, y) => new Date(x.iso) - new Date(y.iso));
+    return entries;
+  }
+
+  function jcfd_renderApplicationTimeline(rec, poaRec){
+    const entries = jcfd_buildApplicationTimeline(rec, poaRec);
+    if(!entries.length){
+      return `<p class="col-desc">No timestamped activity is on file for this application yet.</p>`;
+    }
+    return `<div class="activity-timeline">` + entries.map(e => {
+      const when = jcfd_timelineDateTime(e.iso);
+      return `
+        <div class="at-item">
+          <div class="at-rail"><div class="at-dot"></div><div class="at-line"></div></div>
+          <div class="at-body">
+            <div class="at-when">${acctEscapeHtml(when.date)}${when.time ? ' · ' + acctEscapeHtml(when.time) : ''}</div>
+            <div class="at-office">${acctEscapeHtml(e.office)}</div>
+            <div class="at-desc">${e.description}</div>
+          </div>
+        </div>`;
+    }).join('') + `</div>`;
+  }
+
+  async function jcfd_openActivityTimelineModal(){
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    let poaRec = null;
+    if(rec.poaAppNumber && window.storage){
+      try{
+        const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+      } catch(e){ /* leave poaRec null -- timeline still shows the JCF side */ }
+    }
+    document.getElementById('jcfd_activityTimelineModalSub').textContent = `Application #${rec.jcfAppNumber || ''}`;
+    document.getElementById('jcfd_activityTimelineModalBody').innerHTML = jcfd_renderApplicationTimeline(rec, poaRec);
+    document.getElementById('jcfd_activityTimelineModal').classList.remove('hidden');
+  }
+  window.jcfd_openActivityTimelineModal = jcfd_openActivityTimelineModal;
+
+  function jcfd_closeActivityTimelineModal(){
+    document.getElementById('jcfd_activityTimelineModal').classList.add('hidden');
+  }
+  window.jcfd_closeActivityTimelineModal = jcfd_closeActivityTimelineModal;
 
   async function jcfd_saveRecommendation(){
     const rec = await jcfd_getActiveApp();
