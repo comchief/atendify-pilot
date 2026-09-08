@@ -3641,7 +3641,26 @@
         var isApplicantNotification = key.indexOf('applicantNotification:') === 0;
         var useInsertOnly = isAuditLog || isApplicantNotification;
         var useUpdateOnly = false;
-        if (!useInsertOnly && isWriteOnceAnonPrefix) {
+        // Fix #50 follow-up: fix50_adlocations_rls.sql's own policies check
+        // out fine (all three confirmed present in pg_policies) and a CEO's
+        // very first "+ Add location" appears to work, but every location
+        // vanishes on a hard refresh — including the first one. That means
+        // the plain upsert() below (INSERT ... ON CONFLICT DO UPDATE) isn't
+        // actually persisting, even though it reports no error, which
+        // matches this exact file's own already-documented upsert() quirks
+        // (see isAuditLog/isWriteOnceAnonPrefix's comments above — upsert()
+        // has repeatedly proven unreliable under this schema regardless of
+        // which policies exist, not just for the specific
+        // WITH-CHECK-asymmetry case those two describe). adLocations is
+        // ALWAYS written by an authenticated 'muni' session — never an
+        // anonymous one — so unlike isWriteOnceAnonPrefix above, there's no
+        // need to check who's signed in first: route every write straight
+        // through the same update-with-insert-fallback path already proven
+        // to work for application/jcfApplication, which never invokes
+        // upsert()'s ON CONFLICT branch at all.
+        var isAdLocations = key.indexOf('adLocations:') === 0;
+        if (isAdLocations) useUpdateOnly = true;
+        if (!useInsertOnly && !useUpdateOnly && isWriteOnceAnonPrefix) {
           var sessionRes = await client.auth.getSession();
           if (!sessionRes || !sessionRes.data || !sessionRes.data.session) {
             // getSession() reads the locally-cached session and can come
