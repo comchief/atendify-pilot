@@ -14501,31 +14501,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     html += `</div>`;
 
-    // Documents card — previously missing entirely from this Annual view,
-    // so an Officer had no way to see whether the applicant's Company Logo
-    // or Business Registration Document (both uploaded on the linked POA
-    // application's Main Menu, not on this filing) had ever been uploaded.
-    // JAMMS/JCAP are grouped here too (required documents, uploaded via the
-    // applicant's own Main Menu Noise Abatement tab — see
-    // mmAnnualOtherLicenseWidget/renderMmNoise) rather than left under
-    // Other Licenses & Approvals below with the four genuinely optional
-    // licences — see JCFANNUAL_OTHER_LICENSE_KEYS's own comment on why
-    // they're no longer collected as an optional checkbox at submission.
-    // Still the SAME otherLicense_jamms/otherLicense_jacap review kind as
-    // before (jcfd_updateDocStatus writes back to rec.otherLicenses.jamms/
-    // .jacap either way) — only where they're displayed changes; the Other
-    // Licenses & Approvals card below excludes these two keys so they don't
-    // render twice.
-    const { logo, bizReg } = await jcfd_getLivePoaFixedDocs(rec);
-    html += `<div class="panel"><div class="detail-section-title">Documents</div>`;
-    if(isCompany){
-      html += jcfd_detailRowDocViewOnly('Company Logo', logo && logo.fileName, logo && logo.status, 'logo');
-    }
-    html += jcfd_detailRowDocViewOnly('Business Registration Document', bizReg && bizReg.fileName, bizReg && bizReg.status, 'bizRegistration');
-    html += jcfd_detailRowDoc('JAMMS Approval', ol.jamms && ol.jamms.fileName, ol.jamms && ol.jamms.status, 'otherLicense_jamms');
-    html += jcfd_detailRowDoc('JCAP Approval', ol.jacap && ol.jacap.fileName, ol.jacap && ol.jacap.status, 'otherLicense_jacap');
-    html += `</div>`;
-
     html += `<div class="panel"><div class="detail-section-title">Premises Information</div>`;
     html += jcfd_detailRow('Type of business', pi.businessType);
     html += jcfd_detailRow('Registration of use', pi.registrationOfUse);
@@ -14569,6 +14544,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(ci.existingNotices === 'Yes'){
       html += jcfd_detailRowDoc('Documentation', ci.noiseNoticeFileName, ci.noiseNoticeStatus, 'noiseNotice');
     }
+    html += `</div>`;
+
+    // Documents card — placed here (below Community Impact, above Other
+    // Licenses & Approvals) per layout request. Previously missing entirely
+    // from this Annual view, so an Officer had no way to see whether the
+    // applicant's Company Logo or Business Registration Document (both
+    // uploaded on the linked POA application's Main Menu, not on this
+    // filing) had ever been uploaded. JAMMS/JCAP are grouped here too
+    // (required documents, uploaded via the applicant's own Main Menu Noise
+    // Abatement tab — see mmAnnualOtherLicenseWidget/renderMmNoise) rather
+    // than left under Other Licenses & Approvals below with the four
+    // genuinely optional licences — see JCFANNUAL_OTHER_LICENSE_KEYS's own
+    // comment on why they're no longer collected as an optional checkbox at
+    // submission. Still the SAME otherLicense_jamms/otherLicense_jacap
+    // review kind as before (jcfd_updateDocStatus writes back to
+    // rec.otherLicenses.jamms/.jacap either way) — only where they're
+    // displayed changes; the Other Licenses & Approvals card below excludes
+    // these two keys so they don't render twice.
+    const { logo, bizReg } = await jcfd_getLivePoaFixedDocs(rec);
+    html += `<div class="panel"><div class="detail-section-title">Documents</div>`;
+    if(isCompany){
+      html += jcfd_detailRowDocViewOnly('Company Logo', logo && logo.fileName, logo && logo.status, 'logo');
+    }
+    html += jcfd_detailRowDocViewOnly('Business Registration Document', bizReg && bizReg.fileName, bizReg && bizReg.status, 'bizRegistration');
+    html += jcfd_detailRowDoc('JAMMS Approval', ol.jamms && ol.jamms.fileName, ol.jamms && ol.jamms.status, 'otherLicense_jamms');
+    html += jcfd_detailRowDoc('JCAP Approval', ol.jacap && ol.jacap.fileName, ol.jacap && ol.jacap.status, 'otherLicense_jacap');
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Other Licenses &amp; Approvals</div>`;
