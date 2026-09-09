@@ -1341,8 +1341,25 @@
     display:flex; align-items:center; justify-content:space-between;
     padding:14px 16px; border-bottom:1px solid var(--border);
     font-size:14px; font-weight:700;
-    position:sticky; top:0; background:var(--bg);
+    position:sticky; top:0; background:var(--bg); color:var(--text);
   }
+  /* The Applicant Account portal's bell/dropdown lives inside
+     .suite-back-bar (a dark bar meant to make ITS OWN "Back to public
+     site"/"My Account" buttons readable as white-on-dark). That bar's
+     ".suite-back-bar button" rule has higher specificity than plain .btn/
+     .icon-btn, so it was also winning for any button nested anywhere in the
+     bar's DOM subtree -- including "Mark all read" and each notification's
+     delete "x", both of which actually render inside the dropdown's own
+     WHITE panel elsewhere on screen, not against the dark bar. Left alone
+     that's white text/border on a white panel -- invisible. These two
+     selectors just need to out-specificity that rule (two classes beats one
+     class + one element) so buttons inside the dropdown always use the
+     dropdown's own light-panel colors, regardless of which bar they happen
+     to be nested under in the DOM. Harmless no-op for the Municipal/JCF
+     bells, which already sit in a light topbar with no such override to
+     begin with. */
+  .notif-panel .btn{ color:var(--text); border-color:var(--border); background:transparent; }
+  .notif-panel .icon-btn{ color:var(--text-muted); border-color:var(--border); background:transparent; }
   .notif-panel-body{ padding:4px 0; }
   .notif-item{
     display:flex; flex-direction:column; gap:3px;
@@ -1352,8 +1369,21 @@
   .notif-item:last-child{ border-bottom:none; }
   .notif-item:hover{ background:var(--surface); }
   .notif-item.unread{ background:var(--blue-tint); }
-  .notif-item .notif-msg{ color:var(--text); line-height:1.4; }
-  .notif-item .notif-meta{ font-size:11.5px; color:var(--text-muted); display:flex; justify-content:space-between; gap:8px; }
+  /* One generic icon per notification (same glyph as the bell trigger
+     button itself) rather than plain unadorned text -- shared across the
+     Municipal, JCF, and Applicant Account notif panels, which all already
+     share this same .notif-item/.notif-panel-body markup. */
+  .notif-row{ display:flex; align-items:flex-start; gap:10px; }
+  .notif-icon{
+    flex-shrink:0; width:26px; height:26px; border-radius:50%;
+    background:var(--blue-tint); color:var(--blue);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .notif-item.unread .notif-icon{ background:var(--blue); color:#fff; }
+  .notif-icon svg{ width:14px; height:14px; }
+  .notif-item .notif-msg{ flex:1; min-width:0; color:var(--text); line-height:1.4; }
+  .notif-item .notif-meta{ font-size:11.5px; color:var(--text-muted); display:flex; justify-content:space-between; gap:8px; padding-left:36px; }
+  .notif-delete-btn{ flex-shrink:0; margin-left:auto; }
   .notif-empty{ padding:28px 16px; text-align:center; color:var(--text-muted); font-size:13px; }
   /* Generic "needs attention" row indicator -- any applications-list row
      (JCF or Municipal, and any future agency portal built the same way)
@@ -2722,6 +2752,13 @@
   }
   .suite-back-bar button:hover{ background: rgba(255,255,255,0.12); }
   .suite-back-label{ opacity:0.75; }
+  /* .notif-bell defaults to color:var(--text) (a dark color), correct for
+     the Municipal/JCF bells sitting in a light topbar -- but the Applicant
+     Account portal's bell sits right here in this dark bar, where that same
+     dark color renders the bell glyph invisible against it (only the
+     red/white unread badge, which hardcodes its own colors, stayed
+     visible). Force white specifically within this dark bar. */
+  .suite-back-bar .notif-bell{ color:#fff; }
 
   #staffHub{
     min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -3995,10 +4032,30 @@
       // live site: confusing and unprofessional for a real government
       // pilot, even though nothing was actually broken.
       var sessionRes = await client.auth.getSession();
-      if (!sessionRes || !sessionRes.data || !sessionRes.data.session) return null;
+      if (!sessionRes || !sessionRes.data || !sessionRes.data.session) {
+        // This is the single most common, completely normal outcome (every
+        // anonymous visitor hits it), so it's deliberately NOT reported via
+        // atdShowDebugError -- that would spam the debug panel with a
+        // non-error on every guest page load, the exact thing the comment
+        // above this function already explains was removed once before.
+        // It's still worth being able to tell apart from the two silent-
+        // failure cases below when actively chasing a "refresh logged me
+        // out" report (2026-09 pilot feedback), so it gets a plain console
+        // line, gated the same way as everything else behind ?debug=1.
+        if (window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): no active Supabase session (expected for a signed-out visitor).');
+        return null;
+      }
       var u = await client.auth.getUser();
       if (u.error) window.atdShowDebugError('auth.getUser()', u.error);
-      if (!u.data || !u.data.user) return null;
+      if (!u.data || !u.data.user) {
+        // A session existed a moment ago (checked above) but getUser() came
+        // back with no user and, notably, no error either -- this and the
+        // profiles-lookup case below are the two ways this function can
+        // silently return null despite a session actually existing, neither
+        // of which the existing error handling above would ever surface.
+        if (window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): a session exists but auth.getUser() returned no user and no error.');
+        return null;
+      }
       // Right after signIn() is exactly when a freshly-issued JWT is most
       // likely to trip the PGRST303 clock-skew quirk (see the comment above
       // ATDBackend), so this lookup gets the same retry-once treatment.
@@ -4006,6 +4063,7 @@
         return client.from('profiles').select('*').eq('id', u.data.user.id).maybeSingle();
       });
       if (res.error) window.atdShowDebugError('getProfile() profiles select', res.error);
+      if (!res.error && !res.data && window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): profiles select for user id ' + u.data.user.id + ' returned no row and no error (RLS blocking it, or the row genuinely does not exist).');
       return res.data || null;
     },
 
@@ -12385,17 +12443,25 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // falls through to the normal logged-out landing page exactly as before
   // this existed.
   async function acct_tryRestoreSession(profile){
+    // Every early return below is a genuine "why didn't this restore"
+    // candidate that the caller's own restored===false log can't tell apart
+    // on its own -- each gets its own line so a single ?debug=1 + refresh
+    // pins down exactly which one fired, instead of needing another round
+    // of back-and-forth to add logging after the fact.
+    const dbg = (msg) => { if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] acct_tryRestoreSession: ' + msg); };
     try{
-      if(!window.storage) return false;
+      if(!window.storage){ dbg('window.storage is not available.'); return false; }
       const email = String((profile && profile.email) || '').toLowerCase();
-      if(!email) return false;
+      if(!email){ dbg('profile had no usable email.'); return false; }
       const result = await window.storage.get('accountUser:' + email, true);
-      if(!result || !result.value) return false;
+      if(!result || !result.value){ dbg('no accountUser: record found for ' + JSON.stringify(email) + ' (storage.get returned nothing).'); return false; }
       acct_currentUser = JSON.parse(result.value);
       showHub('account');
       acct_showLoggedInUI();
+      dbg('restored ' + JSON.stringify(email) + ' successfully.');
       return true;
     }catch(e){
+      dbg('threw: ' + (e && e.message || e));
       return false;
     }
   }
@@ -13518,8 +13584,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     body.innerHTML = acctNotifItems.length ? acctNotifItems.map(n => `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="acct_openNotification(${JSON.stringify(n.id)})">
-        <div class="notif-msg">${acctEscapeHtml(n.message)}
-          <button class="icon-btn" title="Delete" style="float:right;" onclick="event.stopPropagation(); acct_deleteNotification(${JSON.stringify(n.id)})">&times;</button>
+        <div class="notif-row">
+          <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+          <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
+          <button class="icon-btn notif-delete-btn" title="Delete" onclick="event.stopPropagation(); acct_deleteNotification(${JSON.stringify(n.id)})">&times;</button>
         </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${acct_notifTimeAgo(n.createdAt)}</span></div>
       </div>
@@ -14504,7 +14572,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     const items = jcfdNotifPersisted.map(n => `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick='jcfd_notifGoToApp(${JSON.stringify(n.appNumber)}); jcfd_markNotificationRead(${JSON.stringify(n.id)})'>
-        <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
+        <div class="notif-row">
+          <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+          <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
+        </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${jcfd_notifTimeAgo(n.createdAt)}</span></div>
       </div>
     `);
@@ -30424,7 +30495,10 @@ function renderNotifBell(){
   notifBreaches.forEach(n=>{
     items.push(`
       <div class="notif-item unread" onclick='notifGoToApp(${JSON.stringify(n.appNumber)})'>
-        <div class="notif-msg"><span class="badge badge-red" style="margin-right:6px;">SLA</span>${muni_escapeHtml(n.message)}</div>
+        <div class="notif-row">
+          <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+          <div class="notif-msg"><span class="badge badge-red" style="margin-right:6px;">SLA</span>${muni_escapeHtml(n.message)}</div>
+        </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>Overdue</span></div>
       </div>
     `);
@@ -30432,7 +30506,10 @@ function renderNotifBell(){
   notifPersisted.forEach(n=>{
     items.push(`
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick='notifGoToApp(${JSON.stringify(n.appNumber)}); markNotificationRead(${JSON.stringify(n.id)})'>
-        <div class="notif-msg">${muni_escapeHtml(n.message)}</div>
+        <div class="notif-row">
+          <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+          <div class="notif-msg">${muni_escapeHtml(n.message)}</div>
+        </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>${notifTimeAgo(n.createdAt)}</span></div>
       </div>
     `);
@@ -36798,6 +36875,7 @@ window.updateWordCount = updateWordCount;
     if(window.ATD_IS_VERIFY_ROUTE) return;
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
       profile = await window.ATDBackend.getProfile();
+      if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] atdBootstrapSessionRestore: getProfile() returned ' + (profile ? ('a profile with role=' + JSON.stringify(profile.role)) : 'null') + '.');
       if(profile){
         if(profile.role === 'muni' && window.muni_tryRestoreSession){
           restored = await window.muni_tryRestoreSession(profile);
@@ -36833,6 +36911,7 @@ window.updateWordCount = updateWordCount;
     // change needed — see acct_tryRestoreSession).
     if(!restored && profile && profile.role === 'poa' && window.acct_tryRestoreSession){
       restored = await window.acct_tryRestoreSession(profile);
+      if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] atdBootstrapSessionRestore: acct_tryRestoreSession(' + JSON.stringify(profile.email) + ') returned ' + restored + '.');
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
