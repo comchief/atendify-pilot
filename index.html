@@ -11018,7 +11018,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     </div>
 
     <div id="acct_paneSignup" class="acct-auth-pane">
-      <div class="field-group"><label for="acct_signupName">Full name</label><input type="text" id="acct_signupName"></div>
+      <div class="field-group">
+        <label>Account type</label>
+        <div class="radio-cards-row">
+          <label class="radio-card">
+            <input type="radio" name="acct_signupType" value="Individual" checked onchange="acct_signupTypeChanged()">
+            <div>
+              <div class="rc-title">Individual</div>
+              <div class="rc-desc">Applying as a person</div>
+            </div>
+          </label>
+          <label class="radio-card">
+            <input type="radio" name="acct_signupType" value="Company" onchange="acct_signupTypeChanged()">
+            <div>
+              <div class="rc-title">Company</div>
+              <div class="rc-desc">Applying as a company</div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="field-group"><label for="acct_signupName" id="acct_signupNameLabel">Full name</label><input type="text" id="acct_signupName"></div>
       <div class="field-group"><label for="acct_signupEmail">Email</label><input type="email" id="acct_signupEmail"></div>
       <div class="field-group"><label for="acct_signupPassword">Password</label><input type="password" id="acct_signupPassword"></div>
       <label class="consent-checkbox-row" for="acct_signupConsent">
@@ -12038,6 +12057,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   let acct_currentUser = null;
   let acct_pendingPhotoData = null;
   let acct_pendingPhotoName = '';
+  // Company-profile pending uploads/directors — same "held in memory until
+  // Save Profile is clicked" pattern as the Photo ID pair right above,
+  // mirrored for the Company Logo and Business Registration Document
+  // uploads, plus the Company Directors list (acctDirectors, mirroring the
+  // POA wizard's own module-level companyDirectors array).
+  let acct_pendingLogoData = null;
+  let acct_pendingLogoName = '';
+  let acct_pendingBizRegData = null;
+  let acct_pendingBizRegName = '';
+  let acctDirectors = [];
 
   window.AccountBridge = {
     getCurrentUser: function(){ return acct_currentUser; },
@@ -12050,6 +12079,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     clearDraft: async function(type){
       if(!acct_currentUser || !window.storage) return;
       try{ await window.storage.delete('accountDraft:' + acct_currentUser.email + ':' + type, true); } catch(e){ /* ignore */ }
+    },
+    // Best-effort sync of a Company applicant's directors back to their
+    // saved profile, called from the POA wizard's own createDirector()/
+    // removeDirector() (see poa_syncDirectorsToProfile there) so the next
+    // application starts from whatever roster was last edited, wherever it
+    // was edited — the Profile page's own Company Directors manager, or the
+    // wizard's. Silently does nothing for a guest (no acct_currentUser) or
+    // this offline preview (no window.storage), same guard as saveDraft.
+    updateDirectors: async function(directors){
+      if(!acct_currentUser || !window.storage) return;
+      acct_currentUser.directors = directors;
+      await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
+      // Keep the Profile page's own in-memory copy consistent too, in case
+      // it's already open in this same session (e.g. a second tab isn't
+      // possible in this SPA, but re-opening Profile without a reload is).
+      acctDirectors = directors;
     }
   };
 
@@ -12101,11 +12146,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_resendConfirmation = acct_resendConfirmation;
 
+  // Account type toggle (Individual vs Company) on the Sign Up pane — only
+  // relabels the one shared name field for now ("Full name" vs "Company
+  // name"); the rest of the Company-specific profile (logo, business
+  // registration, directors) is filled in afterward on the Profile page,
+  // same as every other profile field this app already asks for post-signup
+  // rather than up front. See acct_signup()'s own comment for why the value
+  // is stored into both profile.name and profile.companyName.
+  function acct_signupTypeChanged(){
+    const isCompany = document.querySelector('input[name="acct_signupType"]:checked')?.value === 'Company';
+    document.getElementById('acct_signupNameLabel').textContent = isCompany ? 'Company name' : 'Full name';
+  }
+  window.acct_signupTypeChanged = acct_signupTypeChanged;
+
   async function acct_signup(){
     const name = document.getElementById('acct_signupName').value.trim();
     const email = document.getElementById('acct_signupEmail').value.trim().toLowerCase();
     const password = document.getElementById('acct_signupPassword').value;
     const dataSharingConsent = document.getElementById('acct_signupConsent').checked;
+    const applicantType = document.querySelector('input[name="acct_signupType"]:checked')?.value === 'Company' ? 'Company' : 'Individual';
+    const isCompanySignup = applicantType === 'Company';
     const errorBox = document.getElementById('acct_signupError');
     errorBox.classList.add('hidden');
 
@@ -12150,11 +12210,28 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       signUpData = data;
     }
 
+    // applicantType mirrors the exact same Individual/Company distinction
+    // the POA wizard's own applicantType radio already has (see
+    // poa_applicantTypeChanged's twin listener) — just decided once at
+    // signup instead of re-picked on every application. It's a DEFAULT, not
+    // a lock: poa_applyProfileAutofill() below pre-selects this account's
+    // wizard toggle to match, but the applicant can still switch it per
+    // application same as always. companyName is stored alongside `name`
+    // (rather than replacing it) so "Welcome, {name}" and the sidebar
+    // continue to work unchanged for a Company account; companyLogo/
+    // businessReg/directors are left blank here and filled in later from
+    // the Profile page (acct_renderProfile()'s Company fields), same as
+    // every other optional profile field already works.
     const profile = {
       email, name,
       password: usingRealAuth ? undefined : password,
+      applicantType,
       trn: '', phone: '', dob: '', addr1: '', addr2: '', district: '', parish: '',
       photoIdFileName: '', photoIdFileData: null,
+      companyName: isCompanySignup ? name : '',
+      companyLogoFileName: '', companyLogoFileData: null,
+      businessRegFileName: '', businessRegFileData: null,
+      directors: [],
       avatarFileName: '', avatarFileData: null,
       dataSharingConsent: true,
       dataSharingConsentDate: new Date().toISOString(),
@@ -13017,29 +13094,76 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const p = acct_currentUser;
     acct_pendingPhotoData = p.photoIdFileData;
     acct_pendingPhotoName = p.photoIdFileName;
+    acct_pendingLogoData = p.companyLogoFileData || null;
+    acct_pendingLogoName = p.companyLogoFileName || '';
+    acct_pendingBizRegData = p.businessRegFileData || null;
+    acct_pendingBizRegName = p.businessRegFileName || '';
+    acctDirectors = Array.isArray(p.directors) ? p.directors.map(function(d){ return Object.assign({}, d); }) : [];
+    const isCompany = p.applicantType === 'Company';
     const container = document.getElementById('acct_view-profile');
     container.innerHTML =
       '<h2>Profile</h2>' +
       '<p class="col-desc" style="margin-top:-14px; margin-bottom:22px;">This information is used to auto-fill your Places of Amusement and JCF applications, and to save you re-entering it every time.</p>' +
-      (p.photoIdFileData ? '<img class="acct-photo-preview" id="acct_photoPreview" src="' + p.photoIdFileData + '">' : '<div id="acct_photoPreview"></div>') +
-      '<div class="field-group"><label>Photo ID</label>' +
-        '<button class="btn btn-sm" type="button" onclick="document.getElementById(\'acct_photoInput\').click()">Upload / replace ID photo</button>' +
-        '<input type="file" id="acct_photoInput" accept="image/*" style="display:none;" onchange="acct_photoChosen(this)"></div>' +
-      '<div class="field-row">' +
-        '<div class="field-group"><label for="acct_fName">Full name</label><input type="text" id="acct_fName" value="' + acctEscapeHtml(p.name) + '"></div>' +
-        '<div class="field-group"><label for="acct_fDob">Date of birth</label><input type="date" id="acct_fDob" value="' + acctEscapeHtml(p.dob) + '"></div>' +
+      '<div class="field-group"><label>Account type</label>' +
+        '<div class="radio-cards-row">' +
+          '<label class="radio-card"><input type="radio" name="acct_profileType" value="Individual"' + (isCompany ? '' : ' checked') + ' onchange="acct_profileTypeChanged()">' +
+            '<div><div class="rc-title">Individual</div><div class="rc-desc">Applying as a person</div></div></label>' +
+          '<label class="radio-card"><input type="radio" name="acct_profileType" value="Company"' + (isCompany ? ' checked' : '') + ' onchange="acct_profileTypeChanged()">' +
+            '<div><div class="rc-title">Company</div><div class="rc-desc">Applying as a company</div></div></label>' +
+        '</div>' +
+        '<div class="field-hint" style="margin-top:6px;">Sets the defaults a new Places of Amusement application starts from — you can still switch it for one particular application there if you ever need to.</div>' +
       '</div>' +
+      // ---- Individual-only fields ----
+      '<div id="acct_individualFields" class="' + (isCompany ? 'hidden' : '') + '">' +
+        (p.photoIdFileData ? '<img class="acct-photo-preview" id="acct_photoPreview" src="' + p.photoIdFileData + '">' : '<div id="acct_photoPreview"></div>') +
+        '<div class="field-group"><label>Photo ID</label>' +
+          '<button class="btn btn-sm" type="button" onclick="document.getElementById(\'acct_photoInput\').click()">Upload / replace ID photo</button>' +
+          '<input type="file" id="acct_photoInput" accept="image/*" style="display:none;" onchange="acct_photoChosen(this)"></div>' +
+        '<div class="field-row">' +
+          '<div class="field-group"><label for="acct_fName">Full name</label><input type="text" id="acct_fName" value="' + acctEscapeHtml(p.name) + '"></div>' +
+          '<div class="field-group"><label for="acct_fDob">Date of birth</label><input type="date" id="acct_fDob" value="' + acctEscapeHtml(p.dob) + '"></div>' +
+        '</div>' +
+        '<div class="field-row">' +
+          '<div class="field-group"><label for="acct_fGender">Gender</label><select id="acct_fGender">' +
+            '<option value="">Select an option</option>' +
+            ['Male','Female','Other','Prefer not to say']
+              .map(function(g){ return '<option' + (p.gender === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') +
+          '</select></div>' +
+          '<div class="field-group"></div>' +
+        '</div>' +
+      '</div>' +
+      // ---- Company-only fields ----
+      '<div id="acct_companyFields" class="' + (isCompany ? '' : 'hidden') + '">' +
+        (p.companyLogoFileData ? '<img class="acct-photo-preview" id="acct_logoPreview" src="' + p.companyLogoFileData + '">' : '<div id="acct_logoPreview"></div>') +
+        '<div class="field-group"><label>Company Logo</label>' +
+          '<button class="btn btn-sm" type="button" onclick="document.getElementById(\'acct_logoInput\').click()">Upload / replace logo</button>' +
+          '<input type="file" id="acct_logoInput" accept="image/*" style="display:none;" onchange="acct_logoChosen(this)"></div>' +
+        '<div class="field-group"><label>Business Registration Document</label>' +
+          '<div class="col-desc" id="acct_bizRegLabel" style="margin:2px 0 8px;">' + (p.businessRegFileName ? acctEscapeHtml(p.businessRegFileName) + ' on file' : 'No document on file yet.') + '</div>' +
+          '<button class="btn btn-sm" type="button" onclick="document.getElementById(\'acct_bizRegInput\').click()">Upload / replace document</button>' +
+          '<input type="file" id="acct_bizRegInput" accept="image/*,.pdf" style="display:none;" onchange="acct_bizRegChosen(this)">' +
+          '<div class="field-hint" style="margin-top:6px;">Only needed for an Annual licence application — carried over automatically when you get there, same as your Company Logo above.</div>' +
+        '</div>' +
+        '<div class="field-group"><label for="acct_fCompanyName">Company name</label><input type="text" id="acct_fCompanyName" value="' + acctEscapeHtml(p.companyName || p.name || '') + '"></div>' +
+        '<div class="field-group">' +
+          '<div class="section-header-row"><label style="margin:0;">Company Directors</label></div>' +
+          '<div class="record-list" id="acct_directorList"></div>' +
+          '<div class="field-row" style="margin-top:10px;">' +
+            '<div class="field-group"><label for="acct_dName">Name</label><input type="text" id="acct_dName" placeholder=""></div>' +
+            '<div class="field-group"><label for="acct_dTitle">Title</label><input type="text" id="acct_dTitle" placeholder=""></div>' +
+          '</div>' +
+          '<div class="field-row">' +
+            '<div class="field-group"><label for="acct_dPhone">Phone</label><input type="tel" id="acct_dPhone" placeholder=""></div>' +
+            '<div class="field-group"><label for="acct_dTrn">TRN</label><input type="text" id="acct_dTrn" placeholder="000-000-000"></div>' +
+          '</div>' +
+          '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-sm" type="button" onclick="acct_addDirector()">Add director</button></div>' +
+          '<div class="field-hint" style="margin-top:6px;">Pre-filled into a new Places of Amusement application\'s Company Directors step — adding or removing a director there updates this list too.</div>' +
+        '</div>' +
+      '</div>' +
+      // ---- Shared fields ----
       '<div class="field-row">' +
-        '<div class="field-group"><label for="acct_fGender">Gender</label><select id="acct_fGender">' +
-          '<option value="">Select an option</option>' +
-          ['Male','Female','Other','Prefer not to say']
-            .map(function(g){ return '<option' + (p.gender === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') +
-        '</select></div>' +
         '<div class="field-group"><label for="acct_fPhone">Phone number</label><input type="tel" id="acct_fPhone" value="' + acctEscapeHtml(p.phone) + '"></div>' +
-      '</div>' +
-      '<div class="field-row">' +
         '<div class="field-group"><label for="acct_fTrn">TRN</label><input type="text" id="acct_fTrn" value="' + acctEscapeHtml(p.trn) + '" placeholder="000-000-000"></div>' +
-        '<div class="field-group"></div>' +
       '</div>' +
       '<div class="field-group"><label for="acct_fEmail">Email</label><input type="email" id="acct_fEmail" value="' + acctEscapeHtml(p.email) + '" readonly></div>' +
       '<div class="field-row">' +
@@ -13061,7 +13185,122 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // the static fields elsewhere use) wouldn't survive this rebuild.
     if(window.atdAttachPhoneFormatter) window.atdAttachPhoneFormatter('acct_fPhone');
     if(window.atdAttachTrnFormatter) window.atdAttachTrnFormatter('acct_fTrn');
+    if(window.atdAttachTrnFormatter) window.atdAttachTrnFormatter('acct_dTrn');
+    acct_renderDirectorsList();
   }
+
+  // Account type toggle on the Profile page — same show/hide idiom as the
+  // POA wizard's own applicantType listener (see poa_applicantTypeChanged's
+  // twin near the wizard HTML), just swapping two whole field blocks
+  // instead of several individual groups since this form's Individual and
+  // Company sections don't otherwise overlap. Nothing is saved here; the
+  // choice only takes effect once "Save profile" is clicked, same as every
+  // other field on this page.
+  function acct_profileTypeChanged(){
+    const isCompany = document.querySelector('input[name="acct_profileType"]:checked')?.value === 'Company';
+    document.getElementById('acct_individualFields').classList.toggle('hidden', isCompany);
+    document.getElementById('acct_companyFields').classList.toggle('hidden', !isCompany);
+  }
+  window.acct_profileTypeChanged = acct_profileTypeChanged;
+
+  async function acct_logoChosen(input){
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const dataUrl = await acctReadFileAsDataUrl(file);
+    if(!dataUrl){ showToastFallback('That image is too large — please use a file under 500KB.'); return; }
+    acct_pendingLogoData = dataUrl;
+    acct_pendingLogoName = file.name;
+    document.getElementById('acct_logoPreview').outerHTML = '<img class="acct-photo-preview" id="acct_logoPreview" src="' + dataUrl + '">';
+  }
+  window.acct_logoChosen = acct_logoChosen;
+
+  async function acct_bizRegChosen(input){
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const dataUrl = await acctReadFileAsDataUrl(file);
+    if(!dataUrl){ showToastFallback('That file is too large — please use a smaller file.'); return; }
+    acct_pendingBizRegData = dataUrl;
+    acct_pendingBizRegName = file.name;
+    const label = document.getElementById('acct_bizRegLabel');
+    if(label) label.textContent = file.name + ' on file';
+  }
+  window.acct_bizRegChosen = acct_bizRegChosen;
+
+  // Company Directors manager on the Profile page — a persistent twin of
+  // the POA wizard's own companyDirectors/openDirectorModal/createDirector
+  // (see those functions' own comments), just backed by an inline add-row
+  // instead of a modal (simpler for a settings page with nothing else
+  // competing for space) and saved into the profile record directly rather
+  // than a per-application draft.
+  function acct_renderDirectorsList(){
+    const list = document.getElementById('acct_directorList');
+    if(!list) return;
+    if(!acctDirectors.length){ list.innerHTML = '<div class="col-desc" style="margin:0 0 6px;">No directors on file yet.</div>'; return; }
+    list.innerHTML = acctDirectors.map(function(d, i){
+      return '<div class="record-row">' +
+        '<div><div class="record-main">' + acctEscapeHtml(d.name) + '</div>' +
+        '<div class="record-sub">' + acctEscapeHtml(d.title || 'N/A') + (d.phone ? ' · ' + acctEscapeHtml(d.phone) : '') + (d.trn ? ' · TRN ' + acctEscapeHtml(d.trn) : '') + '</div></div>' +
+        '<button class="record-remove" onclick="acct_removeDirector(' + i + ')">Remove</button>' +
+      '</div>';
+    }).join('');
+  }
+
+  function acct_addDirector(){
+    const name = document.getElementById('acct_dName').value.trim();
+    if(!name) return;
+    acctDirectors.push({
+      name,
+      title: document.getElementById('acct_dTitle').value.trim(),
+      phone: document.getElementById('acct_dPhone').value.trim(),
+      trn: document.getElementById('acct_dTrn').value.trim()
+    });
+    ['acct_dName','acct_dTitle','acct_dPhone','acct_dTrn'].forEach(function(id){ document.getElementById(id).value = ''; });
+    acct_renderDirectorsList();
+  }
+  window.acct_addDirector = acct_addDirector;
+
+  function acct_removeDirector(i){
+    acctDirectors.splice(i, 1);
+    acct_renderDirectorsList();
+  }
+  window.acct_removeDirector = acct_removeDirector;
+
+  async function acct_saveProfile(){
+    const isCompany = document.querySelector('input[name="acct_profileType"]:checked')?.value === 'Company';
+    acct_currentUser.applicantType = isCompany ? 'Company' : 'Individual';
+    if(isCompany){
+      acct_currentUser.companyName = document.getElementById('acct_fCompanyName').value.trim();
+      acct_currentUser.companyLogoFileData = acct_pendingLogoData;
+      acct_currentUser.companyLogoFileName = acct_pendingLogoName;
+      acct_currentUser.businessRegFileData = acct_pendingBizRegData;
+      acct_currentUser.businessRegFileName = acct_pendingBizRegName;
+      acct_currentUser.directors = acctDirectors.slice();
+      // acct_currentUser.name is left as whatever it already was (used for
+      // "Welcome, {name}"/sidebar regardless of type) — only companyName is
+      // the field poa_applyProfileAutofill() reads into the wizard's own
+      // Company name field.
+    } else {
+      acct_currentUser.name = document.getElementById('acct_fName').value.trim();
+      acct_currentUser.dob = document.getElementById('acct_fDob').value;
+      acct_currentUser.gender = document.getElementById('acct_fGender').value;
+      acct_currentUser.photoIdFileData = acct_pendingPhotoData;
+      acct_currentUser.photoIdFileName = acct_pendingPhotoName;
+    }
+    acct_currentUser.phone = document.getElementById('acct_fPhone').value.trim();
+    acct_currentUser.trn = document.getElementById('acct_fTrn').value.trim();
+    acct_currentUser.addr1 = document.getElementById('acct_fAddr1').value.trim();
+    acct_currentUser.addr2 = document.getElementById('acct_fAddr2').value.trim();
+    acct_currentUser.district = document.getElementById('acct_fDistrict').value.trim();
+    acct_currentUser.parish = document.getElementById('acct_fParish').value;
+
+    if(window.storage){
+      await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
+    }
+    document.getElementById('acct_sidebarName').textContent = acct_currentUser.name;
+    acct_applySidebarAvatar();
+    showToastFallback('Profile saved.');
+  }
+  window.acct_saveProfile = acct_saveProfile;
 
   // Verbatim copy of the consent checkbox label shown at signup (see
   // acct_paneSignup's #acct_signupConsent) — redisplayed here so the
@@ -13395,27 +13634,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_removeAvatar = acct_removeAvatar;
 
-  async function acct_saveProfile(){
-    acct_currentUser.name = document.getElementById('acct_fName').value.trim();
-    acct_currentUser.dob = document.getElementById('acct_fDob').value;
-    acct_currentUser.gender = document.getElementById('acct_fGender').value;
-    acct_currentUser.phone = document.getElementById('acct_fPhone').value.trim();
-    acct_currentUser.trn = document.getElementById('acct_fTrn').value.trim();
-    acct_currentUser.addr1 = document.getElementById('acct_fAddr1').value.trim();
-    acct_currentUser.addr2 = document.getElementById('acct_fAddr2').value.trim();
-    acct_currentUser.district = document.getElementById('acct_fDistrict').value.trim();
-    acct_currentUser.parish = document.getElementById('acct_fParish').value;
-    acct_currentUser.photoIdFileData = acct_pendingPhotoData;
-    acct_currentUser.photoIdFileName = acct_pendingPhotoName;
-
-    if(window.storage){
-      await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
-    }
-    document.getElementById('acct_sidebarName').textContent = acct_currentUser.name;
-    acct_applySidebarAvatar();
-    showToastFallback('Profile saved.');
-  }
-  window.acct_saveProfile = acct_saveProfile;
+  // Note: acct_saveProfile() itself is defined earlier, right after
+  // acct_renderProfile() (see its own Individual/Company branching) — kept
+  // there rather than here so the render and save logic for this same form
+  // sit next to each other.
 
   // ==================== JCF Officer Dashboard ====================
   const JCFD_DEMO_PASSWORD = 'Password@123';
@@ -18303,6 +18525,17 @@ async function startApplication(){
 // ==================== Account profile autofill & draft save/resume ====================
 let poa_profileAutofillPhotoData = null;
 let poa_profileAutofillPhotoName = '';
+// Company-profile autofill equivalents of the pair above — same idea, one
+// for the Company Logo (the field-for-field replacement of Photo ID once
+// isCompany is true, see idKind/idLabel in poa_goReview) and one for the
+// Business Registration Document (a separate, Annual-only upload — see
+// bizRegSection). Both only ever get set when the logged-in profile is
+// itself typed Company (see the branch below), so an Individual account's
+// existing autofill behavior is completely unaffected by any of this.
+let poa_profileAutofillLogoData = null;
+let poa_profileAutofillLogoName = '';
+let poa_profileAutofillBizRegData = null;
+let poa_profileAutofillBizRegName = '';
 
 function poa_applyProfileAutofill(){
   if(!window.AccountBridge) return;
@@ -18338,6 +18571,47 @@ function poa_applyProfileAutofill(){
       note.style.marginTop = '6px';
       note.textContent = 'Using the ID on file from your profile. Upload a new file below to replace it.';
       wrap.appendChild(note);
+    }
+  }
+
+  // Company profile: pre-select the wizard's own Individual/Company toggle
+  // and reuse its existing 'change' listener (see the addEventListener a
+  // few lines below poa_resumeDraft) to show/hide the right fields, rather
+  // than duplicating that show/hide logic here. This is a DEFAULT only —
+  // the toggle stays live, so the applicant can still switch to Individual
+  // for this one application if they ever need to.
+  if(profile.applicantType === 'Company'){
+    const companyRadio = document.querySelector('input[name="applicantType"][value="Company"]');
+    if(companyRadio && !companyRadio.checked){
+      companyRadio.checked = true;
+      companyRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    setIfEmpty('companyName', profile.companyName);
+    if(profile.companyLogoFileData){
+      poa_profileAutofillLogoData = profile.companyLogoFileData;
+      poa_profileAutofillLogoName = profile.companyLogoFileName || 'Logo on file';
+      const logoWrap = document.getElementById('logoPreviewWrap');
+      const logoImg = document.getElementById('logoPreviewImg');
+      if(logoWrap && logoImg){
+        logoImg.src = profile.companyLogoFileData;
+        logoWrap.classList.remove('hidden');
+        const note = document.createElement('div');
+        note.className = 'col-desc';
+        note.style.marginTop = '6px';
+        note.textContent = 'Using the logo on file from your profile. Upload a new file below to replace it.';
+        logoWrap.appendChild(note);
+      }
+    }
+    if(profile.businessRegFileData){
+      poa_profileAutofillBizRegData = profile.businessRegFileData;
+      poa_profileAutofillBizRegName = profile.businessRegFileName || 'Business Registration Document on file';
+    }
+    // Only pre-load if the wizard's own list is still empty, so this never
+    // clobbers directors the applicant has already added earlier in this
+    // same session (e.g. re-entering Step 1 after going forward and back).
+    if(Array.isArray(profile.directors) && profile.directors.length && companyDirectors.length === 0){
+      companyDirectors = profile.directors.map(d => Object.assign({}, d));
+      if(typeof renderDirectors === 'function') renderDirectors();
     }
   }
 }
@@ -18460,6 +18734,12 @@ function poa_fieldHasValue(f){
     // help — the same gap already fixed in buildApplicationRecord()'s own
     // `documents.photoId` and the Review page's own idHasFile check.
     if(f.id === 'filePhotoId') return fileHasValue(f.id) || !!poa_profileAutofillPhotoData;
+    // Company Logo and Business Registration Document get the exact same
+    // profile-fallback treatment as Photo ID above, for a Company profile
+    // that already has one on file — see poa_profileAutofillLogoData/
+    // poa_profileAutofillBizRegData in poa_applyProfileAutofill().
+    if(f.id === 'fileLogo') return fileHasValue(f.id) || !!poa_profileAutofillLogoData;
+    if(f.id === 'fileBizReg') return fileHasValue(f.id) || !!poa_profileAutofillBizRegData;
     return fileHasValue(f.id);
   }
   if(f.kind === 'radio') return !!document.querySelector(`input[name="${f.name}"]:checked`);
@@ -19228,10 +19508,24 @@ function createDirector(){
   });
   renderDirectors();
   closeDirectorModal();
+  poa_syncDirectorsToProfile();
 }
 function removeDirector(i){
   companyDirectors.splice(i,1);
   renderDirectors();
+  poa_syncDirectorsToProfile();
+}
+// Best-effort mirror of whatever's on this application's Company Directors
+// list back to the logged-in applicant's saved profile (via
+// window.AccountBridge.updateDirectors — see its own comment), so the next
+// application they start already has the up-to-date roster instead of
+// requiring them to re-add directors that changed here. A no-op for a
+// guest (no profile to sync to) — AccountBridge.updateDirectors already
+// guards on that — and errors are swallowed the same way every other
+// autosave in this wizard already does (see poa_saveDraftSilently).
+function poa_syncDirectorsToProfile(){
+  if(!window.AccountBridge || !window.AccountBridge.updateDirectors) return;
+  try{ window.AccountBridge.updateDirectors(companyDirectors.slice()); }catch(e){ /* best-effort */ }
 }
 function renderDirectors(){
   const list = document.getElementById('directorList');
@@ -20088,11 +20382,11 @@ async function poa_goReview(){
   const idKind = isCompany ? 'logo' : 'photoId';
   const idLabel = isCompany ? 'Company Logo' : 'Photo ID';
   const idHasFile = isCompany
-    ? fileHasValue('fileLogo')
+    ? (fileHasValue('fileLogo') || !!poa_profileAutofillLogoData)
     : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData);
   let uploadsHtml = poa_uploadRowHtml(idLabel, idKind, idHasFile);
   if(isAnnualRev){
-    uploadsHtml += poa_uploadRowHtml('Business Registration Document', 'bizReg', fileHasValue('fileBizReg'));
+    uploadsHtml += poa_uploadRowHtml('Business Registration Document', 'bizReg', fileHasValue('fileBizReg') || !!poa_profileAutofillBizRegData);
   } else {
     uploadsHtml += poa_uploadRowHtml('Event Flier', 'flier', fileHasValue('fileFlier'));
     uploadsHtml += poa_uploadRowHtml('Proof of Ownership/Authorization', 'ownership', fileHasValue('fileOwnership'));
@@ -20184,6 +20478,12 @@ async function poa_previewUpload(kind){
   } else if(kind === 'photoId' && poa_profileAutofillPhotoData){
     fileData = poa_profileAutofillPhotoData;
     fileName = poa_profileAutofillPhotoName;
+  } else if(kind === 'logo' && poa_profileAutofillLogoData){
+    fileData = poa_profileAutofillLogoData;
+    fileName = poa_profileAutofillLogoName;
+  } else if(kind === 'bizReg' && poa_profileAutofillBizRegData){
+    fileData = poa_profileAutofillBizRegData;
+    fileName = poa_profileAutofillBizRegName;
   }
   window.atdOpenFilePreview(cfg.title, fileName, fileData);
 }
@@ -20236,13 +20536,15 @@ async function buildApplicationRecord(appNumber){
   // this is the one spot that hadn't.
   const documents = {
     photoId: isCompany ? null : (fileHasValue('filePhotoId') || !!poa_profileAutofillPhotoData),
-    logo: isCompany ? fileHasValue('fileLogo') : null,
+    logo: isCompany ? (fileHasValue('fileLogo') || !!poa_profileAutofillLogoData) : null,
     // Event Flier (Special) and Business Registration Document (Annual) are
     // separate uploads now (see specialOnlyDocsSection/bizRegSection) — each
     // is null on the license-type path it doesn't apply to, same convention
-    // as photoId/logo above.
+    // as photoId/logo above. bizRegistration also falls back to a Company
+    // profile's saved document the same way photoId/logo do — see
+    // poa_profileAutofillBizRegData in poa_applyProfileAutofill().
     flier: licType === 'Special' ? fileHasValue('fileFlier') : null,
-    bizRegistration: licType === 'Annual' ? fileHasValue('fileBizReg') : null,
+    bizRegistration: licType === 'Annual' ? (fileHasValue('fileBizReg') || !!poa_profileAutofillBizRegData) : null,
     ownership: licType === 'Annual' ? null : fileHasValue('fileOwnership')
   };
 
@@ -20287,6 +20589,9 @@ async function buildApplicationRecord(appNumber){
     if(bizRegFile){
       bizRegFileName = bizRegFile.name;
       bizRegFileData = await poa_readFileAsDataUrl(bizRegFile);
+    } else if(poa_profileAutofillBizRegData){
+      bizRegFileName = poa_profileAutofillBizRegName;
+      bizRegFileData = poa_profileAutofillBizRegData;
     }
   }
 
@@ -20305,6 +20610,9 @@ async function buildApplicationRecord(appNumber){
     if(logoFile){
       logoFileName = logoFile.name;
       logoFileData = await poa_readFileAsDataUrl(logoFile);
+    } else if(poa_profileAutofillLogoData){
+      logoFileName = poa_profileAutofillLogoName;
+      logoFileData = poa_profileAutofillLogoData;
     }
   }
 
