@@ -9340,7 +9340,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="panel-head">
           <h2>Tiers &amp; Features</h2>
         </div>
-        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Every Municipal Corporation gets the core licensing workflow (Applications &amp; Venue Registry, Permits &amp; Signatures, up to 3 staff seats) regardless of tier. Check or uncheck a box below to add or remove an optional feature from a tier — it takes effect immediately, everywhere, for every municipality on that tier.</p>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-6px 0 16px;">Every Municipal Corporation gets the core licensing workflow (Applications &amp; Venue Registry, Permits &amp; Signatures) regardless of tier. Staff seats scale with the tier: 3 for Essential, 6 for Standard, unlimited for Premium. Check or uncheck a box below to add or remove an optional feature from a tier — it takes effect immediately, everywhere, for every municipality on that tier.</p>
         <div style="overflow-x:auto;">
           <table>
             <thead>
@@ -23703,11 +23703,19 @@ const MUNI_TIER_MODULES = window.ATD_DEFAULT_TIER_MODULES
       Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline'],
       Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline']
     };
-// Every tier allows the same number of officer accounts — tiers here
-// control feature access, not headcount. Enforced only against NEW
-// accounts (see openUserModal) — never removes or suspends an account that
-// already existed before this cap did, or before a downgrade.
-const MUNI_TIER_SEAT_CAP = 3;
+// Staff seat caps scale with subscription tier: 3 for Essential, 6 for
+// Standard, unlimited for Premium (Infinity — every comparison below,
+// `myUsers().length >= cap`, is safely always false against it, so no
+// special-casing is needed at the enforcement site, only at display time
+// where "Unlimited" reads better than the literal word Infinity). Enforced
+// only against NEW accounts (see openUserModal) — never removes or
+// suspends an account that already existed before a cap applied to it, or
+// before a downgrade.
+const MUNI_TIER_SEAT_CAPS = { Essential: 3, Standard: 6, Premium: Infinity };
+function atdMuniSeatCap(tier){
+  const cap = MUNI_TIER_SEAT_CAPS[tier];
+  return cap === undefined ? MUNI_TIER_SEAT_CAPS.Premium : cap;
+}
 
 // Set at login (see muni_enterShellAsUser) from the agency record's own
 // subscriptionTier — defaults to Premium so a municipality whose agency
@@ -24475,7 +24483,8 @@ async function renderMuniBilling(){
   // added anywhere else. One source of truth for the key-to-label mapping.
   const moduleLabels = {};
   (window.ATD_TIER_FEATURE_CATALOG || []).forEach(f => { moduleLabels[f.key] = f.label; });
-  const baseModules = ['Applications & Venue Registry', 'Permits & Signatures', `Up to ${MUNI_TIER_SEAT_CAP} staff seats`];
+  const seatCap = atdMuniSeatCap(tier);
+  const baseModules = ['Applications & Venue Registry', 'Permits & Signatures', seatCap === Infinity ? 'Unlimited staff seats' : `Up to ${seatCap} staff seats`];
   const tierModules = (window.MUNI_TIER_MODULES && window.MUNI_TIER_MODULES[tier]) || [];
   const allModules = baseModules.concat(tierModules.map(k => moduleLabels[k] || k));
   document.getElementById('billingModulesList').innerHTML = allModules.map(label =>
@@ -27875,7 +27884,8 @@ function renderUsers(){
   const seatCountEl = document.getElementById('userSeatCount');
   if(seatCountEl){
     const used = myUsers().length;
-    seatCountEl.textContent = `${used} of ${MUNI_TIER_SEAT_CAP} staff accounts used`;
+    const cap = atdMuniSeatCap(currentAgencyTier);
+    seatCountEl.textContent = cap === Infinity ? `${used} staff accounts used (unlimited on your plan)` : `${used} of ${cap} staff accounts used`;
   }
 
   if(!list.length){
@@ -27943,9 +27953,12 @@ function openUserModal(id){
   }
   // Seat cap applies only to adding a NEW account -- editing an existing
   // one (id is set) is always allowed, including for a municipality that's
-  // already over the cap from before it existed or from a downgrade.
-  if(!id && myUsers().length >= MUNI_TIER_SEAT_CAP){
-    muni_showToast(`You've reached this municipality's staff limit (${MUNI_TIER_SEAT_CAP} accounts). Contact your Atendify administrator to add more.`);
+  // already over the cap from before it existed or from a downgrade. Cap
+  // is tier-specific (see MUNI_TIER_SEAT_CAPS); Premium's Infinity means
+  // this comparison is simply never true for a Premium municipality.
+  const seatCap = atdMuniSeatCap(currentAgencyTier);
+  if(!id && myUsers().length >= seatCap){
+    muni_showToast(`You've reached this municipality's staff limit (${seatCap} accounts). Contact your Atendify administrator to add more.`);
     return;
   }
   editingUserId = id || null;
@@ -30729,7 +30742,8 @@ window.atdGenerateVenueId = atdGenerateVenueId;
 // portal directly.
 window.MUNI_SUBSCRIPTION_TIERS = MUNI_SUBSCRIPTION_TIERS;
 window.MUNI_TIER_MODULES = MUNI_TIER_MODULES;
-window.MUNI_TIER_SEAT_CAP = MUNI_TIER_SEAT_CAP;
+window.MUNI_TIER_SEAT_CAPS = MUNI_TIER_SEAT_CAPS;
+window.atdMuniSeatCap = atdMuniSeatCap;
 window.atdMuniModuleLocked = atdMuniModuleLocked;
 window.atdGetCurrentAgencyTier = function(){ return currentAgencyTier; };
 window.renderMuniBilling = renderMuniBilling;
@@ -32041,7 +32055,7 @@ async function saveAgency(){
     // agency being edited for some other reason is never blocked here, even
     // if that municipality's tier was downgraded since the link was made —
     // same "never retroactively break something that already worked"
-    // posture as MUNI_TIER_SEAT_CAP and the tier rollout itself.
+    // posture as MUNI_TIER_SEAT_CAPS and the tier rollout itself.
     const existingAgency = editingAgencyId ? agencies.find(a => a.id === editingAgencyId) : null;
     const linkUnchanged = existingAgency && existingAgency.linkedMuniId === linkedMuniId;
     if(!linkUnchanged){
