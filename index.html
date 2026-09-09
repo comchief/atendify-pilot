@@ -3009,6 +3009,18 @@
   // in atdDebugErrors) so asking someone to add ?debug=1 and reproduce
   // still works for remote troubleshooting.
   window.ATD_DEBUG_MODE = /(?:^|[?&])debug=1(?:&|$)/.test(location.search);
+  // Plain console.log lines are easy to lose in a busy console, especially
+  // for someone who isn't used to reading one (a real case: the "refresh
+  // logs me out" investigation, 2026-09) -- every ATD DEBUG line below also
+  // collects here, so asking someone to run
+  // copy(window.__atdDebugLog.join('\n')) after reproducing puts the whole
+  // sequence straight on their clipboard, with nothing to scroll past or
+  // miss.
+  window.__atdDebugLog = [];
+  window.atdDebugLog = function(msg){
+    window.__atdDebugLog.push(msg);
+    if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] ' + msg);
+  };
 
   // ---- Staff/Admin direct-URL routes (domain separation) ----
   // www.atendifyapp.com/portal is the only door to the Agency (Municipal +
@@ -4042,7 +4054,7 @@
         // failure cases below when actively chasing a "refresh logged me
         // out" report (2026-09 pilot feedback), so it gets a plain console
         // line, gated the same way as everything else behind ?debug=1.
-        if (window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): no active Supabase session (expected for a signed-out visitor).');
+        window.atdDebugLog('getProfile(): no active Supabase session (expected for a signed-out visitor).');
         return null;
       }
       var u = await client.auth.getUser();
@@ -4053,7 +4065,7 @@
         // profiles-lookup case below are the two ways this function can
         // silently return null despite a session actually existing, neither
         // of which the existing error handling above would ever surface.
-        if (window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): a session exists but auth.getUser() returned no user and no error.');
+        window.atdDebugLog('getProfile(): a session exists but auth.getUser() returned no user and no error.');
         return null;
       }
       // Right after signIn() is exactly when a freshly-issued JWT is most
@@ -4063,7 +4075,7 @@
         return client.from('profiles').select('*').eq('id', u.data.user.id).maybeSingle();
       });
       if (res.error) window.atdShowDebugError('getProfile() profiles select', res.error);
-      if (!res.error && !res.data && window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] getProfile(): profiles select for user id ' + u.data.user.id + ' returned no row and no error (RLS blocking it, or the row genuinely does not exist).');
+      if (!res.error && !res.data) window.atdDebugLog('getProfile(): profiles select for user id ' + u.data.user.id + ' returned no row and no error (RLS blocking it, or the row genuinely does not exist).');
       return res.data || null;
     },
 
@@ -12448,7 +12460,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // on its own -- each gets its own line so a single ?debug=1 + refresh
     // pins down exactly which one fired, instead of needing another round
     // of back-and-forth to add logging after the fact.
-    const dbg = (msg) => { if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] acct_tryRestoreSession: ' + msg); };
+    const dbg = (msg) => { window.atdDebugLog('acct_tryRestoreSession: ' + msg); };
     try{
       if(!window.storage){ dbg('window.storage is not available.'); return false; }
       const email = String((profile && profile.email) || '').toLowerCase();
@@ -21536,13 +21548,18 @@ function poa_rememberMainMenuForRefresh(record){
 async function poa_tryRestoreMainMenu(){
   let saved = null;
   try{ saved = JSON.parse(sessionStorage.getItem('atdMainMenuRestore') || 'null'); }catch(e){}
-  if(!saved || !saved.appNumber || !saved.trackingCode) return false;
+  if(!saved || !saved.appNumber || !saved.trackingCode){
+    if(window.atdDebugLog) window.atdDebugLog('poa_tryRestoreMainMenu: no atdMainMenuRestore marker in sessionStorage -- nothing to restore here.');
+    return false;
+  }
   try{
     const record = await poa_lookupTrackedApplication(saved.appNumber, saved.trackingCode);
     openMainMenu(record, `application:${saved.appNumber}`);
+    if(window.atdDebugLog) window.atdDebugLog('poa_tryRestoreMainMenu: restored Main Menu for ' + saved.appNumber + ' from a saved marker -- this SKIPS the Account Dashboard restore below, on purpose, since this marker means the applicant was last viewing that specific application.');
     return true;
   }catch(e){
     try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e2){}
+    if(window.atdDebugLog) window.atdDebugLog('poa_tryRestoreMainMenu: had a marker for ' + saved.appNumber + ' but the lookup failed (' + (e && e.message || e) + ') -- marker cleared, falling through.');
     return false;
   }
 }
@@ -36875,7 +36892,7 @@ window.updateWordCount = updateWordCount;
     if(window.ATD_IS_VERIFY_ROUTE) return;
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
       profile = await window.ATDBackend.getProfile();
-      if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] atdBootstrapSessionRestore: getProfile() returned ' + (profile ? ('a profile with role=' + JSON.stringify(profile.role)) : 'null') + '.');
+      window.atdDebugLog('atdBootstrapSessionRestore: getProfile() returned ' + (profile ? ('a profile with role=' + JSON.stringify(profile.role)) : 'null') + '.');
       if(profile){
         if(profile.role === 'muni' && window.muni_tryRestoreSession){
           restored = await window.muni_tryRestoreSession(profile);
@@ -36896,6 +36913,7 @@ window.updateWordCount = updateWordCount;
     // same way in the local-only preview environment.
     if(!restored && window.poa_tryRestoreMainMenu){
       restored = await window.poa_tryRestoreMainMenu();
+      window.atdDebugLog('atdBootstrapSessionRestore: poa_tryRestoreMainMenu() returned ' + restored + '.');
     }
     // Still nothing restored, but the profile fetched above IS a signed-in
     // applicant (atd_handle_new_user defaults every non-staff signup to role
@@ -36911,7 +36929,7 @@ window.updateWordCount = updateWordCount;
     // change needed — see acct_tryRestoreSession).
     if(!restored && profile && profile.role === 'poa' && window.acct_tryRestoreSession){
       restored = await window.acct_tryRestoreSession(profile);
-      if(window.ATD_DEBUG_MODE) console.log('[ATD DEBUG] atdBootstrapSessionRestore: acct_tryRestoreSession(' + JSON.stringify(profile.email) + ') returned ' + restored + '.');
+      window.atdDebugLog('atdBootstrapSessionRestore: acct_tryRestoreSession(' + JSON.stringify(profile.email) + ') returned ' + restored + '.');
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
