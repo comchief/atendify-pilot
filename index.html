@@ -5114,11 +5114,56 @@
     // the existing watched-confirmation checkbox still gates progress.
     jcfBriefingVideoNoiseUrl: "",
     jcfBriefingVideoLoudspeakersUrl: "",
-    jcfBriefingVideoChargesUrl: ""
+    jcfBriefingVideoChargesUrl: "",
+    // Permit template editability (previously deferred — see
+    // PILOT_READINESS_ASSESSMENT.md's "Permit template editability" item).
+    // Same posture as everything else in this blob: only the PROSE is
+    // admin-authored; every data field (names, dates, addresses, permit
+    // numbers, the fixed structural labels like "PERMIT NO.") stays exactly
+    // as poa_buildPermitDocHtml/jcfd_buildPermitDocHtml already render it.
+    // The two POA revocation clauses and the two JCF closing paragraphs are
+    // each one paragraph of plain text; the two JCF numbered-conditions
+    // lists are stored as one newline-separated block (one condition per
+    // line) and split back into <li> items at render time — see
+    // jcfd_permitConditionsHtml below.
+    poaPermitRevocationText: "This license may be revoked pursuant to regulations 6 & 13 of the Places of Amusement Regulation 1999 or in the event of the licensed premises being altered in construction or layout without the approval of the Municipal Corporation.",
+    poaAnnualPermitRevocationText: "This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.",
+    jcfPermitConditionsText: [
+      "No sound or microphone shall be operated so that it is audiable beyond one hundred (100) meters.",
+      "No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.",
+      "No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.",
+      "Be advised that any person who sings any profane or obscene song or ballad or uses any profane, indecent language publicly is liable to prosecution.",
+      "Be further advised that the owner of the premises, equipment and operator of the device are also liable for prosecution if the provisions of the Noise Abatement Act is breached.",
+      "Be further advised that it is illegal for persons attending this event to carry offensive weapons such as knives, daggers, knuckle busters, ice-pricks, etc.,",
+      "No \"Bike Show\" must be staged or entertained during this event. Breach of this condition will lead to prosecution and immediate closure of the event."
+    ].join("\n"),
+    jcfPermitClosingText: "If false information is placed on the application, the function will be stopped. Please be advised that prosecution will be instituted if the Laws are not conformed with.",
+    jcfAnnualPermitConditionsText: [
+      "No sound or microphone shall be operated so that it is audiable beyond one hundred (100) meters.",
+      "No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.",
+      "No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.",
+      "Be further advised that the owner of the premises, equipment and operator of the device are also liable to prosecution if these provisions of the Noise Abatement Act is breached."
+    ].join("\n"),
+    jcfAnnualPermitClosingText: "This Permit may be revoked if any of the above conditions are breached. Please be advised that prosecution will be instituted if the Laws are not conformed with."
   };
+  // Synchronous read of the same data window.atdLoadFormTemplates() returns,
+  // for the handful of call sites (the four permit-doc builders below, plus
+  // their callers in the JCF and Municipal officer portals' own separate
+  // script scopes) that render permit HTML synchronously and can't await a
+  // storage read at that exact point. Seeded with the hardcoded defaults so
+  // it's never undefined; window.atdLoadFormTemplates() below refreshes it
+  // in place (Object.assign, never reassigned, same reasoning as
+  // MUNI_TIER_MODULES) as a side effect of every one of its own existing
+  // call sites (the POA/JCF wizard declaration steps, Admin's Application
+  // Forms page and document previews) — no new call sites were needed for
+  // most of the app; muni_initRegistryData()/jcfd_initRegistryData() each
+  // gained one extra best-effort call so the Municipal/JCF officer portals
+  // also have a real (not just default) value the first time an officer
+  // opens an Issued Permit, without having visited anything else first.
+  window.ATD_FORM_TEMPLATES_CACHE = Object.assign({}, window.ATD_DEFAULT_FORM_TEMPLATES);
   window.atdLoadFormTemplates = async function(){
     const templates = Object.assign({}, window.ATD_DEFAULT_FORM_TEMPLATES);
-    if(!window.storage) return templates;
+    if(!window.storage){ Object.assign(window.ATD_FORM_TEMPLATES_CACHE, templates); return templates; }
     try{
       const r = await window.storage.get('platform:formTemplates');
       if(r && r.value){
@@ -5126,6 +5171,7 @@
         Object.keys(templates).forEach(k => { if(saved[k]) templates[k] = saved[k]; });
       }
     } catch(e){ /* fall back to defaults */ }
+    Object.assign(window.ATD_FORM_TEMPLATES_CACHE, templates);
     return templates;
   };
 
@@ -9323,9 +9369,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
           <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
             <strong>POA Permit</strong>
-            <div class="cell-sub" style="margin:2px 0 10px;">The license certificate issued once a POA application is approved. Preview-only for now — this text isn't editable yet.</div>
-            <div class="btn-row" style="justify-content:flex-start;">
+            <div class="cell-sub" style="margin:2px 0 10px;">The license certificate issued once a POA application is approved.</div>
+            <div class="field-hint" style="margin:0 0 4px;">Special Event revocation clause</div>
+            <textarea id="admin_formTpl_poaPermitRevocation" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px; margin-bottom:16px;">
               <button class="btn btn-sm" onclick="admin_previewDocument('poaPermit')">👁 Preview document</button>
+            </div>
+            <div class="field-hint" style="margin:0 0 4px;">Annual revocation clause</div>
+            <textarea id="admin_formTpl_poaAnnualPermitRevocation" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('poaAnnualPermit')">👁 Preview document</button>
             </div>
           </div>
         </div>
@@ -9379,9 +9432,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
           <div style="border:1px solid var(--border); border-radius:10px; padding:14px;">
             <strong>Noise Abatement Permit</strong>
-            <div class="cell-sub" style="margin:2px 0 10px;">The permit certificate issued by the JCF Division once a Noise Abatement application is approved. Preview-only for now — this text isn't editable yet.</div>
-            <div class="btn-row" style="justify-content:flex-start;">
+            <div class="cell-sub" style="margin:2px 0 10px;">The permit certificate issued by the JCF Division once a Noise Abatement application is approved.</div>
+            <div class="field-hint" style="margin:0 0 4px;">Special Event conditions (one per line)</div>
+            <textarea id="admin_formTpl_jcfPermitConditions" rows="7"></textarea>
+            <div class="field-hint" style="margin:10px 0 4px;">Special Event closing paragraph</div>
+            <textarea id="admin_formTpl_jcfPermitClosing" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px; margin-bottom:16px;">
               <button class="btn btn-sm" onclick="admin_previewDocument('jcfPermit')">👁 Preview document</button>
+            </div>
+            <div class="field-hint" style="margin:0 0 4px; border-top:1px solid var(--border); padding-top:14px;">Annual conditions (one per line)</div>
+            <textarea id="admin_formTpl_jcfAnnualPermitConditions" rows="5"></textarea>
+            <div class="field-hint" style="margin:10px 0 4px;">Annual closing paragraph</div>
+            <textarea id="admin_formTpl_jcfAnnualPermitClosing" rows="3"></textarea>
+            <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
+              <button class="btn btn-sm" onclick="admin_previewDocument('jcfAnnualPermit')">👁 Preview document</button>
             </div>
           </div>
         </div>
@@ -13469,6 +13533,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     try{
       jcfdStaffUsers = await window.atdLoadJcfdUsers();
     }catch(e){ jcfdStaffUsers = []; }
+    // Best-effort priming so window.ATD_FORM_TEMPLATES_CACHE holds real
+    // (not just default) permit template text the first time an officer
+    // opens an Issued Permit here, without depending on some unrelated
+    // page (e.g. the applicant's own declaration step) having already
+    // called window.atdLoadFormTemplates() first. See the comment beside
+    // window.ATD_FORM_TEMPLATES_CACHE's definition for the full rationale.
+    try{ if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates(); }catch(e){}
     jcfd_refreshLogin();
   }
   window.jcfd_initRegistryData = jcfd_initRegistryData;
@@ -17504,6 +17575,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jcfd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl){
     qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
+    const templates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
+    const annualConditionsHtml = String(templates.jcfAnnualPermitConditionsText || '')
+      .split('\n').map(s => s.trim()).filter(Boolean)
+      .map(s => `<li>${acctEscapeHtml(s)}</li>`).join('\n          ');
     return `
       <div class="permit-doc permit-doc-annual">
         <div class="permit-doc-top">
@@ -17530,13 +17605,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <p class="permit-doc-body">Please be advised that permission is granted providing that the under mentioned instructions are complied with:</p>
         <ol style="margin:10px 0 14px 22px; padding:0; font-size:12px; line-height:1.6;">
-          <li>No sound or microphone shall be operated so that it is audiable beyond one hundred (100) meters.</li>
-          <li>No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.</li>
-          <li>No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.</li>
-          <li>Be further advised that the owner of the premises, equipment and operator of the device are also liable to prosecution if these provisions of the Noise Abatement Act is breached.</li>
+          ${annualConditionsHtml}
         </ol>
 
-        <p class="permit-doc-body">This Permit may be revoked if any of the above conditions are breached. Please be advised that prosecution will be instituted if the Laws are not conformed with.</p>
+        <p class="permit-doc-body">${acctEscapeHtml(templates.jcfAnnualPermitClosingText || '')}</p>
 
         <div class="permit-doc-signature">
           ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
@@ -17557,6 +17629,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(p && p.permitTypeLabel === 'ANNUAL') return jcfd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl);
     qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
+    const templates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
+    const conditionsHtml = String(templates.jcfPermitConditionsText || '')
+      .split('\n').map(s => s.trim()).filter(Boolean)
+      .map(s => `<li>${acctEscapeHtml(s)}</li>`).join('\n          ');
     const eventClause = p.eventName
       ? ` to host event "<strong>${acctEscapeHtml(p.eventName.toUpperCase())}</strong>" on the <strong>${acctEscapeHtml(jcfd_formatLongDate(p.eventDate))}</strong>`
       : ` for an event on the <strong>${acctEscapeHtml(jcfd_formatLongDate(p.eventDate))}</strong>`;
@@ -17590,16 +17666,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <p class="permit-doc-body">Please be advised that permission is granted providing that the under mentioned instructions are complied with:</p>
         <ol style="margin:10px 0 14px 22px; padding:0; font-size:12px; line-height:1.6;">
-          <li>No sound or microphone shall be operated so that it is audiable beyond one hundred (100) meters.</li>
-          <li>No sound system, microphone or speaker boxes are to be placed on the public thoroughfare to inconvenience the users.</li>
-          <li>No dance or entertainment with music in the vicinity of a dwelling house, hotel or guest house shall continue beyond the given time.</li>
-          <li>Be advised that any person who sings any profane or obscene song or ballad or uses any profane, indecent language publicly is liable to prosecution.</li>
-          <li>Be further advised that the owner of the premises, equipment and operator of the device are also liable for prosecution if the provisions of the Noise Abatement Act is breached.</li>
-          <li>Be further advised that it is illegal for persons attending this event to carry offensive weapons such as knives, daggers, knuckle busters, ice-pricks, etc.,</li>
-          <li>No "Bike Show" must be staged or entertained during this event. Breach of this condition will lead to prosecution and immediate closure of the event.</li>
+          ${conditionsHtml}
         </ol>
 
-        <p class="permit-doc-body">If false information is placed on the application, the function will be stopped. Please be advised that prosecution will be instituted if the Laws are not conformed with.</p>
+        <p class="permit-doc-body">${acctEscapeHtml(templates.jcfPermitClosingText || '')}</p>
 
         <div class="permit-doc-signature">
           ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
@@ -22883,6 +22953,7 @@ function poa_fiscalYearLabel(referenceIso){
 function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   qrTargetId = qrTargetId || 'permitQrTarget';
   const parishName = poa_permitParishName(p.parish);
+  const poaTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   return `
     <div class="permit-doc permit-doc-annual">
       <div class="permit-doc-top">
@@ -22915,7 +22986,7 @@ function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataU
       <p class="permit-doc-body">Valid for the fiscal year: <strong>${poa_escapeHtml(poa_fiscalYearLabel(p.issuedDate))}</strong>.</p>
 
       <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
-      <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
+      <p class="permit-doc-annual-conditions-body">${poa_escapeHtml(poaTemplates.poaAnnualPermitRevocationText || '')}</p>
 
       <div class="permit-doc-annual-dated">Dated this: <strong>${poa_escapeHtml(poa_formatShortDate(p.issuedDate))}</strong> on behalf of the Parish of ${poa_escapeHtml((parishName || '').toUpperCase())}</div>
 
@@ -22933,6 +23004,7 @@ function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataU
 function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   if(p && p.permitTypeLabel === 'ANNUAL') return poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl);
   qrTargetId = qrTargetId || 'permitQrTarget';
+  const poaTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   const eventClause = p.eventName
     ? ` with event name: <strong>${poa_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${poa_escapeHtml(poa_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -22968,7 +23040,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       to: <strong>${poa_escapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${poa_escapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>. For the use of Buildings, and or Grounds
       located at: <strong>${poa_escapeHtml((p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${poa_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${poa_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${poa_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
 
-      <p class="permit-doc-body">This license may be revoked pursuant to regulations 6 &amp; 13 of the Places of Amusement Regulation 1999 or in the event of the licensed premises being altered in construction or layout without the approval of the Municipal Corporation.</p>
+      <p class="permit-doc-body">${poa_escapeHtml(poaTemplates.poaPermitRevocationText || '')}</p>
 
       <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line">${poa_escapeHtml(poa_formatLongDate(p.issuedDate))}</span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
       <div>On behalf of the <strong>${poa_escapeHtml(p.municipalityName)}.</strong></div>
@@ -23276,6 +23348,11 @@ async function muni_initRegistryData(){
       Object.assign(MUNI_TIER_MODULES, cfg);
     }
   }catch(e){}
+  // Best-effort priming so window.ATD_FORM_TEMPLATES_CACHE holds real (not
+  // just default) permit template text the first time a CEO/officer opens
+  // an Issued Permit here — same rationale as jcfd_initRegistryData's own
+  // identical call.
+  try{ if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates(); }catch(e){}
   populateMuniSelect();
   populateDemoHint();
 }
@@ -28581,6 +28658,7 @@ function muni_formatShortDate_permit(isoDate){
 function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
   qrTargetId = qrTargetId || 'permitQrTarget';
   const parishName = muni_permitParishName(p.parish);
+  const muniPermitTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   return `
     <div class="permit-doc permit-doc-annual">
       <div class="permit-doc-top">
@@ -28613,7 +28691,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTarge
       <p class="permit-doc-body">Valid for the fiscal year: <strong>${muni_escapeHtml(muni_fiscalYearLabel(p.issuedDate))}</strong>.</p>
 
       <div class="permit-doc-annual-conditions-title">Subject to the following conditions:</div>
-      <p class="permit-doc-annual-conditions-body">This Licence may be revoked pursuant to regulation 6 or in the event of the licensed premises being altered in construction or layout without the sanction of the Municipal Corporation.</p>
+      <p class="permit-doc-annual-conditions-body">${muni_escapeHtml(muniPermitTemplates.poaAnnualPermitRevocationText || '')}</p>
 
       <div class="permit-doc-annual-dated">Dated this: <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.issuedDate))}</strong> on behalf of the Parish of ${muni_escapeHtml((parishName || '').toUpperCase())}</div>
 
@@ -28637,6 +28715,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTarge
 function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
   if(p && p.permitTypeLabel === 'ANNUAL') return muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId);
   qrTargetId = qrTargetId || 'permitQrTarget';
+  const muniPermitTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   const eventClause = p.eventName
     ? ` with event name: <strong>${muni_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${muni_escapeHtml(muni_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -28669,7 +28748,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
       to: <strong>${muni_escapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${muni_escapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>. For the use of Buildings, and or Grounds
       located at: <strong>${muni_escapeHtml((p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${muni_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${muni_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${muni_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
 
-      <p class="permit-doc-body">This license may be revoked pursuant to regulations 6 &amp; 13 of the Places of Amusement Regulation 1999 or in the event of the licensed premises being altered in construction or layout without the approval of the Municipal Corporation.</p>
+      <p class="permit-doc-body">${muni_escapeHtml(muniPermitTemplates.poaPermitRevocationText || '')}</p>
 
       <div class="permit-doc-signed">Signed this <span class="permit-doc-sign-line">${muni_escapeHtml(muni_formatLongDate(p.issuedDate))}</span> <span class="permit-doc-sign-note">(Date of approval)</span></div>
       <div>On behalf of the <strong>${muni_escapeHtml(p.municipalityName)}.</strong></div>
@@ -33003,7 +33082,13 @@ const ATD_FORM_TEMPLATE_FIELD_IDS = {
   noticeOfApplicationClosingText: 'admin_formTpl_noaClosing',
   jcfBriefingVideoNoiseUrl: 'admin_formTpl_jcfVideoNoise',
   jcfBriefingVideoLoudspeakersUrl: 'admin_formTpl_jcfVideoLoudspeakers',
-  jcfBriefingVideoChargesUrl: 'admin_formTpl_jcfVideoCharges'
+  jcfBriefingVideoChargesUrl: 'admin_formTpl_jcfVideoCharges',
+  poaPermitRevocationText: 'admin_formTpl_poaPermitRevocation',
+  poaAnnualPermitRevocationText: 'admin_formTpl_poaAnnualPermitRevocation',
+  jcfPermitConditionsText: 'admin_formTpl_jcfPermitConditions',
+  jcfPermitClosingText: 'admin_formTpl_jcfPermitClosing',
+  jcfAnnualPermitConditionsText: 'admin_formTpl_jcfAnnualPermitConditions',
+  jcfAnnualPermitClosingText: 'admin_formTpl_jcfAnnualPermitClosing'
 };
 
 async function renderFormTemplatesPage(){
@@ -33084,6 +33169,8 @@ async function savePoaFormSettings(){
   templates.paymentAdviceNoticeText = readOrDefault('admin_formTpl_paymentAdviceNotice', 'paymentAdviceNoticeText');
   templates.noticeOfApplicationIntroText = readOrDefault('admin_formTpl_noaIntro', 'noticeOfApplicationIntroText');
   templates.noticeOfApplicationClosingText = readOrDefault('admin_formTpl_noaClosing', 'noticeOfApplicationClosingText');
+  templates.poaPermitRevocationText = readOrDefault('admin_formTpl_poaPermitRevocation', 'poaPermitRevocationText');
+  templates.poaAnnualPermitRevocationText = readOrDefault('admin_formTpl_poaAnnualPermitRevocation', 'poaAnnualPermitRevocationText');
   await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
 
   const fieldCfg = await window.atdLoadFormFieldConfig();
@@ -33107,6 +33194,11 @@ async function saveJcfFormSettings(){
   templates.jcfBriefingVideoNoiseUrl = videoField('admin_formTpl_jcfVideoNoise');
   templates.jcfBriefingVideoLoudspeakersUrl = videoField('admin_formTpl_jcfVideoLoudspeakers');
   templates.jcfBriefingVideoChargesUrl = videoField('admin_formTpl_jcfVideoCharges');
+  const jcfPermitTextField = (id, key) => { const el = document.getElementById(id); return (el && el.value.trim()) || window.ATD_DEFAULT_FORM_TEMPLATES[key]; };
+  templates.jcfPermitConditionsText = jcfPermitTextField('admin_formTpl_jcfPermitConditions', 'jcfPermitConditionsText');
+  templates.jcfPermitClosingText = jcfPermitTextField('admin_formTpl_jcfPermitClosing', 'jcfPermitClosingText');
+  templates.jcfAnnualPermitConditionsText = jcfPermitTextField('admin_formTpl_jcfAnnualPermitConditions', 'jcfAnnualPermitConditionsText');
+  templates.jcfAnnualPermitClosingText = jcfPermitTextField('admin_formTpl_jcfAnnualPermitClosing', 'jcfAnnualPermitClosingText');
   await window.storage.set('platform:formTemplates', JSON.stringify(templates), true);
 
   const fieldCfg = await window.atdLoadFormFieldConfig();
@@ -33323,6 +33415,42 @@ const ADMIN_SAMPLE_JCF_PERMIT = {
   qrData: location.origin + '/preview/sample-jcf-permit'
 };
 
+// Annual siblings of the two sample records above — same shape the real
+// poa_buildAnnualPermitDocHtml/jcfd_buildAnnualPermitDocHtml (dispatched to
+// automatically off permitTypeLabel === 'ANNUAL') actually reads, so Admin
+// can preview both the Special Event and Annual wording for each document
+// without needing a real Annual application on file.
+const ADMIN_SAMPLE_POA_ANNUAL_PERMIT = {
+  number: 'POA-2026-000789',
+  linkedAppNumber: 'POA-2026-000789',
+  permitYear: '2026',
+  permitTypeLabel: 'ANNUAL',
+  issuedTo: 'Jane Applicant',
+  venueName: 'Sample Venue Gardens',
+  registrationOfUse: 'Restaurant & Bar',
+  venueAddress: '12 Sample Street, Kingston',
+  parish: 'Kingston',
+  amusementType: 'Live Music',
+  municipalityName: 'Sample Municipal Corporation',
+  issuedDate: admin_todayIso(),
+  qrData: location.origin + '/preview/sample-poa-annual-permit'
+};
+
+const ADMIN_SAMPLE_JCF_ANNUAL_PERMIT = {
+  number: 'JCF-2026-000987',
+  permitYear: '2026',
+  permitTypeLabel: 'ANNUAL',
+  divisionName: 'Sample Division',
+  issuedTo: 'Jane Promoter',
+  applicantAddress: '12 Sample Street, Kingston',
+  registrationOfUse: 'Restaurant & Bar',
+  businessName: 'Sample Venue Gardens',
+  businessAddress: '12 Sample Street, Kingston',
+  parish: 'Kingston',
+  issuedDate: admin_todayIso(),
+  qrData: location.origin + '/preview/sample-jcf-annual-permit'
+};
+
 const ADMIN_DOC_PREVIEW_QR_ID = 'adminDocPreviewQrTarget';
 
 async function admin_previewDocument(kind){
@@ -33340,15 +33468,37 @@ async function admin_previewDocument(kind){
   } else if(kind === 'poaPermit'){
     titleEl.textContent = 'POA Permit — preview';
     if(window.poa_buildPermitDocHtml){
+      // Refresh the synchronous cache the builder reads from, so this
+      // preview reflects the just-saved template text rather than
+      // whatever was cached at page-load — same reasoning as the
+      // printPaymentAdvice/printNoticeOfApplication branches above,
+      // which already do this internally on every call.
+      if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates();
       html = window.poa_buildPermitDocHtml(ADMIN_SAMPLE_POA_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID);
       qr = { render: window.poa_renderPermitQr, data: ADMIN_SAMPLE_POA_PERMIT.qrData };
+    }
+  } else if(kind === 'poaAnnualPermit'){
+    titleEl.textContent = 'POA Annual Permit — preview';
+    if(window.poa_buildPermitDocHtml){
+      if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates();
+      html = window.poa_buildPermitDocHtml(ADMIN_SAMPLE_POA_ANNUAL_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID);
+      qr = { render: window.poa_renderPermitQr, data: ADMIN_SAMPLE_POA_ANNUAL_PERMIT.qrData };
     }
   } else if(kind === 'jcfPermit'){
     titleEl.textContent = 'Noise Abatement Permit — preview';
     if(window.jcfd_buildPermitDocHtml){
+      if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates();
       const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
       html = window.jcfd_buildPermitDocHtml(ADMIN_SAMPLE_JCF_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID, crest);
       qr = { render: window.jcfd_renderPermitQr, data: ADMIN_SAMPLE_JCF_PERMIT.qrData };
+    }
+  } else if(kind === 'jcfAnnualPermit'){
+    titleEl.textContent = 'Noise Abatement Annual Permit — preview';
+    if(window.jcfd_buildPermitDocHtml){
+      if(window.atdLoadFormTemplates) await window.atdLoadFormTemplates();
+      const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+      html = window.jcfd_buildPermitDocHtml(ADMIN_SAMPLE_JCF_ANNUAL_PERMIT, null, ADMIN_DOC_PREVIEW_QR_ID, crest);
+      qr = { render: window.jcfd_renderPermitQr, data: ADMIN_SAMPLE_JCF_ANNUAL_PERMIT.qrData };
     }
   }
 
