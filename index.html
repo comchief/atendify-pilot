@@ -36903,33 +36903,41 @@ window.updateWordCount = updateWordCount;
         }
       }
     }
-    // Not a staff session (or none restored) — a visitor sitting on the
-    // applicant Main Menu (tracked as a guest, or viewing their own
-    // application while signed into their account) used to lose that view
-    // on every refresh for the same reason staff did before the restore
-    // above existed: nothing persisted which application they were on, so
-    // a refresh always dropped back to the public landing page mid-review.
-    // This doesn't depend on ATDBackend being configured — it works the
-    // same way in the local-only preview environment.
-    if(!restored && window.poa_tryRestoreMainMenu){
-      restored = await window.poa_tryRestoreMainMenu();
-      window.atdDebugLog('atdBootstrapSessionRestore: poa_tryRestoreMainMenu() returned ' + restored + '.');
-    }
-    // Still nothing restored, but the profile fetched above IS a signed-in
-    // applicant (atd_handle_new_user defaults every non-staff signup to role
-    // 'poa') who simply wasn't sitting on one specific application's Main
-    // Menu (no sessionStorage marker for poa_tryRestoreMainMenu to find) —
-    // e.g. they were on their Account Dashboard, Profile, History, Permits
-    // or Wallet view instead. Every staff portal already gets this same
-    // treatment above (muni/jcfd/admin); the applicant's own self-service
-    // Account portal never did, so a plain refresh always silently logged
-    // them out of it and dropped them to the public landing page even
-    // though their Supabase Auth session was still perfectly valid — the
-    // exact same class of bug already fixed for staff (Fix #43, no backend
-    // change needed — see acct_tryRestoreSession).
+    // A signed-in applicant (atd_handle_new_user defaults every non-staff
+    // signup to role 'poa') always lands back on their Account Dashboard on
+    // refresh, same as every staff portal already does above (muni/jcfd/
+    // admin) — this used to not exist at all, so a plain refresh always
+    // silently logged an applicant out and dropped them to the public
+    // landing page even though their Supabase Auth session was still
+    // perfectly valid (Fix #43, no backend change needed — see
+    // acct_tryRestoreSession).
+    //
+    // This intentionally runs BEFORE the guest-tracking-marker restore just
+    // below, not after -- it used to run after, which meant a signed-in
+    // applicant who had ever viewed one specific application's Main Menu
+    // (leaving behind the same sessionStorage marker a guest's tracking-code
+    // lookup does) got dropped back onto THAT application on every refresh
+    // from then on, never their Dashboard, for the rest of that browser
+    // session -- confirmed live via the 2026-09 pilot "refresh logs me out"
+    // report: the applicant genuinely was still logged in the whole time
+    // (this Main Menu view shows the same account nav the Dashboard does),
+    // they just never expected to land anywhere but the Dashboard. A signed-
+    // in applicant's own account restore now always wins; the marker-based
+    // restore below is only reached for a guest with no account at all.
     if(!restored && profile && profile.role === 'poa' && window.acct_tryRestoreSession){
       restored = await window.acct_tryRestoreSession(profile);
       window.atdDebugLog('atdBootstrapSessionRestore: acct_tryRestoreSession(' + JSON.stringify(profile.email) + ') returned ' + restored + '.');
+    }
+    // Not a staff session, not a signed-in applicant (or neither restore
+    // above succeeded) — a guest sitting on the Main Menu via a tracking
+    // code used to lose that view on every refresh for the same reason
+    // staff did before the restore above existed: nothing persisted which
+    // application they were on. This doesn't depend on ATDBackend being
+    // configured — it works the same way in the local-only preview
+    // environment.
+    if(!restored && window.poa_tryRestoreMainMenu){
+      restored = await window.poa_tryRestoreMainMenu();
+      window.atdDebugLog('atdBootstrapSessionRestore: poa_tryRestoreMainMenu() returned ' + restored + '.');
     }
     // No existing session to restore into (anonymous visitor, or one whose
     // role/record didn't match) — apply /portal and /admin direct-URL
