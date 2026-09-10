@@ -22112,8 +22112,28 @@ async function payApplicationFeeByWallet(){
     method: 'Credit Wallet', referenceNumber: 'WALLET-' + Date.now().toString().slice(-8), fileName: '',
     uploadedDate: new Date().toISOString().slice(0,10)
   };
+  // Fix: a Credit Wallet payment is verified automatically instead of
+  // sitting in the National Admin's manual "awaiting verification" queue
+  // like Bank Transfer/Cash do. Those methods only ever have the
+  // applicant's own claim plus a receipt image as evidence that money
+  // actually moved, so a human has to check it — but walletRedeem() above
+  // already proved this payment: atd_wallet_redeem is an atomic,
+  // balance-checked server-side RPC that only ever returns ok:true once
+  // the applicant's wallet was actually debited by this exact amount.
+  // There's nothing left for Admin to verify, so making them click
+  // "Verify" anyway just delays the Municipal officer from proceeding on
+  // an application that's already genuinely paid. Admin retains the
+  // ability to unverify it by hand afterward (see
+  // admin_unverifyApplicationFeePayment) if that's ever truly needed.
+  currentAppRecord.applicationFeeVerified = true;
+  currentAppRecord.applicationFeeVerifiedBy = 'System (Wallet payment)';
+  currentAppRecord.applicationFeeVerifiedDate = new Date().toISOString().slice(0,10);
   await mmPersist();
-  poa_showToast('Application Fee paid from your wallet.');
+  if(window.atdLogAudit){
+    const actorEmail = (window.AccountBridge && window.AccountBridge.getCurrentUser()) ? window.AccountBridge.getCurrentUser().email : '';
+    window.atdLogAudit({ portal: 'poa', actor: actorEmail || '(applicant)', actorRole: 'Applicant', action: 'application.applicationFeeAutoVerified', details: `${currentAppRecord.appNumber}: Atendify application fee paid and auto-verified via Credit Wallet.`, muniId: currentAppRecord.muniId });
+  }
+  poa_showToast('Application Fee paid from your wallet — automatically verified, no further action needed.');
   renderMmPaymentStage();
 }
 window.payApplicationFeeByWallet = payApplicationFeeByWallet;
