@@ -3807,25 +3807,50 @@
         // permit or requested an additional payment: setFinalStatus() and
         // requestAdditionalPayment() write a fresh 'applicantNotification:'
         // key (always a brand-new anotif-${Date.now()}-${random} id, never
-        // re-saved) from an authenticated 'muni' session. That prefix is
-        // NOT one of the literal alternatives in isWriteOnceAnonPrefix above
-        // (it starts with "applicantNotification:", not "notification:", so
-        // the regex never matches it), so every write to it always fell
-        // through to the plain upsert() path below. 'muni' has a correctly
-        // scoped INSERT policy for this prefix (covering exactly the
-        // application_approved / application_rejected /
-        // additional_payment_requested types these call sites ever send),
-        // but no SELECT policy at all on it — so upsert()'s implicit "does
-        // this key already exist?" conflict probe failed RLS with 42501 on
-        // a row that didn't even exist yet, before ever reaching the INSERT
-        // policy that would have allowed it. There is no case where a
-        // 'muni' session re-saves an existing applicantNotification key, so
-        // (like auditLog) this is always safe to force to a plain insert,
-        // which only needs the INSERT policy and never touches the
-        // conflict probe.
+        // re-saved BY MUNI) from an authenticated 'muni' session. That
+        // prefix is NOT one of the literal alternatives in
+        // isWriteOnceAnonPrefix above (it starts with
+        // "applicantNotification:", not "notification:", so the regex never
+        // matches it), so every write to it always fell through to the
+        // plain upsert() path below. 'muni' has a correctly scoped INSERT
+        // policy for this prefix (covering exactly the application_approved
+        // / application_rejected / additional_payment_requested types these
+        // call sites ever send), but no SELECT or UPDATE policy at all on
+        // it — so upsert()'s implicit "does this key already exist?"
+        // conflict probe failed RLS with 42501 on a row that didn't even
+        // exist yet, before ever reaching the INSERT policy that would have
+        // allowed it.
+        //
+        // Fix: this prefix used to be forced to useInsertOnly (like
+        // auditLog) on the theory that it's never re-saved — but that
+        // reasoning only accounted for muni's writes. It missed the
+        // APPLICANT'S OWN re-save: acct_markNotificationRead() /
+        // acct_markAllNotificationsRead() fetch their own existing
+        // applicantNotification row and write it straight back with
+        // read:true — a genuine update of a row that already exists, not a
+        // fresh insert. Forcing that through a plain INSERT hit the primary
+        // key's unique constraint (23505) every single time and was
+        // silently swallowed by acct_markNotificationRead()'s own
+        // try/catch, so the applicant's own session looked fine (the local
+        // acctNotifItems array was already flipped to read:true and
+        // re-rendered) but the write never actually reached the database —
+        // reloading or logging back in re-fetched the still-unread row and
+        // the notification appeared to "come back unread". The applicant
+        // ('poa') has a full for-all (SELECT/INSERT/UPDATE/DELETE) policy on
+        // their own rows here — see "kv_store: poa manage their own
+        // applicant notifications" — so their re-save only ever needs a
+        // plain UPDATE, never insert or upsert. Routing this prefix through
+        // useUpdateOnly instead handles both callers correctly: the
+        // applicant's mark-as-read updates the existing row directly (their
+        // own UPDATE policy allows it), while muni's fresh notification
+        // still lands correctly too — the UPDATE's RLS-filtered WHERE
+        // matches zero rows for a 'muni' session (muni has no UPDATE policy
+        // here to satisfy), which falls through to the very same plain
+        // INSERT muni's own INSERT policy already allowed, without ever
+        // touching upsert's broken conflict probe.
         var isApplicantNotification = key.indexOf('applicantNotification:') === 0;
-        var useInsertOnly = isAuditLog || isApplicantNotification;
-        var useUpdateOnly = false;
+        var useInsertOnly = isAuditLog;
+        var useUpdateOnly = isApplicantNotification;
         // Fix #50 follow-up: fix50_adlocations_rls.sql's own policies check
         // out fine (all three confirmed present in pg_policies) and a CEO's
         // very first "+ Add location" appears to work, but every location
@@ -5289,7 +5314,7 @@
   window.ATD_DEFAULT_FORM_FIELD_CONFIG = {
     poa: {
       fullName: false, companyName: false, filePhotoId: false, fileLogo: false,
-      phone: false, home: false, email: false, trn: false, poa_dob: false, gender: false,
+      phone: false, home: false, email: false, trn: false, companyTrn: false, poa_dob: false, gender: false,
       addr1: false, addr2: false, apDistrict: false, parish: false,
       licenseType: true, poa_businessType: false, eventName: false, eventDate: false, eventType: false, patrons: false,
       privateSecurity: false, fileFlier: true, fileBizReg: true,
@@ -5366,6 +5391,7 @@
       home: {label:'Home number', step:'Step 1 — Applicant'},
       email: {label:'Email', step:'Step 1 — Applicant'},
       trn: {label:'TRN', step:'Step 1 — Applicant'},
+      companyTrn: {label:'Company TRN', step:'Step 1 — Applicant'},
       poa_dob: {label:'Date of birth', step:'Step 1 — Applicant'},
       gender: {label:'Gender', step:'Step 1 — Applicant'},
       addr1: {label:'Street number', step:'Step 1 — Applicant'},
@@ -6409,8 +6435,14 @@
             <input type="email" id="email" placeholder="">
           </div>
           <div>
-            <label for="trn">Taxpayer Registration Number (TRN)</label>
-            <input type="text" id="trn" placeholder="">
+            <div id="trnGroup">
+              <label for="trn">Taxpayer Registration Number (TRN)</label>
+              <input type="text" id="trn" placeholder="">
+            </div>
+            <div id="companyTrnGroup" class="hidden">
+              <label for="companyTrn">Company TRN</label>
+              <input type="text" id="companyTrn" placeholder="">
+            </div>
           </div>
         </div>
 
@@ -11110,23 +11142,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <!-- See the matching comment on #acct_paneLogin's <form> above. -->
       <form onsubmit="acct_signup(); return false;">
       <div class="field-group">
-        <label>Account type</label>
-        <div class="radio-cards-row">
-          <label class="radio-card">
-            <input type="radio" name="acct_signupType" value="Individual" checked onchange="acct_signupTypeChanged()">
-            <div>
-              <div class="rc-title">Individual</div>
-              <div class="rc-desc">Applying as a person</div>
-            </div>
-          </label>
-          <label class="radio-card">
-            <input type="radio" name="acct_signupType" value="Company" onchange="acct_signupTypeChanged()">
-            <div>
-              <div class="rc-title">Company</div>
-              <div class="rc-desc">Applying as a company</div>
-            </div>
-          </label>
-        </div>
+        <label for="acct_signupType">Account type</label>
+        <select id="acct_signupType" onchange="acct_signupTypeChanged()">
+          <option value="Individual">Individual — Applying as a person</option>
+          <option value="Company">Company — Applying as a company</option>
+        </select>
       </div>
       <div class="field-group"><label for="acct_signupName" id="acct_signupNameLabel">Full name</label><input type="text" id="acct_signupName" spellcheck="false" autocorrect="off"></div>
       <div class="field-group"><label for="acct_signupEmail">Email</label><input type="email" id="acct_signupEmail" spellcheck="false" autocorrect="off" autocapitalize="off"></div>
@@ -12246,7 +12266,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // rather than up front. See acct_signup()'s own comment for why the value
   // is stored into both profile.name and profile.companyName.
   function acct_signupTypeChanged(){
-    const isCompany = document.querySelector('input[name="acct_signupType"]:checked')?.value === 'Company';
+    const isCompany = document.getElementById('acct_signupType')?.value === 'Company';
     document.getElementById('acct_signupNameLabel').textContent = isCompany ? 'Company name' : 'Full name';
   }
   window.acct_signupTypeChanged = acct_signupTypeChanged;
@@ -12256,7 +12276,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const email = document.getElementById('acct_signupEmail').value.trim().toLowerCase();
     const password = document.getElementById('acct_signupPassword').value;
     const dataSharingConsent = document.getElementById('acct_signupConsent').checked;
-    const applicantType = document.querySelector('input[name="acct_signupType"]:checked')?.value === 'Company' ? 'Company' : 'Individual';
+    const applicantType = document.getElementById('acct_signupType')?.value === 'Company' ? 'Company' : 'Individual';
     const isCompanySignup = applicantType === 'Company';
     const errorBox = document.getElementById('acct_signupError');
     errorBox.classList.add('hidden');
@@ -12321,6 +12341,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       trn: '', phone: '', dob: '', addr1: '', addr2: '', district: '', parish: '',
       photoIdFileName: '', photoIdFileData: null,
       companyName: isCompanySignup ? name : '',
+      companyTrn: '',
       companyLogoFileName: '', companyLogoFileData: null,
       businessRegFileName: '', businessRegFileData: null,
       directors: [],
@@ -12623,8 +12644,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(draftPoa || draftJcf || inProgress.length){
       html += '<div class="acct-tiles">';
       if(draftPoa){
+        // License Type (Annual/Special) is a required radio on Step 1 (see
+        // POA_FIELD_CHECKS[1]'s 'licenseType' entry) — the applicant can't
+        // advance past Step 1 without picking one, and a draft only ever
+        // gets saved once Step 1 has been passed (poa_saveDraftSilently
+        // runs on "Save and Continue"), so by the time draftPoa exists,
+        // its serialized data (poa_serializeDraftData keys radios by their
+        // own DOM id) always has licAnnual or licSpecial set to true. Shown
+        // here so a returning applicant with more than one draft in flight
+        // — or who just doesn't remember which type they started — doesn't
+        // have to resume it blind to find out.
+        const poaDraftTag = draftPoa.licSpecial ? 'Special' : (draftPoa.licAnnual ? 'Annual' : '');
         html += '<div class="acct-tile"><div class="acct-tile-label">Draft saved ' + acctEscapeHtml(draftPoa.savedDate || '') + '</div>' +
-          '<div class="acct-tile-title">Places of Amusement License</div>' +
+          '<div class="acct-tile-title">Places of Amusement License' + (poaDraftTag ? ' <span class="badge ' + (poaDraftTag === 'Annual' ? 'badge-blue' : 'badge-purple') + '" style="vertical-align:middle; margin-left:6px;">' + poaDraftTag + '</span>' : '') + '</div>' +
           '<div class="acct-tile-sub">Pick up where you left off.</div>' +
           '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
           '<button class="btn btn-primary btn-sm" onclick="acct_resumePoaDraft()">Resume application</button>' +
@@ -12632,8 +12664,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           '</div></div>';
       }
       if(draftJcf){
+        // Unlike the POA draft above, this one's tag isn't derived from the
+        // saved data — it's always "Special". JCF draft-saving only exists
+        // on the Special Event flow (jcf_step1..4, see jcf_saveDraftSilently)
+        // today; the separate Annual wizard (jcfAnnual_*) has no draft
+        // support at all (see startWizard()'s own note on branching to
+        // jcfAnnual_startWizard before any of this flow's state is
+        // touched), so a saved JCF draft can only ever be a Special Event
+        // Noise Abatement filing. Tagged the same way as the POA draft
+        // above for a consistent look, and to stay correct automatically
+        // if an Annual JCF draft path is ever added later.
         html += '<div class="acct-tile"><div class="acct-tile-label">Draft saved ' + acctEscapeHtml(draftJcf.savedDate || '') + '</div>' +
-          '<div class="acct-tile-title">JCF Noise Abatement Permit</div>' +
+          '<div class="acct-tile-title">JCF Noise Abatement Permit <span class="badge badge-purple" style="vertical-align:middle; margin-left:6px;">Special</span></div>' +
           '<div class="acct-tile-sub">Pick up where you left off.</div>' +
           '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
           '<button class="btn btn-primary btn-sm" onclick="acct_resumeJcfDraft()">Resume application</button>' +
@@ -13037,6 +13079,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_requestCancellation = acct_requestCancellation;
 
+  // An issued permit is Annual vs Special Event — used to split this page
+  // into two sections below. Works uniformly for both permit shapes this
+  // app issues: a Places of Amusement permit sets permitTypeLabel to
+  // literally 'ANNUAL' or 'SPECIAL EVENT' when the Municipal officer
+  // issues it (permitTypeLabel: isAnnual ? 'ANNUAL' : 'SPECIAL EVENT'),
+  // while a JCF Noise Abatement permit only ever sets permitTypeLabel too,
+  // either literally 'ANNUAL' or, for its own Special Event branch,
+  // 'PUBLIC EVENT'/'PRIVATE EVENT' depending on the linked event's type
+  // (see jcfd_confirmApprove). Either way, "is permitTypeLabel exactly
+  // 'ANNUAL'?" is the one check that correctly separates Annual from
+  // Special across both permit kinds.
+  function acct_isAnnualPermit(p){
+    return (p && p.permitTypeLabel) === 'ANNUAL';
+  }
+
   async function acct_renderPermits(){
     const container = document.getElementById('acct_view-permits');
     container.innerHTML = '<h2>Permits</h2><p class="col-desc">' + window.atdLoadingHtml() + '</p>';
@@ -13046,14 +13103,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       container.innerHTML = '<h2>Permits</h2><p class="col-desc">No permits have been issued to your applications yet. Once one is approved and a permit is generated, it will appear here.</p>';
       return;
     }
-    let html = '<h2>Permits</h2>';
-    permitted.forEach(function(o){
+    const annualPermits = permitted.filter(function(o){ return acct_isAnnualPermit(o.rec.permit); });
+    const specialPermits = permitted.filter(function(o){ return !acct_isAnnualPermit(o.rec.permit); });
+
+    function permitCardHtml(o){
       const p = o.rec.permit || {};
-      html += '<div class="acct-app-card">' +
+      return '<div class="acct-app-card">' +
         '<div><div class="main">Permit ' + acctEscapeHtml(p.number || '') + '</div>' +
         '<div class="sub">' + acctEscapeHtml(p.permitTypeLabel || '') + ' · Issued ' + acctEscapeHtml(p.issuedDate || '') + ' · Expires ' + acctEscapeHtml(p.expiresDate || '') + '</div></div>' +
         '<button class="btn btn-sm" onclick="acct_viewPermit(\'' + o.key + '\')">View &amp; Print</button></div>';
-    });
+    }
+
+    let html = '<h2>Permits</h2>';
+    if(annualPermits.length){
+      html += '<div class="section-title" style="margin-top:8px;">Annual Permits</div>';
+      html += annualPermits.map(permitCardHtml).join('');
+    }
+    if(specialPermits.length){
+      html += '<div class="section-title" style="margin-top:' + (annualPermits.length ? '20px' : '8px') + ';">Special Permits</div>';
+      html += specialPermits.map(permitCardHtml).join('');
+    }
     container.innerHTML = html;
   }
   window.acct_renderPermits = acct_renderPermits;
@@ -13240,11 +13309,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           '<input type="file" id="acct_logoInput" accept="image/*" style="display:none;" onchange="acct_logoChosen(this)"></div>' +
         '<div class="field-group"><label>Business Registration Document</label>' +
           '<div class="col-desc" id="acct_bizRegLabel" style="margin:2px 0 8px;">' + (p.businessRegFileName ? acctEscapeHtml(p.businessRegFileName) + ' on file' : 'No document on file yet.') + '</div>' +
+          '<div class="btn-row" style="justify-content:flex-start;">' +
           '<button class="btn btn-sm" type="button" onclick="document.getElementById(\'acct_bizRegInput\').click()">Upload / replace document</button>' +
+          '<button class="btn btn-sm btn-outline-danger' + (p.businessRegFileData ? '' : ' hidden') + '" type="button" id="acct_removeBizRegBtn" onclick="acct_removeBizReg()">Remove document</button>' +
+          '</div>' +
           '<input type="file" id="acct_bizRegInput" accept="image/*,.pdf" style="display:none;" onchange="acct_bizRegChosen(this)">' +
           '<div class="field-hint" style="margin-top:6px;">Only needed for an Annual licence application — carried over automatically when you get there, same as your Company Logo above.</div>' +
         '</div>' +
         '<div class="field-group"><label for="acct_fCompanyName">Company name</label><input type="text" id="acct_fCompanyName" value="' + acctEscapeHtml(p.companyName || p.name || '') + '"></div>' +
+        '<div class="field-group"><label for="acct_fCompanyTrn">Company TRN</label><input type="text" id="acct_fCompanyTrn" value="' + acctEscapeHtml(p.companyTrn) + '" placeholder="000-000-000"></div>' +
         '<div class="field-group">' +
           '<div class="section-header-row"><label style="margin:0;">Company Directors</label></div>' +
           '<div class="record-list" id="acct_directorList"></div>' +
@@ -13285,6 +13358,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // the static fields elsewhere use) wouldn't survive this rebuild.
     if(window.atdAttachPhoneFormatter) window.atdAttachPhoneFormatter('acct_fPhone');
     if(window.atdAttachTrnFormatter) window.atdAttachTrnFormatter('acct_fTrn');
+    if(window.atdAttachTrnFormatter) window.atdAttachTrnFormatter('acct_fCompanyTrn');
     if(window.atdAttachTrnFormatter) window.atdAttachTrnFormatter('acct_dTrn');
     acct_renderDirectorsList();
   }
@@ -13323,8 +13397,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     acct_pendingBizRegName = file.name;
     const label = document.getElementById('acct_bizRegLabel');
     if(label) label.textContent = file.name + ' on file';
+    const removeBtn = document.getElementById('acct_removeBizRegBtn');
+    if(removeBtn) removeBtn.classList.remove('hidden');
   }
   window.acct_bizRegChosen = acct_bizRegChosen;
+
+  // Clears the Business Registration Document without requiring a
+  // replacement upload -- previously the only way to change this field was
+  // "Upload / replace document", so an applicant who no longer had (or
+  // wanted) one on file had no way to get back to "No document on file
+  // yet." Staged the same way a fresh upload is (acct_pendingBizRegData),
+  // so it only actually takes effect once "Save profile" is clicked,
+  // consistent with every other field on this form.
+  function acct_removeBizReg(){
+    acct_pendingBizRegData = null;
+    acct_pendingBizRegName = '';
+    const label = document.getElementById('acct_bizRegLabel');
+    if(label) label.textContent = 'No document on file yet.';
+    const removeBtn = document.getElementById('acct_removeBizRegBtn');
+    if(removeBtn) removeBtn.classList.add('hidden');
+    const input = document.getElementById('acct_bizRegInput');
+    if(input) input.value = '';
+    showToastFallback('Business Registration Document removed — click "Save profile" to confirm.');
+  }
+  window.acct_removeBizReg = acct_removeBizReg;
 
   // Company Directors manager on the Profile page — a persistent twin of
   // the POA wizard's own companyDirectors/openDirectorModal/createDirector
@@ -13370,6 +13466,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     acct_currentUser.applicantType = isCompany ? 'Company' : 'Individual';
     if(isCompany){
       acct_currentUser.companyName = document.getElementById('acct_fCompanyName').value.trim();
+      acct_currentUser.companyTrn = document.getElementById('acct_fCompanyTrn').value.trim();
       acct_currentUser.companyLogoFileData = acct_pendingLogoData;
       acct_currentUser.companyLogoFileName = acct_pendingLogoName;
       acct_currentUser.businessRegFileData = acct_pendingBizRegData;
@@ -18449,7 +18546,8 @@ async function poa_applyPromoCode(){
     showMsg('Please select your municipality before applying a promo code.', true);
     return;
   }
-  const trn = poa_normalizeTrn(poa_val('trn'));
+  const isCompanyForPromo = document.querySelector('input[name="applicantType"]:checked')?.value === 'Company';
+  const trn = poa_normalizeTrn(isCompanyForPromo ? poa_val('companyTrn') : poa_val('trn'));
   if(!trn){
     showMsg('Please enter your TRN in Basic Information before applying a promo code.', true);
     return;
@@ -18692,6 +18790,11 @@ function poa_applyProfileAutofill(){
       companyRadio.dispatchEvent(new Event('change', { bubbles: true }));
     }
     setIfEmpty('companyName', profile.companyName);
+    // The company's own TRN, not the individual account holder's personal
+    // TRN (profile.trn, autofilled into #trn above regardless of type) --
+    // these used to be conflated, so a Company application's TRN silently
+    // came from the signed-in person's own TRN instead of the company's.
+    setIfEmpty('companyTrn', profile.companyTrn);
     if(profile.companyLogoFileData){
       poa_profileAutofillLogoData = profile.companyLogoFileData;
       poa_profileAutofillLogoName = profile.companyLogoFileName || 'Logo on file';
@@ -18710,6 +18813,26 @@ function poa_applyProfileAutofill(){
     if(profile.businessRegFileData){
       poa_profileAutofillBizRegData = profile.businessRegFileData;
       poa_profileAutofillBizRegName = profile.businessRegFileName || 'Business Registration Document on file';
+      // This already satisfied the required-field gate and got carried into
+      // the submitted record (see poa_fieldHasValue/buildApplicationRecord),
+      // but the upload box itself still showed "Click to upload document"
+      // with no indication anything was on file at all -- applicants had no
+      // way to tell it was already handled. Mirror the same on-file note +
+      // preview treatment Photo ID/Company Logo already get above. bizRegSection
+      // itself stays hidden until Annual is actually selected in Step 2
+      // (poa_applyLicenseTypeFields) -- unhiding this inner wrap now has no
+      // visible effect until then.
+      const bizRegWrap = document.getElementById('bizRegPreviewWrap');
+      const bizRegImg = document.getElementById('bizRegPreviewImg');
+      if(bizRegWrap && bizRegImg){
+        bizRegImg.src = profile.businessRegFileData;
+        bizRegWrap.classList.remove('hidden');
+        const note = document.createElement('div');
+        note.className = 'col-desc';
+        note.style.marginTop = '6px';
+        note.textContent = 'Using the Business Registration Document on file from your profile. Upload a new file below to replace it.';
+        bizRegWrap.appendChild(note);
+      }
     }
     // Only pre-load if the wizard's own list is still empty, so this never
     // clobbers directors the applicant has already added earlier in this
@@ -18781,6 +18904,7 @@ const POA_FIELD_CHECKS = {
     { key:'home', kind:'text', id:'home', label:'Home number' },
     { key:'email', kind:'text', id:'email', label:'Email' },
     { key:'trn', kind:'text', id:'trn', label:'TRN' },
+    { key:'companyTrn', kind:'text', id:'companyTrn', label:'Company TRN' },
     { key:'poa_dob', kind:'text', id:'poa_dob', label:'Date of birth' },
     { key:'gender', kind:'text', id:'gender', label:'Gender' },
     { key:'addr1', kind:'text', id:'addr1', label:'Street number' },
@@ -19010,6 +19134,8 @@ document.querySelectorAll('input[name="applicantType"]').forEach(input=>{
     const isCompany = document.querySelector('input[name="applicantType"]:checked').value === 'Company';
     document.getElementById('fullNameGroup').classList.toggle('hidden', isCompany);
     document.getElementById('companyNameGroup').classList.toggle('hidden', !isCompany);
+    document.getElementById('trnGroup').classList.toggle('hidden', isCompany);
+    document.getElementById('companyTrnGroup').classList.toggle('hidden', !isCompany);
     document.getElementById('companyDirectorsSection').classList.toggle('hidden', !isCompany);
     document.getElementById('companyLogoGroup').classList.toggle('hidden', !isCompany);
     document.getElementById('photoIdUploadGroup').classList.toggle('hidden', isCompany);
@@ -19210,7 +19336,7 @@ function attachEmailValidation(id){
   el.addEventListener('blur', validate);
 }
 
-['trn','directorTrn'].forEach(poa_attachTrnFormatter);
+['trn','companyTrn','directorTrn'].forEach(poa_attachTrnFormatter);
 ['phone','home','directorPhone','securityPhone'].forEach(poa_attachPhoneFormatter);
 ['email'].forEach(attachEmailValidation);
 
@@ -20365,7 +20491,7 @@ async function poa_goReview(){
     ['Phone number', poa_val('phone') || 'N/A'],
     ['Home', poa_val('home') || 'N/A'],
     ['Email', poa_val('email') || 'N/A'],
-    ['Taxpayer Registration Number (TRN)', poa_val('trn') || 'N/A'],
+    [isCompany ? 'Company TRN' : 'Taxpayer Registration Number (TRN)', (isCompany ? poa_val('companyTrn') : poa_val('trn')) || 'N/A'],
   ];
   if(!isCompany){
     basic.push(['Age', poa_val('age') || 'N/A']);
@@ -20854,7 +20980,7 @@ async function buildApplicationRecord(appNumber){
       phone: poa_val('phone'),
       home: poa_val('home'),
       email: poa_val('email'),
-      trn: poa_val('trn'),
+      trn: isCompany ? poa_val('companyTrn') : poa_val('trn'),
       age: isCompany ? '' : poa_val('age'),
       dob: isCompany ? '' : poa_val('poa_dob'),
       gender: isCompany ? '' : poa_val('gender'),
@@ -21106,7 +21232,7 @@ async function submitApp(){
     const applicantTypeForWatchlist = document.querySelector('input[name="applicantType"]:checked')?.value || 'Individual';
     const isCompanyForWatchlist = applicantTypeForWatchlist === 'Company';
     let watchlistHit = null;
-    const trn = poa_normalizeTrn(poa_val('trn'));
+    const trn = poa_normalizeTrn(isCompanyForWatchlist ? poa_val('companyTrn') : poa_val('trn'));
     if(trn){
       const flag = await window.atdCheckWatchlistFlag(trn);
       if(flag) watchlistHit = { role: isCompanyForWatchlist ? 'Company' : 'Applicant', flag };
@@ -22225,7 +22351,17 @@ async function openJcfForm(){
     venueAddr1: r.venue.addr1 || '',
     venueAddr2: r.venue.addr2 || '',
     venueDistrict: r.venue.district || '',
-    venueParish: r.applicant.parish || '',
+    // Fix — this used to read r.applicant.parish, the applicant's own
+    // personal/mailing address parish (Step 1). That's frequently NOT where
+    // the venue actually is — a promoter living in one parish can run an
+    // event's venue in another — and since most test/demo applicants here
+    // happened to have a St. Mary home address, every venue handed off to
+    // the JCF form appeared to show a hardcoded "St. Mary" regardless of
+    // its real location. The venue's actual parish is the one the
+    // application itself was filed under (r.parish, set from selectedParish
+    // at submission — the jurisdiction of the municipality the applicant
+    // chose, which is where the venue is located), so use that instead.
+    venueParish: r.parish || '',
     venueOwnerName: r.venue.ownerName || '',
     venueOwnerAddress: r.venue.ownerAddress || '',
     venueOwnerPhone: r.venue.ownerPhone || '',
