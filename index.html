@@ -13852,13 +13852,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // sides so a stored otherLicenseFiles.<key> always has a label to show
   // here. NOTE: jamms/jacap were removed from JCFANNUAL_OTHER_LICENSE_KEYS
   // (the Section 5 list an applicant fills in AT SUBMISSION — see that
-  // constant's own comment) but deliberately stay in THIS map — Task E's
-  // Main Menu upload (mmAnnualOtherLicenseWidget/renderMmNoise) still writes
-  // JAMMS/JCAP under rec.otherLicenses.jamms/.jacap at any time after
-  // submission, and this map is what makes that data reviewable here (via
-  // JCFD_REVIEWABLE_DOC_KINDS' otherLicense_<key> kinds) and visible on the
-  // Other Licenses & Approvals card below — removing them here would hide
-  // and un-review a document the applicant can still upload.
+  // constant's own comment) and are no longer reviewed through this map's
+  // otherLicense_jamms/otherLicense_jacap kinds either — they used to (via a
+  // since-removed Main Menu widget, mmAnnualOtherLicenseWidget, that wrote
+  // to rec.otherLicenses.jamms/.jacap), but that was a second, disconnected
+  // place to upload the same two documents the applicant's "JCF Required
+  // Documents" panel already collects, so an upload there never showed up
+  // here. JAMMS/JCAP now stay in this map only for its label lookup
+  // (jamms/jacap labels used in a couple of places below); their actual
+  // review lives on the 'jams'/'jcap' kinds instead, read live from the
+  // linked POA application's own jcfDocuments field — see
+  // jcfd_getLiveJcfDocuments() and jcfd_renderAnnualSubmissionColumn's own
+  // Documents card.
   const JCFD_OTHER_LICENSE_LABELS = {
     trade: 'Trade Licence', liquor: 'Liquor Licence', fire: 'Fire Certificate',
     health: 'Health approval', jamms: 'JAMMS', jacap: 'JACAP'
@@ -15261,24 +15266,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // applicant's Company Logo or Business Registration Document (both
     // uploaded on the linked POA application's Main Menu, not on this
     // filing) had ever been uploaded. JAMMS/JCAP are grouped here too
-    // (required documents, uploaded via the applicant's own Main Menu Noise
-    // Abatement tab — see mmAnnualOtherLicenseWidget/renderMmNoise) rather
-    // than left under Other Licenses & Approvals below with the four
-    // genuinely optional licences — see JCFANNUAL_OTHER_LICENSE_KEYS's own
-    // comment on why they're no longer collected as an optional checkbox at
-    // submission. Still the SAME otherLicense_jamms/otherLicense_jacap
-    // review kind as before (jcfd_updateDocStatus writes back to
-    // rec.otherLicenses.jamms/.jacap either way) — only where they're
-    // displayed changes; the Other Licenses & Approvals card below excludes
-    // these two keys so they don't render twice.
+    // (required documents) rather than left under Other Licenses & Approvals
+    // below with the four genuinely optional licences — see
+    // JCFANNUAL_OTHER_LICENSE_KEYS's own comment on why they're no longer
+    // collected as an optional checkbox at submission. Read live from the
+    // linked POA application's own jcfDocuments field via
+    // jcfd_getLiveJcfDocuments() — same kind ('jams'/'jcap') and same source
+    // jcfd_renderSubmissionColumn already uses for a Special Event filing —
+    // rather than the old rec.otherLicenses.jamms/.jacap
+    // ('otherLicense_jamms'/'otherLicense_jacap') this used to read: that
+    // field was only ever written by a since-removed Main Menu upload
+    // widget (mmAnnualOtherLicenseWidget) that was disconnected from the
+    // applicant's actual "JCF Required Documents" upload, so this card could
+    // show "Not uploaded" for a document the applicant had, in fact,
+    // already uploaded. The Other Licenses & Approvals card below still
+    // excludes these two keys so they don't render twice.
     const { logo, bizReg } = await jcfd_getLivePoaFixedDocs(rec);
+    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
     html += `<div class="panel"><div class="detail-section-title">Documents</div>`;
     if(isCompany){
       html += jcfd_detailRowDocViewOnly('Company Logo', logo && logo.fileName, logo && logo.status, 'logo');
     }
     html += jcfd_detailRowDocViewOnly('Business Registration Document', bizReg && bizReg.fileName, bizReg && bizReg.status, 'bizRegistration');
-    html += jcfd_detailRowDoc('JAMMS Approval', ol.jamms && ol.jamms.fileName, ol.jamms && ol.jamms.status, 'otherLicense_jamms');
-    html += jcfd_detailRowDoc('JCAP Approval', ol.jacap && ol.jacap.fileName, ol.jacap && ol.jacap.status, 'otherLicense_jacap');
+    html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
+    html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Other Licenses &amp; Approvals</div>`;
@@ -15411,19 +15422,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     // JAMMS/JCAP are no longer collected at submission (removed from the
     // Section 5 Other Licenses checklist — see JCFANNUAL_OTHER_LICENSE_KEYS's
-    // own comment) since they're required, not optional, but they're still
-    // STORED under rec.otherLicenses.jamms/.jacap exactly as before — Task
-    // E's Main Menu upload (mmAnnualOtherLicenseWidget/renderMmNoise) writes
-    // there at any time after submission and auto-checks the item the
-    // moment a file is uploaded. The generic "if checked, must be Approved"
-    // loop below already enforces approval status once uploaded; this adds
-    // the one thing it couldn't — failing the requirement when one has
-    // never been uploaded at all (item missing/unchecked), which that loop
-    // treats as "not applicable" rather than "still outstanding." Exempts a
-    // standalone filing with no linked POA application (no Main Menu to
-    // upload either from in the first place), same reasoning as the Special
-    // Event checklist's own jamsJcapSatisfied above.
-    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(ol.jamms && ol.jamms.checked) && !!(ol.jacap && ol.jacap.checked));
+    // own comment) since they're required, not optional. Read live from the
+    // linked POA application's own jcfDocuments field via
+    // jcfd_getLiveJcfDocuments() — exactly like the Special Event
+    // checklist's own jamsJcapSatisfied above — rather than the old
+    // rec.otherLicenses.jamms/.jacap field a since-removed Main Menu upload
+    // widget (mmAnnualOtherLicenseWidget) used to write instead: that
+    // widget was a second, disconnected place to upload the same two
+    // documents already collected by the applicant's "JCF Required
+    // Documents" panel, so this gate could stay permanently unsatisfied
+    // (blocking permit approval) even after the applicant had genuinely
+    // uploaded both. Exempts a standalone filing with no linked POA
+    // application (no Main Menu to upload either from in the first place),
+    // same reasoning as the Special Event checklist's own jamsJcapSatisfied.
+    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
+    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
 
     let requiredDocsUploaded = jamsJcapSatisfied;
     if(ci.existingNotices === 'Yes' && ci.noiseNoticeStatus !== 'Approved') requiredDocsUploaded = false;
@@ -22542,137 +22555,25 @@ function renderMmSummary(){
 // helper convention since this is a different IIFE.
 const MM_JCF_OTHER_LICENSE_LABELS = { trade:'Trade Licence', liquor:'Liquor Licence', fire:'Fire Certificate', health:'Health approval', jamms:'JAMMS', jacap:'JACAP' };
 
-// JAMMS/JCAP specifically (not the other 4 Other Licenses) can be added or
-// re-uploaded on Main Menu at any time for an Annual filing — unlike the
-// original wizard, where these are only ever set once at submission. An
-// applicant who didn't have one yet when they filed can add it later, and
-// a rejected one can be re-uploaded. Uploading a file auto-checks that
-// licence and opens the Licence Number/Expiry Date fields, which are
-// required before the details can be saved. Renders inline as part of the
-// Other Licenses & Approvals section below (rendered via a dynamic HTML
-// string like everything else in this function, so onclick/onchange
-// handlers are wired the same way as the rest of the file).
-function mmAnnualOtherLicenseWidget(key, item){
-  const label = MM_JCF_OTHER_LICENSE_LABELS[key] || key;
-  const checked = !!(item && item.checked);
-  const status = (item && item.status) || (item && item.fileName ? 'Submitted' : 'Not Uploaded');
-  const canUpload = !checked || status === 'Rejected';
-  const statusText = { 'Not Uploaded': 'Not added yet', 'Submitted': 'Uploaded — pending JCF review (locked)', 'Approved': 'Approved by JCF (locked)', 'Rejected': 'Rejected by JCF — please re-upload' }[status] || status;
-
-  let html = `<div class="review-row"><div class="rr-label">${poa_escapeHtml(label)}</div><div class="rr-value">
-    ${checked ? `Licence # ${poa_escapeHtml(item.licenceNumber || 'N/A')} · Expires ${poa_escapeHtml(item.expiryDate || 'N/A')} · ` : ''}${poa_escapeHtml(statusText)}
-    ${canUpload ? ` <button type="button" class="btn btn-sm" style="margin-left:8px;" onclick="document.getElementById('mmAnnualOl_${key}_file').click()">${checked ? 'Re-upload' : 'Upload'}</button>` : ''}
-    <input type="file" id="mmAnnualOl_${key}_file" accept="image/*,.pdf" style="display:none;" onchange="mmAnnualOtherLicenseFileChosen('${key}', this)">
-  </div></div>`;
-
-  if(checked){
-    if(status === 'Rejected' && item.officerNote){
-      html += `<div class="mm-doc-rejection-note" style="margin:2px 0 10px;">"${poa_escapeHtml(item.officerNote)}"</div>`;
-    }
-    html += `<div class="field-row" style="margin:6px 0 16px;">
-      <div class="field-group">
-        <label for="mmAnnualOl_${key}_number">Licence Number <span class="required-mark">*</span></label>
-        <input type="text" id="mmAnnualOl_${key}_number" value="${poa_escapeHtml(item.licenceNumber || '')}">
-      </div>
-      <div class="field-group">
-        <label for="mmAnnualOl_${key}_expiry">Expiry Date <span class="required-mark">*</span></label>
-        <input type="date" id="mmAnnualOl_${key}_expiry" value="${poa_escapeHtml(item.expiryDate || '')}">
-      </div>
-      <div class="field-group" style="justify-content:flex-end;">
-        <button type="button" class="btn btn-sm" onclick="mmAnnualSaveOtherLicenseDetails('${key}')">Save licence details</button>
-      </div>
-    </div>`;
-  }
-  return html;
-}
-
-async function mmAnnualOtherLicenseFileChosen(key, input){
-  if(!input.files || !input.files[0]) return;
-  const file = input.files[0];
-  const jcfApp = currentLinkedJcfApp;
-  if(!jcfApp || !jcfApp.jcfAppNumber || !window.storage){
-    input.value = '';
-    poa_showToast('Could not reach your Noise Abatement application — please try again.');
-    return;
-  }
-
-  const label = MM_JCF_OTHER_LICENSE_LABELS[key] || key;
-  const confirmed = await window.atdConfirm(`Upload "${file.name}" for ${label}?\n\nYou'll need to enter the Licence Number and Expiry Date next. Once submitted, you won't be able to select a different file for this document unless a JCF officer rejects it.`);
-  if(!confirmed){
-    input.value = '';
-    return;
-  }
-
-  const fileData = await poa_readFileAsDataUrl(file);
-  // Same fix as mmJcfDocFileChosen's own comment: a file too large or
-  // unreadable returns null here — bail out before marking anything
-  // "Submitted" with no actual file behind it.
-  if(!fileData){
-    input.value = '';
-    poa_showToast(`Could not upload "${file.name}" for ${label} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
-    return;
-  }
-  try{
-    jcfApp.otherLicenses = jcfApp.otherLicenses || {};
-    const existing = jcfApp.otherLicenses[key] || {};
-    jcfApp.otherLicenses[key] = {
-      ...existing,
-      checked: true,
-      fileName: file.name,
-      status: 'Submitted',
-      officerNote: ''
-    };
-    await window.storage.set(`jcfApplication:${jcfApp.jcfAppNumber}`, JSON.stringify(jcfApp), true);
-
-    // Same companion-record reasoning as mmJcfDocFileChosen/mmNoiseDocFileChosen
-    // above — large base64 file bytes live under jcfApplicationFiles, not on
-    // the main record, and jcfd_openDocModal reads otherLicense_<key> data
-    // from exactly this files.otherLicenseFiles.<key> shape.
-    let files = {};
-    try{
-      const r = await window.storage.get(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, true);
-      files = (r && r.value) ? JSON.parse(r.value) : {};
-    } catch(e){ /* start fresh if unreadable */ }
-    files.otherLicenseFiles = files.otherLicenseFiles || {};
-    files.otherLicenseFiles[key] = { fileData, fileName: file.name };
-    await window.storage.set(`jcfApplicationFiles:${jcfApp.jcfAppNumber}`, JSON.stringify(files), true);
-  } catch(e){
-    input.value = '';
-    poa_showToast('Could not save your upload — please try again.');
-    return;
-  }
-
-  input.value = '';
-  poa_showToast(`${label} uploaded — please enter the Licence Number and Expiry Date below and save.`);
-  renderMmNoise();
-}
-window.mmAnnualOtherLicenseFileChosen = mmAnnualOtherLicenseFileChosen;
-
-async function mmAnnualSaveOtherLicenseDetails(key){
-  const jcfApp = currentLinkedJcfApp;
-  if(!jcfApp || !jcfApp.jcfAppNumber || !window.storage) return;
-  const numberEl = document.getElementById(`mmAnnualOl_${key}_number`);
-  const expiryEl = document.getElementById(`mmAnnualOl_${key}_expiry`);
-  const licenceNumber = numberEl ? numberEl.value.trim() : '';
-  const expiryDate = expiryEl ? expiryEl.value : '';
-  if(!licenceNumber || !expiryDate){
-    poa_showToast('Please enter both the Licence Number and Expiry Date.');
-    return;
-  }
-  try{
-    jcfApp.otherLicenses = jcfApp.otherLicenses || {};
-    jcfApp.otherLicenses[key] = jcfApp.otherLicenses[key] || {};
-    jcfApp.otherLicenses[key].licenceNumber = licenceNumber;
-    jcfApp.otherLicenses[key].expiryDate = expiryDate;
-    await window.storage.set(`jcfApplication:${jcfApp.jcfAppNumber}`, JSON.stringify(jcfApp), true);
-  } catch(e){
-    poa_showToast('Could not save — please try again.');
-    return;
-  }
-  poa_showToast(`${MM_JCF_OTHER_LICENSE_LABELS[key] || key} licence details saved.`);
-  renderMmNoise();
-}
-window.mmAnnualSaveOtherLicenseDetails = mmAnnualSaveOtherLicenseDetails;
+// JAMMS/JCAP used to have their OWN separate upload widget here
+// (mmAnnualOtherLicenseWidget/mmAnnualOtherLicenseFileChosen/
+// mmAnnualSaveOtherLicenseDetails, writing to
+// currentLinkedJcfApp.otherLicenses.jamms/.jacap) — a second, disconnected
+// place to upload the exact same two documents already collected by the
+// "JCF Required Documents" panel on the Documents tab
+// (renderMmJcfDocuments()/mmJcfDocFileChosen(), writing to
+// currentAppRecord.jcfDocuments). Since nothing ever copied one field into
+// the other, an applicant who uploaded via the Documents tab (the panel
+// actually labeled "required") still saw "Not added yet" here — the bug
+// reported as "JAMMS and JACAP was uploaded on the Main Menu but on the
+// JCF Annual it is showing that no upload was done." Removed this whole
+// widget and its two handlers; renderMmNoise() below now shows a live,
+// read-only status line for JAMMS/JCAP sourced from the same jcfDocuments
+// field the Documents tab and the JCF Officer's own review already use, so
+// the two can never disagree again. See jcfd_renderAnnualSubmissionColumn's
+// matching fix on the officer side, and jcfd_computeAnnualChecklistAutoFields's
+// jamsJcapSatisfied for the permit-approval gate that also used to read the
+// old otherLicenses.jamms/.jacap field.
 
 function renderMmNoise(){
   const notStarted = document.getElementById('mmNoiseNotStarted');
@@ -22767,12 +22668,22 @@ function renderMmNoise(){
       html += mmDetailRow('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || jcfApp.poaAppNumber || 'N/A'}`);
     }
     Object.keys(MM_JCF_OTHER_LICENSE_LABELS).forEach(key => {
-      // JAMMS/JCAP are addable/re-uploadable from here at any time (see
-      // mmAnnualOtherLicenseWidget above) — the other 4 stay the original
-      // read-only summary row, unchanged, shown only once checked at
-      // submission.
+      // JAMMS/JCAP are the JCF's own required documents — uploaded and
+      // re-uploaded via the "JCF Required Documents" panel on the Documents
+      // tab (renderMmJcfDocuments()/mmJcfDocFileChosen(), sourced from
+      // currentAppRecord.jcfDocuments), not here. This used to have its own
+      // second, disconnected upload widget for the exact same two documents
+      // (see this file's comment just above renderMmNoise() for why that
+      // was removed) — shown here now is a live, read-only status line
+      // sourced from that same jcfDocuments field, so it can never disagree
+      // with what's actually on file or with the JCF Officer's own review.
       if(key === 'jamms' || key === 'jacap'){
-        html += mmAnnualOtherLicenseWidget(key, ol[key]);
+        const docName = key === 'jamms' ? 'JAMMS Approval' : 'JCAP Approval';
+        const doc = (currentAppRecord.jcfDocuments && currentAppRecord.jcfDocuments[docName]) || {};
+        const statusText = doc.uploaded
+          ? ({ 'Submitted': 'Uploaded — pending JCF review', 'Approved': 'Approved by JCF', 'Rejected': 'Rejected by JCF — please re-upload on the Documents tab' }[doc.status] || 'Uploaded')
+          : 'Not yet uploaded — see JCF Required Documents on the Documents tab';
+        html += mmDetailRow(MM_JCF_OTHER_LICENSE_LABELS[key], statusText);
         return;
       }
       const item = ol[key];
