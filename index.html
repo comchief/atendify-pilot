@@ -7274,6 +7274,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <h1>Welcome back</h1>
       <p class="login-sub">Sign in to your municipality's dashboard.</p>
 
+      <!-- Real <form> boundary — see the matching comment on #acct_paneLogin's
+           <form> (this same Safari-only typing-lag fix, extended app-wide to
+           Municipal/JCF/Admin, which had all been left on plain <div>-wrapped
+           fields). The old keydown-Enter listener on muni_loginPassword is
+           removed alongside this — onsubmit now covers Enter from any field
+           in the form, and keeping both would fire muni_attemptLogin() twice
+           on a single Enter press. -->
+      <form onsubmit="muni_attemptLogin(); return false;">
       <div id="muni_loginError" class="login-error hidden">Invalid municipality, email, or password.</div>
 
       <div class="login-field">
@@ -7289,7 +7297,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <input type="password" id="muni_loginPassword" placeholder="••••••••">
       </div>
 
-      <button class="btn btn-primary btn-block" id="muniLoginBtn" onclick="muni_attemptLogin()">Login</button>
+      <button type="submit" class="btn btn-primary btn-block" id="muniLoginBtn">Login</button>
+      </form>
 
       <div class="login-demo-hint" id="muni_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="muni_attemptSignup()">First time signing in? Create your password with this email (your CEO must have added your account first).</div>
     </div>
@@ -8872,6 +8881,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <h1>Hello, Welcome Back!</h1>
       <p class="login-sub">Enter your details below to continue.</p>
 
+      <!-- Real <form> boundary — see the matching comment on #acct_paneLogin's
+           <form> (this same Safari-only typing-lag fix, extended app-wide to
+           Municipal/JCF/Admin, which had all been left on plain <div>-wrapped
+           fields). The old keydown-Enter listener on admin_loginPassword is
+           removed alongside this — onsubmit now covers Enter from any field
+           in the form, and keeping both would fire admin_attemptLogin() twice
+           on a single Enter press. -->
+      <form onsubmit="admin_attemptLogin(); return false;">
       <div id="admin_loginError" class="login-error hidden">Invalid email or password.</div>
 
       <div class="login-field">
@@ -8888,7 +8905,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <span style="font-size:13.5px; color:var(--blue); font-weight:600; cursor:pointer;">Forgot password?</span>
       </div>
 
-      <button class="btn btn-primary btn-block" id="adminLoginBtn" onclick="admin_attemptLogin()">Login</button>
+      <button type="submit" class="btn btn-primary btn-block" id="adminLoginBtn">Login</button>
+      </form>
 
       <div class="login-demo-hint" id="admin_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="admin_attemptSignup()">First time with a live backend connected? Create the admin account with this email/password.</div>
     </div>
@@ -11119,17 +11137,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <div id="acct_paneLogin" class="acct-auth-pane active">
       <!-- Real <form> boundary (added alongside a reported Safari-only typing-lag
-           investigation): this app has no <form> elements anywhere else, so
-           Safari's AutoFill/password-manager heuristics had no DOM boundary to
-           scope their per-keystroke field analysis to and may have been
-           scanning more broadly than intended -- Chrome/Firefox apparently
-           don't pay the same cost for that. This also happens to make Enter
-           submit the field group, which silently did nothing before (unlike
-           the Municipal/JCF/Admin login fields, which already have their own
-           keydown-Enter handler -- this pane never did). onsubmit calls the
-           real handler and returns false so there's no native page reload,
-           and both buttons are explicitly type="button" as a second guard
-           against an accidental native submit. -->
+           investigation): this app originally had no <form> elements
+           anywhere, so Safari's AutoFill/password-manager heuristics had no
+           DOM boundary to scope their per-keystroke field analysis to and
+           may have been scanning more broadly than intended -- Chrome/
+           Firefox apparently don't pay the same cost for that. This also
+           happens to make Enter submit the field group, which silently did
+           nothing before. onsubmit calls the real handler and returns false
+           so there's no native page reload. This fix was first applied only
+           here and on #acct_paneSignup below (the Municipal/JCF/Admin login
+           fields were left on their own separate keydown-Enter handler
+           instead, on the reasoning that Enter already worked for them) --
+           later extended to #muni_loginScreen/#jcfd_loginScreen/
+           #admin_loginScreen too (see their own matching <form> comments)
+           once the same typing lag was reported there, since a keydown
+           handler does nothing for the actual Safari AutoFill root cause
+           this <form> boundary addresses. -->
       <form onsubmit="acct_login(); return false;">
       <div class="field-group"><label for="acct_loginEmail">Email</label><input type="email" id="acct_loginEmail" spellcheck="false" autocorrect="off" autocapitalize="off"></div>
       <div class="field-group"><label for="acct_loginPassword">Password</label><input type="password" id="acct_loginPassword" spellcheck="false" autocorrect="off" autocapitalize="off"></div>
@@ -11302,6 +11325,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <h1>Welcome back</h1>
         <p class="login-sub">Sign in to your division's dashboard.</p>
 
+        <!-- Real <form> boundary — see the matching comment on #acct_paneLogin's
+             <form> (this same Safari-only typing-lag fix, extended app-wide to
+             Municipal/JCF/Admin, which had all been left on plain <div>-wrapped
+             fields). The old keydown-Enter listener on jcfd_loginPassword is
+             removed alongside this — onsubmit now covers Enter from any field
+             in the form, and keeping both would fire jcfd_attemptLogin() twice
+             on a single Enter press. -->
+        <form onsubmit="jcfd_attemptLogin(); return false;">
         <div id="jcfd_loginError" class="login-error hidden">Invalid division, email, or password.</div>
 
         <div class="login-field">
@@ -11317,7 +11348,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="password" id="jcfd_loginPassword" placeholder="••••••••">
         </div>
 
-        <button class="btn btn-primary btn-block" id="jcfdLoginBtn" onclick="jcfd_attemptLogin()">Login</button>
+        <button type="submit" class="btn btn-primary btn-block" id="jcfdLoginBtn">Login</button>
+        </form>
 
         <div class="login-demo-hint" id="jcfd_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="jcfd_attemptSignup()">First time signing in? Create your password with this email (your Chief must have added your account first).</div>
       </div>
@@ -14148,8 +14180,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_attemptSignup = jcfd_attemptSignup;
 
-  const jcfdPwField = document.getElementById('jcfd_loginPassword');
-  if(jcfdPwField) jcfdPwField.addEventListener('keydown', e => { if(e.key === 'Enter') jcfd_attemptLogin(); });
+  // The keydown-Enter listener that used to live here is gone now that
+  // #jcfd_loginScreen's fields sit inside a real <form> (see its own
+  // onsubmit="jcfd_attemptLogin()") — a native Enter-triggered submit
+  // already calls jcfd_attemptLogin(), so keeping this too would have fired
+  // it twice on a single Enter press.
 
   function jcfd_logout(){
     if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
@@ -24345,9 +24380,11 @@ async function muni_attemptSignup(){
 }
 window.muni_attemptSignup = muni_attemptSignup;
 
-document.getElementById('muni_loginPassword').addEventListener('keydown', e=>{
-  if(e.key === 'Enter') muni_attemptLogin();
-});
+// The keydown-Enter listener that used to live here is gone now that
+// #muni_loginScreen's fields sit inside a real <form> (see its own
+// onsubmit="muni_attemptLogin()") — a native Enter-triggered submit already
+// calls muni_attemptLogin(), so keeping this too would have fired it twice
+// on a single Enter press.
 
 function muni_logout(){
   if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
@@ -31343,9 +31380,11 @@ async function admin_attemptSignup(){
 }
 window.admin_attemptSignup = admin_attemptSignup;
 
-document.getElementById('admin_loginPassword').addEventListener('keydown', e=>{
-  if(e.key === 'Enter') admin_attemptLogin();
-});
+// The keydown-Enter listener that used to live here is gone now that
+// #admin_loginScreen's fields sit inside a real <form> (see its own
+// onsubmit="admin_attemptLogin()") — a native Enter-triggered submit already
+// calls admin_attemptLogin(), so keeping this too would have fired it twice
+// on a single Enter press.
 
 function admin_logout(){
   if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
