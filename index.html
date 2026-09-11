@@ -15666,9 +15666,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // downstream lookup and action button below uses the same format the
       // watchlists themselves use.
       const wlSubjects = [];
-      if(eo.trn) wlSubjects.push({ type: 'Promoter', name: eo.promoterName, trn: jcfd_normalizeTrn(eo.trn) });
-      (rec.djs || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'DJ', name: d.name, trn: jcfd_normalizeTrn(d.trn) }); });
-      (rec.soundSystems || []).forEach(s => { if(s.trn) wlSubjects.push({ type: 'Sound System', name: s.name, trn: jcfd_normalizeTrn(s.trn) }); });
+      if(isAnnualFiling){
+        // Bug: this always fell through to the eo.trn/djs/soundSystems
+        // branch below, which only ever exist on a Special Event filing
+        // (eventOverview/djs/soundSystems). An Annual filing has none of
+        // those — its shape is applicantInfo/premisesInfo/entertainment/etc.
+        // (see jcfAnnual_submitApp()) — so wlSubjects came back empty for
+        // EVERY Annual filing regardless of what TRNs actually existed on
+        // it, showing "No TRNs on file to check against the watch lists"
+        // even for a Company applicant with a Company TRN and directors on
+        // file. Fixed to read the Annual record's own applicantInfo.trn/
+        // .directors instead, mirroring the Municipal Officer Portal's own
+        // multi-subject Watchlist card (wlApplicantIsCompany/
+        // a.raw.applicant.trn/.directors below) for the same reason: a
+        // Company applicant's directors are just as capable of being the
+        // person a flag actually targets as the named applicant.
+        const ai = rec.applicantInfo || {};
+        const isCompanyApplicant = ai.applicantType === 'Company';
+        if(ai.trn) wlSubjects.push({ type: isCompanyApplicant ? 'Company' : 'Applicant', name: ai.name, trn: jcfd_normalizeTrn(ai.trn) });
+        if(isCompanyApplicant){
+          (ai.directors || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'Director', name: d.name, trn: jcfd_normalizeTrn(d.trn) }); });
+        }
+      } else {
+        if(eo.trn) wlSubjects.push({ type: 'Promoter', name: eo.promoterName, trn: jcfd_normalizeTrn(eo.trn) });
+        (rec.djs || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'DJ', name: d.name, trn: jcfd_normalizeTrn(d.trn) }); });
+        (rec.soundSystems || []).forEach(s => { if(s.trn) wlSubjects.push({ type: 'Sound System', name: s.name, trn: jcfd_normalizeTrn(s.trn) }); });
+      }
 
       html += `<div class="official-card"><h4>Watch List</h4>`;
       if(!wlSubjects.length){
