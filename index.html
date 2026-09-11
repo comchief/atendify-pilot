@@ -15232,6 +15232,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const col = document.getElementById('jcfd_submissionColumn');
     const ai = rec.applicantInfo || {}, pi = rec.premisesInfo || {}, ent = rec.entertainment || {}, ci = rec.communityImpact || {}, ol = rec.otherLicenses || {};
     const isCompany = ai.applicantType === 'Company';
+    const venueCap = await jcfd_getLivePoaVenueCapacity(rec);
 
     let html = `<div class="panel"><div class="detail-section-title">Applicant Information</div>`;
     html += jcfd_detailRow('Licence period', rec.fiscalYearLabel);
@@ -15255,6 +15256,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Registration of use', pi.registrationOfUse);
     html += jcfd_detailRow('Name of business', pi.businessName);
     html += jcfd_detailRow('Business address', pi.businessAddress);
+    // Which capacity figures show follows the same Grounds/Building split
+    // as the applicant-facing wizard and the Municipal Officer's own Venue
+    // Information card (see poa_applyAnnualCapacityFields/muni's
+    // showGroundsCapMuni/showBuildingCapMuni) — Grounds Only shows Venue
+    // Capacity/Max Parking, Building Only shows Total Building Capacity/
+    // Number of Buildings, Grounds and Building shows all four.
+    const showGroundsCapJcfd = pi.registrationOfUse === 'Grounds Only' || pi.registrationOfUse === 'Grounds and Building';
+    const showBuildingCapJcfd = pi.registrationOfUse === 'Building Only' || pi.registrationOfUse === 'Grounds and Building';
+    if(showGroundsCapJcfd){
+      html += jcfd_detailRow('Venue capacity', venueCap.maxCap);
+      html += jcfd_detailRow('Max parking capacity', venueCap.maxParking);
+    }
+    if(showBuildingCapJcfd){
+      html += jcfd_detailRow('Total building capacity', venueCap.totalBuildingCap);
+      html += jcfd_detailRow('Number of Buildings', venueCap.numBuildings);
+    }
     html += jcfd_detailRow('Ownership status', pi.ownershipStatus);
     if(pi.propertyOwner && (pi.propertyOwner.name || pi.propertyOwner.phone || pi.propertyOwner.email)){
       html += jcfd_detailRow('Registered property owner', [pi.propertyOwner.name, pi.propertyOwner.phone, pi.propertyOwner.email].filter(Boolean).join(' · '));
@@ -15418,6 +15435,29 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       } catch(e){ /* leave logo/bizReg null */ }
     }
     return { logo, bizReg };
+  }
+
+  // Venue capacity (maxCap/maxParking/totalBuildingCap/numBuildings) is
+  // captured on the linked POA (Places of Amusement) application's own
+  // venue object, never on the JCF Annual filing's premisesInfo itself
+  // (openJcfForm()'s payload never carried these numbers over, so
+  // jcfAnnual_submitApp() had nothing to put in premisesInfo even for a
+  // brand-new filing) — same "read the live record" reasoning as
+  // jcfd_getLiveJcfDocuments/jcfd_getLivePoaFixedDocs above, which also
+  // means this works retroactively for every already-submitted Annual
+  // filing, not just ones submitted after this fix. Standalone filings
+  // with no linked POA application (rec.poaAppNumber empty) simply have no
+  // venue capacity to show, same as they have no JAMMS/JCAP or Logo/BizReg.
+  async function jcfd_getLivePoaVenueCapacity(rec){
+    let venue = null;
+    if(rec.poaAppNumber && window.storage){
+      try{
+        const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
+        const poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+        if(poaRec && poaRec.venue) venue = poaRec.venue;
+      } catch(e){ /* leave venue null */ }
+    }
+    return venue || {};
   }
 
   // Computes the auto-checked Official Use Checklist fields for a Special
