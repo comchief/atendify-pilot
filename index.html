@@ -3114,6 +3114,28 @@
     return '<span class="atd-loading-inline"><img src="' + window.ATD_LOGO_B64 + '" class="atd-loading-logo" width="' + px + '" height="' + px + '" alt="">'
       + (text ? '<span class="atd-loading-label">' + text + '</span>' : '') + '</span>';
   };
+
+  // Shared "download this document" action for every document-review modal
+  // (Municipal Officer, JCF Officer, Admin) — same cross-closure window.*
+  // pattern as atdLoadingHtml just above. A data: URL is already everything
+  // the browser needs to reconstruct the original file; this just gives the
+  // officer a real file on disk instead of only an inline preview, which is
+  // the only option today when the file is a type the modal can't render
+  // inline (anything that isn't an image or a PDF) or — per the pilot's own
+  // request — simply so a document can be pulled up in a proper viewer for
+  // closer review instead of the modal's small inline preview pane. Takes
+  // the dataUrl directly rather than reading it back off the DOM, since a
+  // real uploaded file's base64 easily runs past what's comfortable to
+  // round-trip through an HTML attribute.
+  window.atdDownloadDataUrl = function(dataUrl, fileName){
+    if(!dataUrl) return;
+    var a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = fileName || 'document';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 </script>
 <script>
   // ---- Shared "Active sessions" panel (acct/Muni/JCF/Admin Profile & Settings) ----
@@ -17042,6 +17064,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'jams', 'jcap', 'noiseNotice', 'signature']
     .concat(Object.keys(JCFD_OTHER_LICENSE_LABELS).map(k => 'otherLicense_' + k));
   let jcfdActiveDocKind = null;
+  // Backing state for the Download button in the document modal — kept
+  // separate from jcfdActiveDocKind (which is deliberately null for a
+  // non-reviewable kind like Logo/Business Registration Document, see
+  // below) since Download should work for every kind that has a real file,
+  // reviewable or not. Holds the currently-open document's dataUrl/fileName
+  // so jcfd_downloadActiveDoc() doesn't need the (potentially very large)
+  // base64 string round-tripped through an onclick attribute.
+  let jcfdActiveDocDataUrl = '', jcfdActiveDocFileName = '';
 
   function jcfd_docStatusBadgeClass(status){
     return { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[status] || 'badge-gray';
@@ -17080,6 +17110,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_docStatusRow').innerHTML = '';
     document.getElementById('jcfd_docNoteGroup').classList.add('hidden');
     document.getElementById('jcfd_docModalActions').innerHTML = '';
+    jcfdActiveDocDataUrl = ''; jcfdActiveDocFileName = '';
 
     let dataUrl = '', fileName = '', title = '';
     let status = 'Not Uploaded', officerNote = '';
@@ -17222,6 +17253,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     titleEl.textContent = title;
     subEl.textContent = subElOverride || fileName || '';
 
+    // Backs the Download button below — set for every kind (reviewable or
+    // not, e.g. Company Logo/Business Registration Document, which never
+    // get Approve/Reject controls at all — see this function's own comment
+    // on why those two stay view-only) so long as there's an actual file.
+    jcfdActiveDocDataUrl = dataUrl || '';
+    jcfdActiveDocFileName = fileName || (title ? title.replace(/[^a-z0-9]+/gi, '_') : 'document');
+    // Download only makes sense for a real file, not the typed-signature
+    // preview override (there's no underlying file to hand back, only the
+    // typed text rendered above) or a document that was genuinely never
+    // uploaded.
+    const downloadBtnHtml = (dataUrl && !previewHtmlOverride)
+      ? `<button class="btn btn-sm" onclick="jcfd_downloadActiveDoc()">⬇ Download</button>`
+      : '';
+
     if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind)){
       document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${status}</span>` +
         (status === 'Rejected' && officerNote ? `<div class="readback-row">Previous note: ${acctEscapeHtml(officerNote)}</div>` : '');
@@ -17236,12 +17281,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         actions.innerHTML = `
           <button class="btn btn-success btn-sm" onclick="jcfd_approveDoc()">✔ Approve document</button>
           <button class="btn btn-danger btn-sm" onclick="jcfd_rejectDoc()">✖ Reject &amp; require re-upload</button>
-          <button class="btn btn-sm" onclick="jcfd_saveDocNote()">Save note only</button>`;
+          <button class="btn btn-sm" onclick="jcfd_saveDocNote()">Save note only</button>` + downloadBtnHtml;
       } else if(!canReviewDoc){
-        actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>`;
+        actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>` + downloadBtnHtml;
       } else {
-        actions.innerHTML = '';
+        actions.innerHTML = downloadBtnHtml;
       }
+    } else {
+      // Non-reviewable kinds (Company Logo, Business Registration Document,
+      // Event Flyer view-only cases, etc.) never populate jcfd_docModalActions
+      // above at all — Download is the only action they get.
+      document.getElementById('jcfd_docModalActions').innerHTML = downloadBtnHtml;
     }
 
     if(previewHtmlOverride){
@@ -17263,6 +17313,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   function jcfd_closeDocModal(){ document.getElementById('jcfd_docModal').classList.add('hidden'); jcfdActiveDocKind = null; }
   window.jcfd_closeDocModal = jcfd_closeDocModal;
+
+  function jcfd_downloadActiveDoc(){ window.atdDownloadDataUrl(jcfdActiveDocDataUrl, jcfdActiveDocFileName); }
+  window.jcfd_downloadActiveDoc = jcfd_downloadActiveDoc;
 
   // Best-effort applicant email lookup for a document-rejection notice — a
   // JCF filing's own record carries no email of its own (see eventOverview's
@@ -29372,11 +29425,24 @@ function muni_renderPermitQr(targetId, data){
 
 
 let activeDocName = null;
+// Backing state for the Download button shared by every document modal in
+// this portal (regulatory documents via openDocModal, and Photo ID/Flier/
+// Logo/Business Registration Document/Ownership/receipts via
+// openApplicantFileModal/renderApplicantFilePreview) — kept separate from
+// activeDocName/activeFixedDocKey (which mean different things to different
+// callers) since Download just needs "whatever file is currently on
+// screen." Named with a muni prefix, unlike the surrounding functions,
+// purely to avoid colliding with any other same-named variable elsewhere in
+// this file.
+let muniActiveDocDataUrl = '', muniActiveDocFileName = '';
 
 function guessMimeFromDataUrl(dataUrl){
   const match = /^data:([^;]+);/.exec(dataUrl || '');
   return match ? match[1] : '';
 }
+
+function downloadActiveDoc(){ window.atdDownloadDataUrl(muniActiveDocDataUrl, muniActiveDocFileName); }
+window.downloadActiveDoc = downloadActiveDoc;
 
 function openDocModal(docName){
   const a = applications.find(a => a.id === activeAppId);
@@ -29385,6 +29451,8 @@ function openDocModal(docName){
 
   activeDocName = docName;
   const d = r.regulatoryDocuments[docName];
+  muniActiveDocDataUrl = d.fileData || '';
+  muniActiveDocFileName = d.fileName || docName;
 
   document.getElementById('docNoteGroup').classList.remove('hidden');
   document.getElementById('docModalTitle').textContent = docName;
@@ -29415,13 +29483,14 @@ function openDocModal(docName){
   document.getElementById('docNoteInput').value = d.officerNote || '';
 
   const actions = document.getElementById('docModalActions');
+  const downloadBtnHtml = d.fileData ? `<button class="btn btn-sm" onclick="downloadActiveDoc()">⬇ Download</button>` : '';
   if(hasPerm('review')){
     actions.innerHTML = `
       <button class="btn btn-success btn-sm" onclick="approveDocument()">✔ Approve document</button>
       <button class="btn btn-danger btn-sm" onclick="rejectDocument()">✖ Reject &amp; notify applicant</button>
-      <button class="btn btn-sm" onclick="saveDocNote()">Save note only</button>`;
+      <button class="btn btn-sm" onclick="saveDocNote()">Save note only</button>` + downloadBtnHtml;
   } else {
-    actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>`;
+    actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>` + downloadBtnHtml;
   }
 
   document.getElementById('docModal').classList.remove('hidden');
@@ -29439,6 +29508,8 @@ function closeDocModal(){
 // area but hides the officer-note and approve/reject controls.
 function renderApplicantFilePreview(title, fileName, fileData){
   const previewBox = document.getElementById('docPreviewBox');
+  muniActiveDocDataUrl = fileData || '';
+  muniActiveDocFileName = fileName || title || 'document';
   if(fileData){
     const mime = guessMimeFromDataUrl(fileData);
     if(mime.startsWith('image/')){
@@ -29450,6 +29521,19 @@ function renderApplicantFilePreview(title, fileName, fileData){
     }
   } else {
     previewBox.innerHTML = `<div class="doc-preview-placeholder">No inline preview available for this file (demo data or file too large to preview). Filename: ${muni_escapeHtml(fileName || 'N/A')}</div>`;
+  }
+  // Appended (not overwritten) so this works for both of this function's
+  // callers — openApplicantFileModal, whose actions area is otherwise
+  // empty (Photo ID/Flier/Logo/Business Registration Document/Ownership/
+  // receipts are view-only here), and openFixedDocModal, which has already
+  // populated Approve/Reject/no-permission-note above by the time this
+  // runs. Download is independent of review permission — an officer who
+  // can view a file but not approve/reject it can still pull it up outside
+  // the modal's small inline preview, or get an actual file when the type
+  // can't be previewed inline at all (anything that isn't an image or PDF).
+  const fixedDocActionsEl = document.getElementById('docModalActions');
+  if(fixedDocActionsEl && fileData){
+    fixedDocActionsEl.insertAdjacentHTML('beforeend', `<button class="btn btn-sm" onclick="downloadActiveDoc()">⬇ Download</button>`);
   }
 }
 
@@ -32713,6 +32797,8 @@ async function admin_openApplicationFeeReceiptModal(){
   if(document.getElementById('docModal').classList.contains('hidden')) return;
 
   const previewBox = document.getElementById('docPreviewBox');
+  muniActiveDocDataUrl = fileData || '';
+  muniActiveDocFileName = fileName || title;
   if(fileData){
     const mime = admin_guessMimeFromDataUrl(fileData);
     if(mime.startsWith('image/')){
@@ -32722,6 +32808,11 @@ async function admin_openApplicationFeeReceiptModal(){
     } else {
       previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${admin_escapeHtml(fileName)}</div>`;
     }
+    // Reuses the Municipal Officer portal's downloadActiveDoc()/
+    // muniActiveDocDataUrl — #docModal (and its #docModalActions) is the
+    // same shared DOM node re-parented to <body> above, not a separate
+    // Admin-only copy, so there's nothing Admin-specific to add here.
+    document.getElementById('docModalActions').innerHTML = `<button class="btn btn-sm" onclick="downloadActiveDoc()">⬇ Download</button>`;
   } else {
     previewBox.innerHTML = `<div class="doc-preview-placeholder">No inline preview available for this file (demo data or file too large to preview). Filename: ${admin_escapeHtml(fileName || 'N/A')}</div>`;
   }
