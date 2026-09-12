@@ -9258,6 +9258,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </table>
         </div>
       </div>
+
+      <div class="panel" id="admin_deletionRequestsPanel" style="margin-top:24px;">
+        <div class="panel-head">
+          <h2>Applicant account deletion requests</h2>
+        </div>
+        <div class="field-hint" style="margin:-6px 0 14px;">Applicants who have asked, from their own Account portal, to have their Atendify login and profile removed. Approving here deletes their account record only — applications they've already submitted to a Municipal Corporation or the JCF are official regulatory records and are not touched.</div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Requested</th><th></th></tr>
+            </thead>
+            <tbody id="admin_deletionRequestsBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ===== AUDIT LOGS PAGE ===== -->
@@ -9924,21 +9939,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <div class="field-group">
       <label>Fee adjustments</label>
+      <!-- Each field below is a fresh entry, not an editable running total —
+           see admin_saveFeeAdjustments()'s own comment for why. The small
+           hint under each field shows the current total granted to date;
+           the history list further down shows every individual entry with
+           its date and who made it. -->
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <div style="flex:1; min-width:140px;">
-          <label for="appWaiverAmount" style="font-weight:400; font-size:12.5px;">Waiver (J$)</label>
-          <input type="number" min="0" step="0.01" id="appWaiverAmount">
+          <label for="appWaiverAmount" style="font-weight:400; font-size:12.5px;">Add Waiver (J$)</label>
+          <input type="number" min="0" step="0.01" id="appWaiverAmount" placeholder="0">
+          <div class="field-hint" id="appWaiverTotalHint" style="margin-top:4px;"></div>
         </div>
         <div style="flex:1; min-width:140px;">
-          <label for="appDiscountAmount" style="font-weight:400; font-size:12.5px;">Discount (J$)</label>
-          <input type="number" min="0" step="0.01" id="appDiscountAmount">
+          <label for="appDiscountAmount" style="font-weight:400; font-size:12.5px;">Add Discount (J$)</label>
+          <input type="number" min="0" step="0.01" id="appDiscountAmount" placeholder="0">
+          <div class="field-hint" id="appDiscountTotalHint" style="margin-top:4px;"></div>
         </div>
         <div style="flex:1; min-width:140px;">
-          <label for="appRefundAmount" style="font-weight:400; font-size:12.5px;">Credit Note (J$)</label>
-          <input type="number" min="0" step="0.01" id="appRefundAmount">
+          <label for="appRefundAmount" style="font-weight:400; font-size:12.5px;">Add Credit Note (J$)</label>
+          <input type="number" min="0" step="0.01" id="appRefundAmount" placeholder="0">
+          <div class="field-hint" id="appRefundTotalHint" style="margin-top:4px;"></div>
         </div>
       </div>
       <div class="field-hint">No refunds are issued by this system. A Credit Note instead adds this amount to the applicant's own wallet (visible on their dashboard), which they can spend on a future application's Atendify service fee. Requires the application to have a registered account attached — a guest submission has nowhere to credit.</div>
+      <div id="appFeeAdjustmentsHistory" style="margin-top:14px;"></div>
     </div>
 
     <div class="modal-actions">
@@ -13603,8 +13627,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       '</div>' +
       '<div class="panel">' +
         '<h3 style="margin-top:0; color:var(--red);">Delete account</h3>' +
-        '<p class="col-desc" style="margin-bottom:16px;">Permanently delete your Atendify account. This does not affect data already submitted to regulatory agencies.</p>' +
-        '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-danger" onclick="acct_requestDeleteAccount()">Delete my account</button></div>' +
+        (p.deletionRequested
+          ? ('<p class="col-desc" style="margin-bottom:16px;">You asked, on ' + acctEscapeHtml(p.deletionRequestedDate ? new Date(p.deletionRequestedDate).toLocaleString() : 'an earlier date') + ', to have your Atendify account deleted. This is pending review by an administrator — your account stays active and unchanged until then.</p>' +
+             '<div class="btn-row" style="justify-content:flex-start;"><span class="badge badge-blue" style="align-self:center;">Deletion requested</span><button class="btn btn-sm" onclick="acct_withdrawDeletionRequest()">Withdraw request</button></div>')
+          : ('<p class="col-desc" style="margin-bottom:16px;">Request that your Atendify account be deleted. This does not happen instantly — an administrator reviews the request first. It only removes your Atendify login and profile; it does not affect data already submitted to regulatory agencies.</p>' +
+             '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-danger" onclick="acct_requestDeleteAccount()">Request account deletion</button></div>')
+        ) +
       '</div>';
     if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('acctSessionsBody');
   }
@@ -13658,33 +13686,60 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.acct_changePassword = acct_changePassword;
 
+  // Submits a deletion REQUEST for Admin review — it does NOT delete
+  // anything itself. Sets a flag on the applicant's own accountUser record
+  // (a plain field write the applicant already has an UPDATE policy for, no
+  // new RLS needed — the same pattern acct_requestCancellation() uses for
+  // application withdrawal requests), which Admin's Platform > Users page
+  // then lists for Approve/Decline (see admin_approveAccountDeletion() /
+  // admin_declineAccountDeletion()). Only an Admin approval actually
+  // deletes the accountUser record, and even then it's the account/profile
+  // only — applications already submitted to a Municipal Corporation or the
+  // JCF are official regulatory records, retained under their own policy,
+  // and are never touched by this.
   async function acct_requestDeleteAccount(){
-    // Per the exact requirement: this deletes the Atendify account record
-    // only — it does NOT (and cannot) reach into a Municipal Corporation's
-    // or the JCF's own systems to remove data already submitted to them;
-    // those agencies retain what they're required to under their own
-    // internal data retention policy, as required by law.
-    const message = "Deleting your account removes your profile and login from Atendify's database only.\n\n" +
-      "Data you have already submitted to regulatory agencies (Municipal Corporations, the Jamaica Constabulary Force, and other bodies) as part of an application is retained by those agencies according to their own internal policy on data storage, as required by law — this action does not delete that data.\n\n" +
-      "This cannot be undone. Delete your Atendify account?";
+    const message = "This submits a request to delete your Atendify account — it does not happen immediately. An administrator reviews every request before anything is deleted.\n\n" +
+      "Once approved, this removes your profile and login from Atendify only. Data you have already submitted to regulatory agencies (Municipal Corporations, the Jamaica Constabulary Force, and other bodies) as part of an application is retained by those agencies according to their own internal policy on data storage, as required by law — this does not delete that data.\n\n" +
+      "You can withdraw this request at any time before it's reviewed. Submit a deletion request?";
     const confirmed = await window.atdConfirm(message);
     if(!confirmed) return;
-    const email = acct_currentUser.email;
+    acct_currentUser.deletionRequested = true;
+    acct_currentUser.deletionRequestedDate = new Date().toISOString();
     try{
-      await window.storage.delete('accountUser:' + email);
+      await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
     } catch(err){
-      showToastFallback('Could not delete your account right now. Please try again.');
+      acct_currentUser.deletionRequested = false;
+      acct_currentUser.deletionRequestedDate = null;
+      showToastFallback('Could not submit your request right now. Please try again.');
       return;
     }
     // Best-effort only, same as every other atdLogAudit call in this app —
     // never blocks the action it's logging.
     try{
-      await window.atdLogAudit({ portal: 'poa', actor: email, actorRole: 'Applicant', action: 'account.selfDelete', details: 'Applicant deleted their own Atendify account.' });
+      await window.atdLogAudit({ portal: 'poa', actor: acct_currentUser.email, actorRole: 'Applicant', action: 'account.deletionRequested', details: 'Applicant requested deletion of their own Atendify account.' });
     } catch(err){ /* non-critical */ }
-    showToastFallback('Your account has been deleted.');
-    setTimeout(function(){ acct_logout(); }, 800);
+    showToastFallback('Deletion request submitted. An administrator will review it.');
+    acct_renderSettings();
   }
   window.acct_requestDeleteAccount = acct_requestDeleteAccount;
+
+  async function acct_withdrawDeletionRequest(){
+    acct_currentUser.deletionRequested = false;
+    acct_currentUser.deletionRequestedDate = null;
+    try{
+      await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
+    } catch(err){
+      acct_currentUser.deletionRequested = true;
+      showToastFallback('Could not withdraw your request right now. Please try again.');
+      return;
+    }
+    try{
+      await window.atdLogAudit({ portal: 'poa', actor: acct_currentUser.email, actorRole: 'Applicant', action: 'account.deletionRequestWithdrawn', details: 'Applicant withdrew their own account deletion request.' });
+    } catch(err){ /* non-critical */ }
+    showToastFallback('Deletion request withdrawn.');
+    acct_renderSettings();
+  }
+  window.acct_withdrawDeletionRequest = acct_withdrawDeletionRequest;
 
   // ==================== Notification bell (applicant dashboard) ====================
   // Mirrors the Municipal officer portal's own notification bell (bell icon
@@ -31070,6 +31125,14 @@ let muniUsers = [];
 // see admin_loadVenues() below.
 let venues = [];
 
+// Applicant accounts that have asked (from their own Account portal ->
+// Settings -> Delete account) to have their Atendify login/profile
+// deleted — see admin_loadAccountDeletionRequests() below. Kept separate
+// from `applications` above: this is about a person's account/profile
+// record, not any application they've submitted, which is why approving
+// one of these never touches `application:` records.
+let adminAccountDeletionRequests = [];
+
 let editingAgencyId = null;
 let editingRoleId = null;
 let activeAppId = null;
@@ -31193,6 +31256,110 @@ async function admin_loadVenues(){
   }catch(e){ venues = []; }
 }
 
+// Loads every accountUser:<email> record flagged deletionRequested — set by
+// the applicant themselves via the Account portal's Settings page
+// (acct_requestDeleteAccount(), a separate closure elsewhere in this file).
+// Admin's blanket kv_store policy already covers reading/writing/deleting
+// this prefix, so no new RLS is needed for this feature.
+async function admin_loadAccountDeletionRequests(){
+  if(!window.storage){ adminAccountDeletionRequests = []; return; }
+  try{
+    const listResult = await window.storage.list('accountUser:');
+    const keys = (listResult && listResult.keys) || [];
+    const out = [];
+    for(const key of keys){
+      try{
+        const result = await window.storage.get(key);
+        if(!result || !result.value) continue;
+        const rec = JSON.parse(result.value);
+        if(!rec.deletionRequested) continue;
+        out.push({
+          email: rec.email || key.slice('accountUser:'.length),
+          name: rec.name || rec.companyName || '(no name on file)',
+          requestedDate: rec.deletionRequestedDate || '',
+          _storageKey: key,
+          raw: rec
+        });
+      }catch(e){ /* skip unreadable record */ }
+    }
+    out.sort((a,b) => (b.requestedDate || '').localeCompare(a.requestedDate || ''));
+    adminAccountDeletionRequests = out;
+  }catch(e){ adminAccountDeletionRequests = []; }
+}
+
+function admin_renderAccountDeletionRequests(){
+  const body = document.getElementById('admin_deletionRequestsBody');
+  if(!body) return;
+  if(!adminAccountDeletionRequests.length){
+    body.innerHTML = '<tr><td colspan="4" class="empty-state">No pending deletion requests.</td></tr>';
+    return;
+  }
+  body.innerHTML = adminAccountDeletionRequests.map(r => `
+    <tr>
+      <td>${admin_escapeHtml(r.name)}</td>
+      <td>${admin_escapeHtml(r.email)}</td>
+      <td>${admin_escapeHtml(r.requestedDate ? new Date(r.requestedDate).toLocaleString() : 'Unknown')}</td>
+      <td>
+        <div class="btn-row" style="justify-content:flex-end;">
+          <button class="btn btn-sm" onclick="admin_declineAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Decline</button>
+          <button class="btn btn-sm btn-danger" onclick="admin_approveAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Approve &amp; delete</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+// Declining just clears the request flags, same record, same key — the
+// applicant keeps their account exactly as it was and can request again
+// later if they still want to.
+async function admin_declineAccountDeletion(email){
+  const req = adminAccountDeletionRequests.find(r => r.email === email);
+  if(!req || !window.storage) return;
+  const confirmed = await window.atdConfirm(`Decline ${email}'s account deletion request? Their account will remain active.`);
+  if(!confirmed) return;
+  req.raw.deletionRequested = false;
+  req.raw.deletionRequestedDate = null;
+  try{
+    await window.storage.set(req._storageKey, JSON.stringify(req.raw), true);
+  }catch(e){
+    admin_showToast('Could not update that request right now. Please try again.');
+    return;
+  }
+  try{
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'account.deletionRequestDeclined', details: `Declined ${email}'s account deletion request.` });
+  }catch(e){ /* non-critical */ }
+  admin_showToast('Deletion request declined — account remains active.');
+  await admin_loadAccountDeletionRequests();
+  admin_renderAccountDeletionRequests();
+}
+window.admin_declineAccountDeletion = admin_declineAccountDeletion;
+
+// Approving actually deletes the accountUser record — the login/profile
+// only. Per the exact same scope acct_requestDeleteAccount() itself already
+// documents to the applicant before they ever submit the request: this
+// cannot reach into a Municipal Corporation's or the JCF's own systems, so
+// applications already submitted (application:* records) are untouched —
+// those are official regulatory records with their own retention
+// requirements, not personal account data.
+async function admin_approveAccountDeletion(email){
+  const req = adminAccountDeletionRequests.find(r => r.email === email);
+  if(!req || !window.storage) return;
+  const confirmed = await window.atdConfirm(`Permanently delete ${email}'s Atendify account? This removes their login and profile only — any applications they've already submitted are kept as regulatory records. This cannot be undone.`);
+  if(!confirmed) return;
+  try{
+    await window.storage.delete(req._storageKey);
+  }catch(e){
+    admin_showToast('Could not delete that account right now. Please try again.');
+    return;
+  }
+  try{
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'account.deletionApproved', details: `Approved and deleted ${email}'s Atendify account, per their own deletion request.` });
+  }catch(e){ /* non-critical */ }
+  admin_showToast(`${email}'s account has been deleted.`);
+  await admin_loadAccountDeletionRequests();
+  admin_renderAccountDeletionRequests();
+}
+window.admin_approveAccountDeletion = admin_approveAccountDeletion;
+
 // Real cross-reference: every application submitted against this exact
 // venue (matched by municipality + venue name, the only link that exists —
 // applications don't carry a venueId, just the venue details as entered at
@@ -31243,6 +31410,7 @@ async function admin_refreshRegistryData(){
   }catch(e){ muniUsers = []; }
   await admin_loadApplications();
   await admin_loadVenues();
+  await admin_loadAccountDeletionRequests();
   try{
     const flag = await window.storage.get('platform:rolesSeeded');
     if(!flag || !flag.value){
@@ -31577,6 +31745,7 @@ function admin_renderAll(){
   admin_renderAgencyLinkingEligibility();
   admin_populateUserFilters();
   renderAdminUsers();
+  admin_renderAccountDeletionRequests();
   renderAuditLogs();
   admin_renderReports();
   renderPermissionsPage();
@@ -32673,9 +32842,7 @@ function admin_openAppModal(id){
   }
   document.getElementById('appCurrentStatusLine').innerHTML = statusBits.join(' ');
   document.getElementById('appStatusSelect').value = '';
-  document.getElementById('appWaiverAmount').value = a.waiverAmount || 0;
-  document.getElementById('appDiscountAmount').value = a.discountAmount || 0;
-  document.getElementById('appRefundAmount').value = a.refundAmount || 0;
+  admin_renderFeeAdjustmentsCard(a);
   admin_renderPaymentVerificationCard(a);
   document.getElementById('appModal').classList.remove('hidden');
 }
@@ -32912,29 +33079,95 @@ function closeAppModal(){
   document.getElementById('appModal').classList.add('hidden');
   activeAppId = null;
 }
+
+// Fee adjustments are an append-only log, not three editable running
+// totals — see admin_saveFeeAdjustments's own comment on why. Always
+// clears the three input fields (there's nothing meaningful to prefill
+// them with any more, since a value entered here is a brand-new grant, not
+// an edit of an existing one) and rebuilds the "total to date" hints plus
+// the full history list from a.raw.feeAdjustments. Called on modal open
+// and again after every save so the card always reflects what's actually
+// on the record.
+function admin_renderFeeAdjustmentsCard(a){
+  document.getElementById('appWaiverAmount').value = '';
+  document.getElementById('appDiscountAmount').value = '';
+  document.getElementById('appRefundAmount').value = '';
+
+  const entries = (a.raw && Array.isArray(a.raw.feeAdjustments)) ? a.raw.feeAdjustments : [];
+  const totalOf = type => entries.filter(e => e.type === type).reduce((sum, e) => sum + (e.amount || 0), 0);
+  document.getElementById('appWaiverTotalHint').textContent = `Total waiver to date: ${admin_formatCurrency(totalOf('waiver'))}`;
+  document.getElementById('appDiscountTotalHint').textContent = `Total discount to date: ${admin_formatCurrency(totalOf('discount'))}`;
+  document.getElementById('appRefundTotalHint').textContent = `Total Credit Notes to date: ${admin_formatCurrency(totalOf('creditNote'))}`;
+
+  const historyEl = document.getElementById('appFeeAdjustmentsHistory');
+  if(!entries.length){
+    historyEl.innerHTML = '';
+    return;
+  }
+  const typeLabels = { waiver: 'Waiver', discount: 'Discount', creditNote: 'Credit Note' };
+  const rows = entries.slice().sort((x, y) => new Date(y.timestamp) - new Date(x.timestamp)).map(e => `
+    <div class="review-row" style="padding:6px 0; border-bottom:1px solid var(--border);">
+      <div class="rr-label">${admin_escapeHtml(typeLabels[e.type] || e.type)} — ${admin_formatCurrency(e.amount)}</div>
+      <div class="rr-value" style="font-size:12px; color:var(--text-muted);">${admin_escapeHtml(new Date(e.timestamp).toLocaleString())} · ${admin_escapeHtml(e.actorEmail || 'Unknown')}</div>
+    </div>`).join('');
+  historyEl.innerHTML = `<div class="field-hint" style="font-weight:600; margin-bottom:4px;">Adjustment history</div>${rows}`;
+}
+
+// Each of Waiver/Discount/Credit Note used to be a single number an admin
+// edited in place — typing a new figure simply overwrote whatever was
+// there before for Waiver/Discount, and for Credit Note was compared
+// against the last-saved total just to work out how much of the new figure
+// was actually a fresh increase worth crediting to the wallet (so re-saving
+// the same total twice wouldn't double-credit). That "diff against last
+// time" dance, and the silent overwrite for the other two, both existed
+// only because a single mutable field was being asked to double as both an
+// input and a running total, with no record of who granted what or when.
+// Recording every adjustment as its own {amount, timestamp, actorEmail}
+// entry instead removes the need for any of that: Credit Note now credits
+// exactly the amount just entered (never a diff), Waiver/Discount now
+// accumulate instead of being clobbered, and there's a real audit trail —
+// which is also why the fields themselves always come back empty
+// afterward (admin_renderFeeAdjustmentsCard), rather than showing a total
+// that would invite being "corrected" back into a single running number.
 async function admin_saveFeeAdjustments(){
   const a = applications.find(a => a.id === activeAppId);
   if(!a || !a.raw || !a._storageKey || !window.storage) return;
   const waiver = Math.max(0, parseFloat(document.getElementById('appWaiverAmount').value) || 0);
   const discount = Math.max(0, parseFloat(document.getElementById('appDiscountAmount').value) || 0);
-  const creditNoteTotal = Math.max(0, parseFloat(document.getElementById('appRefundAmount').value) || 0);
-  // a.raw.refundAmount tracks the CUMULATIVE Credit Note total ever issued
-  // for this application (not this save's input value in isolation) — only
-  // the increase since last time actually gets credited to the wallet, so
-  // reopening this modal and saving the same number twice never double-
-  // credits. Lowering the number here does NOT claw back an already-issued
-  // credit (there's no safe way to reverse one that may already be spent) —
-  // it only affects what future increases are measured against.
-  const alreadyIssued = a.raw.refundAmount || 0;
-  const creditDelta = creditNoteTotal - alreadyIssued;
+  const creditNoteAmount = Math.max(0, parseFloat(document.getElementById('appRefundAmount').value) || 0);
+
+  if(!waiver && !discount && !creditNoteAmount){
+    admin_showToast('Enter an amount in at least one field before saving.');
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const newEntries = [];
+  if(waiver > 0) newEntries.push({ id: 'feeadj-' + Date.now() + '-w', type: 'waiver', amount: waiver, timestamp: now, actorEmail: adminActorEmail });
+  if(discount > 0) newEntries.push({ id: 'feeadj-' + Date.now() + '-d', type: 'discount', amount: discount, timestamp: now, actorEmail: adminActorEmail });
+  if(creditNoteAmount > 0) newEntries.push({ id: 'feeadj-' + Date.now() + '-c', type: 'creditNote', amount: creditNoteAmount, timestamp: now, actorEmail: adminActorEmail });
+
+  const existingEntries = Array.isArray(a.raw.feeAdjustments) ? a.raw.feeAdjustments : [];
+  const allEntries = existingEntries.concat(newEntries);
+  const totalOf = type => allEntries.filter(e => e.type === type).reduce((sum, e) => sum + (e.amount || 0), 0);
+  // waiverAmount/discountAmount/refundAmount stay in place as cached totals
+  // (sums of the entries above) rather than being removed, since the
+  // Municipal officer's own application table and this portal's reports/
+  // amount-owed calculations already read these three top-level fields
+  // directly — recomputing them here keeps every one of those working
+  // unchanged, now backed by a real history instead of a hand-typed figure.
+  const newWaiverTotal = totalOf('waiver');
+  const newDiscountTotal = totalOf('discount');
+  const newRefundTotal = totalOf('creditNote');
   const ownerEmail = a.raw.ownerEmail || '';
 
-  a.waiverAmount = waiver;
-  a.discountAmount = discount;
-  a.refundAmount = creditNoteTotal;
-  a.raw.waiverAmount = waiver;
-  a.raw.discountAmount = discount;
-  a.raw.refundAmount = creditNoteTotal;
+  a.waiverAmount = newWaiverTotal;
+  a.discountAmount = newDiscountTotal;
+  a.refundAmount = newRefundTotal;
+  a.raw.waiverAmount = newWaiverTotal;
+  a.raw.discountAmount = newDiscountTotal;
+  a.raw.refundAmount = newRefundTotal;
+  a.raw.feeAdjustments = allEntries;
   try{
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
   }catch(e){
@@ -32942,32 +33175,28 @@ async function admin_saveFeeAdjustments(){
     return;
   }
 
-  if(creditDelta > 0){
+  if(creditNoteAmount > 0){
     if(!ownerEmail){
       admin_showToast(`Waiver/discount saved, but no Credit Note was issued — ${a.appNumber} has no registered account to credit (guest submission).`);
     } else {
       try{
         const txKey = 'walletTransaction:' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
         await window.storage.set(txKey, JSON.stringify({
-          id: txKey, ownerEmail, amount: creditDelta, type: 'credit_note',
+          id: txKey, ownerEmail, amount: creditNoteAmount, type: 'credit_note',
           appNumber: a.appNumber, reason: `Credit Note — ${a.appNumber}`,
-          issuedBy: adminActorEmail, issuedAt: new Date().toISOString()
+          issuedBy: adminActorEmail, issuedAt: now
         }), true);
-        await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.creditNoteIssued', details: `${a.appNumber}: ${admin_formatCurrency(creditDelta)} credited to ${ownerEmail}'s wallet.`, muniId: a.muniId });
+        await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.creditNoteIssued', details: `${a.appNumber}: ${admin_formatCurrency(creditNoteAmount)} credited to ${ownerEmail}'s wallet.`, muniId: a.muniId });
       }catch(e){
         admin_showToast('Adjustments saved, but crediting the wallet failed — please try again.');
         return;
       }
     }
   }
-  // Pre-existing bug fixed in passing: this referenced an undefined
-  // `refund` variable (this function's own credit-note input is
-  // creditNoteTotal), which threw a ReferenceError on every single save —
-  // silently skipping the "Fee adjustments saved." toast and the dashboard
-  // refresh below even though the adjustment itself had already persisted
-  // fine at the storage.set() call above.
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: waiver ${admin_formatCurrency(waiver)}, discount ${admin_formatCurrency(discount)}, refund ${admin_formatCurrency(creditNoteTotal)}.`, muniId: a.muniId });
+
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.feeAdjustment', details: `${a.appNumber}: ` + newEntries.map(e => `${e.type} ${admin_formatCurrency(e.amount)}`).join(', ') + '.', muniId: a.muniId });
   admin_showToast('Fee adjustments saved.');
+  admin_renderFeeAdjustmentsCard(a);
   admin_renderNationalOverview();
   admin_renderReports();
 }
