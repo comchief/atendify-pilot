@@ -8871,6 +8871,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     </div>
   </div>
 </div>
+
+<!-- ===== Admin > Users: decline an applicant's account deletion request ===== -->
+<!-- See admin_openDeclineDeletionModal() / admin_confirmDeclineAccountDeletion()
+     in the Admin script. A reason is required — it's saved onto the
+     applicant's own accountUser.deletionRequests history and sent to them
+     as an in-app notification. -->
+<div class="modal-overlay hidden" id="admin_declineDeletionModal">
+  <div class="modal-box">
+    <h3>Decline deletion request</h3>
+    <p class="modal-sub" id="admin_declineDeletionSub">—</p>
+    <div class="field-group">
+      <label for="admin_declineDeletionReason">Reason (shared with the applicant)</label>
+      <textarea id="admin_declineDeletionReason" placeholder="Explain why this request is being declined…"></textarea>
+    </div>
+    <div id="admin_declineDeletionError" class="hidden" style="color:var(--red); font-size:13.5px; margin-bottom:12px;"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="admin_closeDeclineDeletionModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="admin_confirmDeclineAccountDeletion()">Decline request</button>
+    </div>
+  </div>
+</div>
 <div class="suite-back-bar">
   <button type="button" onclick="admin_logout()">&larr; Log out</button>
   <span class="suite-back-label">Atendify Admin</span>
@@ -13633,8 +13654,29 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           : ('<p class="col-desc" style="margin-bottom:16px;">Request that your Atendify account be deleted. This does not happen instantly — an administrator reviews the request first. It only removes your Atendify login and profile; it does not affect data already submitted to regulatory agencies.</p>' +
              '<div class="btn-row" style="justify-content:flex-start;"><button class="btn btn-danger" onclick="acct_requestDeleteAccount()">Request account deletion</button></div>')
         ) +
+        acctRenderDeletionRequestHistory(p) +
       '</div>';
     if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('acctSessionsBody');
+  }
+
+  // A permanent record of every deletion request this account has ever
+  // made, kept even after it's resolved — most recent first. A declined
+  // request shows the Admin's stated reason, so the applicant isn't left
+  // wondering why nothing happened.
+  function acctRenderDeletionRequestHistory(p){
+    const entries = Array.isArray(p.deletionRequests) ? p.deletionRequests : [];
+    if(!entries.length) return '';
+    const statusBadge = { Pending: 'badge-blue', Declined: 'badge-red', Approved: 'badge-red', Withdrawn: 'badge-gray' };
+    const rows = entries.slice().sort((x, y) => new Date(y.requestedDate) - new Date(x.requestedDate)).map(e => `
+      <div class="review-row" style="padding:8px 0; border-bottom:1px solid var(--border);">
+        <div class="rr-label">
+          <span class="badge ${statusBadge[e.status] || 'badge-gray'}">${acctEscapeHtml(e.status || 'Pending')}</span>
+          Requested ${acctEscapeHtml(e.requestedDate ? new Date(e.requestedDate).toLocaleString() : 'Unknown')}
+        </div>
+        ${e.decidedDate ? `<div class="rr-value" style="font-size:12px; color:var(--text-muted);">Resolved ${acctEscapeHtml(new Date(e.decidedDate).toLocaleString())}${e.decidedBy ? ' by ' + acctEscapeHtml(e.decidedBy) : ''}</div>` : ''}
+        ${e.reason ? `<div class="rr-value" style="font-size:13px; margin-top:4px;">"${acctEscapeHtml(e.reason)}"</div>` : ''}
+      </div>`).join('');
+    return '<div style="margin-top:16px;"><div class="field-hint" style="font-weight:600; margin-bottom:4px;">Deletion request history</div>' + rows + '</div>';
   }
 
   async function acct_changePassword(){
@@ -13692,22 +13734,31 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // new RLS needed — the same pattern acct_requestCancellation() uses for
   // application withdrawal requests), which Admin's Platform > Users page
   // then lists for Approve/Decline (see admin_approveAccountDeletion() /
-  // admin_declineAccountDeletion()). Only an Admin approval actually
+  // admin_openDeclineDeletionModal()). Only an Admin approval actually
   // deletes the accountUser record, and even then it's the account/profile
   // only — applications already submitted to a Municipal Corporation or the
   // JCF are official regulatory records, retained under their own policy,
-  // and are never touched by this.
+  // and are never touched by this. Every request, and how it was resolved,
+  // is also kept as its own entry in acct_currentUser.deletionRequests —
+  // a permanent record on the applicant's own account, not just a
+  // now/then flag — so a past decline (and Admin's stated reason) is still
+  // visible on the account long after it's resolved.
   async function acct_requestDeleteAccount(){
     const message = "This submits a request to delete your Atendify account — it does not happen immediately. An administrator reviews every request before anything is deleted.\n\n" +
       "Once approved, this removes your profile and login from Atendify only. Data you have already submitted to regulatory agencies (Municipal Corporations, the Jamaica Constabulary Force, and other bodies) as part of an application is retained by those agencies according to their own internal policy on data storage, as required by law — this does not delete that data.\n\n" +
       "You can withdraw this request at any time before it's reviewed. Submit a deletion request?";
     const confirmed = await window.atdConfirm(message);
     if(!confirmed) return;
+    const now = new Date().toISOString();
+    const entry = { id: 'delreq-' + Date.now(), requestedDate: now, status: 'Pending' };
+    const priorHistory = Array.isArray(acct_currentUser.deletionRequests) ? acct_currentUser.deletionRequests : [];
+    acct_currentUser.deletionRequests = priorHistory.concat([entry]);
     acct_currentUser.deletionRequested = true;
-    acct_currentUser.deletionRequestedDate = new Date().toISOString();
+    acct_currentUser.deletionRequestedDate = now;
     try{
       await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
     } catch(err){
+      acct_currentUser.deletionRequests = priorHistory;
       acct_currentUser.deletionRequested = false;
       acct_currentUser.deletionRequestedDate = null;
       showToastFallback('Could not submit your request right now. Please try again.');
@@ -13724,12 +13775,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.acct_requestDeleteAccount = acct_requestDeleteAccount;
 
   async function acct_withdrawDeletionRequest(){
+    const history = Array.isArray(acct_currentUser.deletionRequests) ? acct_currentUser.deletionRequests : [];
+    const pending = history.slice().reverse().find(e => e.status === 'Pending');
+    const priorRequested = acct_currentUser.deletionRequested;
+    const priorRequestedDate = acct_currentUser.deletionRequestedDate;
+    if(pending){
+      pending.status = 'Withdrawn';
+      pending.decidedDate = new Date().toISOString();
+    }
     acct_currentUser.deletionRequested = false;
     acct_currentUser.deletionRequestedDate = null;
     try{
       await window.storage.set('accountUser:' + acct_currentUser.email, JSON.stringify(acct_currentUser), true);
     } catch(err){
-      acct_currentUser.deletionRequested = true;
+      if(pending){ pending.status = 'Pending'; delete pending.decidedDate; }
+      acct_currentUser.deletionRequested = priorRequested;
+      acct_currentUser.deletionRequestedDate = priorRequestedDate;
       showToastFallback('Could not withdraw your request right now. Please try again.');
       return;
     }
@@ -31301,37 +31362,76 @@ function admin_renderAccountDeletionRequests(){
       <td>${admin_escapeHtml(r.requestedDate ? new Date(r.requestedDate).toLocaleString() : 'Unknown')}</td>
       <td>
         <div class="btn-row" style="justify-content:flex-end;">
-          <button class="btn btn-sm" onclick="admin_declineAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Decline</button>
+          <button class="btn btn-sm" onclick="admin_openDeclineDeletionModal('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Decline</button>
           <button class="btn btn-sm btn-danger" onclick="admin_approveAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Approve &amp; delete</button>
         </div>
       </td>
     </tr>`).join('');
 }
 
-// Declining just clears the request flags, same record, same key — the
-// applicant keeps their account exactly as it was and can request again
-// later if they still want to.
-async function admin_declineAccountDeletion(email){
+// Declining requires a reason (see #admin_declineDeletionModal in the HTML)
+// — it's saved onto the applicant's own accountUser.deletionRequests
+// history (so the record persists on their account, not just a cleared
+// flag) and sent to them as an in-app notification, so they know why
+// nothing happened and don't just see the request silently vanish.
+let adminDeletionDeclineTargetEmail = null;
+function admin_openDeclineDeletionModal(email){
+  adminDeletionDeclineTargetEmail = email;
+  document.getElementById('admin_declineDeletionSub').textContent = `Declining ${email}'s account deletion request. Their account will remain active.`;
+  document.getElementById('admin_declineDeletionReason').value = '';
+  document.getElementById('admin_declineDeletionError').classList.add('hidden');
+  document.getElementById('admin_declineDeletionModal').classList.remove('hidden');
+}
+window.admin_openDeclineDeletionModal = admin_openDeclineDeletionModal;
+
+function admin_closeDeclineDeletionModal(){
+  document.getElementById('admin_declineDeletionModal').classList.add('hidden');
+  adminDeletionDeclineTargetEmail = null;
+}
+window.admin_closeDeclineDeletionModal = admin_closeDeclineDeletionModal;
+
+async function admin_confirmDeclineAccountDeletion(){
+  const email = adminDeletionDeclineTargetEmail;
   const req = adminAccountDeletionRequests.find(r => r.email === email);
-  if(!req || !window.storage) return;
-  const confirmed = await window.atdConfirm(`Decline ${email}'s account deletion request? Their account will remain active.`);
-  if(!confirmed) return;
+  const errorBox = document.getElementById('admin_declineDeletionError');
+  const reason = document.getElementById('admin_declineDeletionReason').value.trim();
+  if(!reason){
+    errorBox.textContent = 'Please enter a reason — it will be shown to the applicant.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(!req || !window.storage){ admin_closeDeclineDeletionModal(); return; }
+  const now = new Date().toISOString();
+  const history = Array.isArray(req.raw.deletionRequests) ? req.raw.deletionRequests : [];
+  const pending = history.slice().reverse().find(e => e.status === 'Pending');
+  if(pending){
+    pending.status = 'Declined';
+    pending.decidedDate = now;
+    pending.decidedBy = adminActorEmail;
+    pending.reason = reason;
+  }
   req.raw.deletionRequested = false;
   req.raw.deletionRequestedDate = null;
   try{
     await window.storage.set(req._storageKey, JSON.stringify(req.raw), true);
   }catch(e){
-    admin_showToast('Could not update that request right now. Please try again.');
+    errorBox.textContent = 'Could not save this decision right now. Please try again.';
+    errorBox.classList.remove('hidden');
     return;
   }
   try{
-    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'account.deletionRequestDeclined', details: `Declined ${email}'s account deletion request.` });
+    await window.atdNotifyApplicant(email, 'account_deletion_declined',
+      `Your request to delete your Atendify account was declined: "${reason}"`, null);
+  }catch(e){ /* non-critical, same best-effort contract as every other atdNotifyApplicant call */ }
+  try{
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'account.deletionRequestDeclined', details: `Declined ${email}'s account deletion request: "${reason}".` });
   }catch(e){ /* non-critical */ }
+  admin_closeDeclineDeletionModal();
   admin_showToast('Deletion request declined — account remains active.');
   await admin_loadAccountDeletionRequests();
   admin_renderAccountDeletionRequests();
 }
-window.admin_declineAccountDeletion = admin_declineAccountDeletion;
+window.admin_confirmDeclineAccountDeletion = admin_confirmDeclineAccountDeletion;
 
 // Approving actually deletes the accountUser record — the login/profile
 // only. Per the exact same scope acct_requestDeleteAccount() itself already
