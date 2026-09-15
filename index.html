@@ -2261,10 +2261,19 @@
      'dashboardRevenueSnapshot' in ATD_TIER_FEATURE_CATALOG) ---- */
   .stat-grid-enhanced{
     display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    grid-template-columns: repeat(6, 1fr);
     gap: 14px;
     margin-bottom: 24px;
+    align-items: stretch;
   }
+  .stat-grid-enhanced .stat-card{
+    display:flex;
+    flex-direction:column;
+    min-width: 0;
+  }
+  .stat-grid-enhanced .stat-card .sc-label{ overflow-wrap: break-word; }
+  @media (max-width: 1300px){ .stat-grid-enhanced{ grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 640px){ .stat-grid-enhanced{ grid-template-columns: repeat(2, 1fr); } }
   .sc-trend{ display:inline-flex; align-items:center; gap:3px; font-size:12.5px; font-weight:700; margin-left:8px; }
   .sc-trend.trend-good{ color: var(--green); }
   .sc-trend.trend-bad{ color: var(--red); }
@@ -7631,12 +7640,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="sc-value" id="dashKpiRejected">0<span class="sc-trend" id="dashKpiRejectedTrend"></span></div>
             <div class="sc-label">Rejected / Declined</div>
             <div class="sc-trend-note">vs. previous 30 days</div>
-          </div>
-          <div class="stat-card">
-            <div class="sc-top"><div class="sc-icon" style="background:var(--purple-tint); color:var(--purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l8-4v18M13 21V11l6 4v6"/></svg></div></div>
-            <div class="sc-value" id="dashKpiAwaitingAgency">0</div>
-            <div class="sc-label">Awaiting Agency Review</div>
-            <div class="sc-trend-note">Right now</div>
           </div>
           <div class="stat-card">
             <div class="sc-top"><div class="sc-icon" style="background:var(--red-tint,#fdecea); color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div></div>
@@ -28435,9 +28438,9 @@ function muniDashTrend(current, previous, sentiment){
 // sampled. The "vs. previous 30 days" badge only appears where a genuine
 // before/after comparison is possible from a timestamp already on the
 // record (submittedDate, decidedAt, paymentVerifiedAt); Pending
-// Applications, Awaiting Agency Review, and SLA Breaches are point-in-time
-// backlog states with no stored history to compare against, so they're
-// shown as a plain "right now" count rather than an invented trend.
+// Applications and SLA Breaches are point-in-time backlog states with no
+// stored history to compare against, so they're shown as a plain "right
+// now" count rather than an invented trend.
 function muni_renderDashboardKpis(){
   const list = myApplications();
   const DAY_MS = 86400000;
@@ -28472,13 +28475,6 @@ function muni_renderDashboardKpis(){
   const rejectedLast30 = list.filter(a => a.status === 'Rejected' && inWindow(a.decidedAt, last30Start, now)).length;
   const rejectedPrev30 = list.filter(a => a.status === 'Rejected' && inWindow(a.decidedAt, prev30Start, last30Start)).length;
   document.getElementById('dashKpiRejected').innerHTML = `${rejectedTotal}${muniDashTrend(rejectedLast30, rejectedPrev30, 'negative')}`;
-
-  // Awaiting Agency Review — Pending Approval applications with no
-  // recommendation on file yet (see jcfd_saveRecommendation() — once a
-  // linked agency records one, the CEO can act, so it's no longer waiting
-  // on the agency).
-  document.getElementById('dashKpiAwaitingAgency').textContent =
-    list.filter(a => a.status === 'Pending Approval' && !a.recommendation).length;
 
   // SLA Breaches — the real SLA engine (computeSlaBreaches(), the same one
   // the SLA Breaches page itself uses), not a re-derived approximation.
