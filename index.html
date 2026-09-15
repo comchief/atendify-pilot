@@ -2279,10 +2279,30 @@
   .sc-trend.trend-bad{ color: var(--red); }
   .sc-trend.trend-neutral{ color: var(--text-muted); }
   .sc-trend-note{ font-size:11.5px; color:var(--text-muted); margin-top:4px; }
-  .dash-3col{ display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:20px; align-items:start; }
-  .dash-3col > div{ display:flex; flex-direction:column; gap:20px; }
-  @media (max-width: 1150px){ .dash-3col{ grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 760px){ .dash-3col{ grid-template-columns: 1fr; } }
+  /* Top row: Event Map / Upcoming Events & Risk / Event Types — three equal
+     columns, grid's default align-items:stretch makes all three panels
+     exactly as tall as the tallest one (no fixed pixel height to fight
+     with real data). Each panel is a flex column with its own body area
+     set to flex:1 (via .dash-card-fill) so that shared height gets used
+     rather than leaving dead space only at the bottom of the tallest card,
+     and a capped, scrollable content area (table/legend) so a card with
+     a lot of rows stretches the row once, predictably, instead of growing
+     without bound. */
+  .dash-row-top{ display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; align-items:stretch; margin-bottom:24px; }
+  .dash-row-top > .panel{ margin-bottom:0; display:flex; flex-direction:column; }
+  .dash-row-top .dash-card-fill{ flex:1; display:flex; flex-direction:column; }
+  .dash-row-top .dash-card-scroll{ flex:1; min-height:0; max-height:300px; overflow-y:auto; }
+  .dash-row-top .pie-card-body{ flex:1; align-items:center; justify-content:center; }
+  @media (max-width: 1150px){ .dash-row-top{ grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 760px){ .dash-row-top{ grid-template-columns: 1fr; } }
+
+  /* Bottom row: Permit Revenue Snapshot / CEO Action Required (Premium
+     only). auto-fit + minmax means that if a municipality's tier config
+     ever shows only one of the two, it grows to fill the row instead of
+     leaving an empty gap where the hidden panel was. */
+  .dash-row-bottom{ display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; align-items:stretch; margin-bottom:24px; }
+  .dash-row-bottom > .panel{ margin-bottom:0; }
+
   .dash-map-placeholder{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     text-align:center; gap:10px; padding: 44px 20px; color: var(--text-muted);
@@ -7655,76 +7675,79 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
 
-        <div class="dash-3col">
-          <div>
-            <div class="panel" style="display:flex; flex-direction:column; flex:1;">
-              <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
-              <div class="dash-map-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
-                <div class="dmp-title">Coming soon</div>
-                <div>Plotting venues on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
-              </div>
+        <!-- Row 1: Event Map / Upcoming Events & Risk / Event Types — kept
+             to exactly three peer panels so the grid can stretch them to a
+             single shared height. Row 2 (below): the two Premium-only
+             panels, on their own row so they never distort row 1's height. -->
+        <div class="dash-row-top">
+          <div class="panel">
+            <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
+            <div class="dash-map-placeholder dash-card-fill">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+              <div class="dmp-title">Coming soon</div>
+              <div>Plotting venues on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
             </div>
           </div>
-          <div>
-            <div class="panel">
-              <div class="panel-head">
-                <h2>Upcoming Events &amp; Risk</h2>
-                <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
-              </div>
-              <div class="dash-risk-tabs">
-                <button class="dash-risk-tab active" data-window="72h" onclick="muni_setUpcomingWindow('72h')">Next 72 Hours</button>
-                <button class="dash-risk-tab" data-window="7d" onclick="muni_setUpcomingWindow('7d')">Next 7 Days</button>
-                <button class="dash-risk-tab" data-window="30d" onclick="muni_setUpcomingWindow('30d')">Next 30 Days</button>
-              </div>
-              <div style="overflow-x:auto;">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Upcoming Events &amp; Risk</h2>
+              <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
+            </div>
+            <div class="dash-risk-tabs">
+              <button class="dash-risk-tab active" data-window="72h" onclick="muni_setUpcomingWindow('72h')">Next 72 Hours</button>
+              <button class="dash-risk-tab" data-window="7d" onclick="muni_setUpcomingWindow('7d')">Next 7 Days</button>
+              <button class="dash-risk-tab" data-window="30d" onclick="muni_setUpcomingWindow('30d')">Next 30 Days</button>
+            </div>
+            <div class="dash-card-fill">
+              <div class="dash-card-scroll" style="overflow-x:auto;">
                 <table>
-                  <thead><tr><th>Event / Venue</th><th>Event Date</th><th>Attendance</th><th>Permit Status</th><th>Risk</th></tr></thead>
+                  <thead><tr><th>Event / Venue</th><th>Date</th><th>Patrons</th><th>Permit Status</th><th>Risk</th></tr></thead>
                   <tbody id="muni_upcomingEventsBody"></tbody>
                 </table>
               </div>
             </div>
-            <div class="panel hidden" id="muni_dashboardRevenuePanel">
-              <div class="panel-head"><h2>Permit Revenue Snapshot</h2></div>
-              <div class="pie-card-body">
-                <div class="pie-chart-wrap">
-                  <div class="pie-chart" id="muni_revenueChart"></div>
-                  <div class="pie-chart-hole"><div class="pcc-value" id="muni_revenueChartTotal">J$0</div><div class="pcc-label">Total</div></div>
-                </div>
-                <div class="pie-legend" id="muni_revenueLegend"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Event Types</h2>
+              <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
+            </div>
+            <div class="pie-card-body">
+              <div class="pie-chart-wrap">
+                <div class="pie-chart" id="muni_eventTypesChart"></div>
+                <div class="pie-chart-hole"><div class="pcc-value" id="muni_eventTypesChartTotal">0</div><div class="pcc-label">Total</div></div>
               </div>
-              <div class="field-row" style="margin-top:18px; grid-template-columns:repeat(3,1fr);">
-                <div><div class="sc-label">Outstanding</div><div class="sc-value" style="font-size:16px;" id="dashRevenueOutstanding">J$0</div></div>
-                <div><div class="sc-label">Refunds</div><div class="sc-value" style="font-size:16px;" id="dashRevenueRefunds">J$0</div></div>
-                <div><div class="sc-label">Promotions</div><div class="sc-value" style="font-size:16px;" id="dashRevenuePromotions">J$0</div></div>
-              </div>
+              <div class="pie-legend" id="muni_eventTypesLegend"></div>
             </div>
           </div>
-          <div>
-            <div class="panel">
-              <div class="panel-head">
-                <h2>Event Types</h2>
-                <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
+        </div>
+
+        <div class="dash-row-bottom">
+          <div class="panel hidden" id="muni_dashboardRevenuePanel">
+            <div class="panel-head"><h2>Permit Revenue Snapshot</h2></div>
+            <div class="pie-card-body">
+              <div class="pie-chart-wrap">
+                <div class="pie-chart" id="muni_revenueChart"></div>
+                <div class="pie-chart-hole"><div class="pcc-value" id="muni_revenueChartTotal">J$0</div><div class="pcc-label">Total</div></div>
               </div>
-              <div class="pie-card-body">
-                <div class="pie-chart-wrap">
-                  <div class="pie-chart" id="muni_eventTypesChart"></div>
-                  <div class="pie-chart-hole"><div class="pcc-value" id="muni_eventTypesChartTotal">0</div><div class="pcc-label">Total</div></div>
-                </div>
-                <div class="pie-legend" id="muni_eventTypesLegend"></div>
-              </div>
+              <div class="pie-legend" id="muni_revenueLegend"></div>
             </div>
-            <div class="panel hidden" id="muni_dashboardCeoActionsPanel">
-              <div class="panel-head">
-                <h2>CEO Action Required</h2>
-                <button class="btn btn-sm" onclick="muni_goPage('slaBreaches')">View All</button>
-              </div>
-              <div style="overflow-x:auto;">
-                <table>
-                  <thead><tr><th>Application</th><th>Event / Venue</th><th>Issue</th><th>Status</th></tr></thead>
-                  <tbody id="muni_ceoActionsBody"></tbody>
-                </table>
-              </div>
+            <div class="field-row" style="margin-top:18px; grid-template-columns:repeat(3,1fr);">
+              <div><div class="sc-label">Outstanding</div><div class="sc-value" style="font-size:16px;" id="dashRevenueOutstanding">J$0</div></div>
+              <div><div class="sc-label">Refunds</div><div class="sc-value" style="font-size:16px;" id="dashRevenueRefunds">J$0</div></div>
+              <div><div class="sc-label">Promotions</div><div class="sc-value" style="font-size:16px;" id="dashRevenuePromotions">J$0</div></div>
+            </div>
+          </div>
+          <div class="panel hidden" id="muni_dashboardCeoActionsPanel">
+            <div class="panel-head">
+              <h2>CEO Action Required</h2>
+              <button class="btn btn-sm" onclick="muni_goPage('slaBreaches')">View All</button>
+            </div>
+            <div style="overflow-x:auto;">
+              <table>
+                <thead><tr><th>Application</th><th>Event / Venue</th><th>Issue</th><th>Status</th></tr></thead>
+                <tbody id="muni_ceoActionsBody"></tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -28371,6 +28394,26 @@ function muni_formatCurrencyRound(amount){
   return 'J$' + Math.round(amount || 0).toLocaleString('en-US');
 }
 
+// Compact form for headline dashboard figures — e.g. J$124,875 -> J$124.9K,
+// J$2,350,000 -> J$2.4M — so a large revenue figure doesn't blow out a
+// stat-card or donut center. Every call site that uses this also sets a
+// `title` attribute with the full muni_formatCurrencyRound() figure, so the
+// exact amount is always one hover away rather than actually lost.
+function muni_formatCurrencyCompact(amount){
+  const n = Math.round(amount || 0);
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  let out;
+  if(abs >= 1000000){
+    out = (abs / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  } else if(abs >= 1000){
+    out = (abs / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  } else {
+    out = String(abs);
+  }
+  return 'J$' + sign + out;
+}
+
 // Cache of the current SLA-breach computation, shared between
 // muni_renderDashboardKpis()/muni_renderUpcomingEvents()/muni_renderCeoActions()
 // within one render pass — computeSlaBreaches() itself is cheap (pure, no
@@ -28498,7 +28541,9 @@ function muni_renderDashboardKpis(){
   }, 0);
   const revenueLast30 = muniRevenueIn(last30Start, now);
   const revenuePrev30 = muniRevenueIn(prev30Start, last30Start);
-  document.getElementById('dashKpiRevenue').innerHTML = `${muni_formatCurrencyRound(revenueAllTime)}${muniDashTrend(revenueLast30, revenuePrev30, 'positive')}`;
+  const revenueEl = document.getElementById('dashKpiRevenue');
+  revenueEl.innerHTML = `${muni_formatCurrencyCompact(revenueAllTime)}${muniDashTrend(revenueLast30, revenuePrev30, 'positive')}`;
+  revenueEl.title = muni_formatCurrencyRound(revenueAllTime);
 }
 
 function muni_setUpcomingWindow(win){
@@ -28539,7 +28584,7 @@ function muni_renderUpcomingEvents(){
 
   body.innerHTML = list.map(a => {
     const venueName = (a.raw && a.raw.venue && a.raw.venue.name) || 'N/A';
-    const attendance = (a.raw && a.raw.amusement && a.raw.amusement.patrons) || '—';
+    const patrons = (a.raw && a.raw.amusement && a.raw.amusement.patrons) || '—';
     const permitStatus = (!a.requiredDocumentsSubmitted || !a.paymentVerified) ? 'Incomplete'
       : a.status === 'Approved' ? 'Complete' : 'Partial';
     const permitBadge = { Incomplete: 'badge-red', Partial: 'badge-amber', Complete: 'badge-green' }[permitStatus];
@@ -28550,11 +28595,15 @@ function muni_renderUpcomingEvents(){
       else if(hoursUntil <= 24 * 7) risk = 'Medium';
     }
     const riskBadge = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' }[risk];
+    // Short "Sep 16" form (window tops out at 30 days out, so the year is
+    // never in doubt) rather than the raw stored ISO date — same idea as
+    // the compact currency figures below, kept legible in a narrow column.
+    const shortDate = muni_escapeHtml(new Date(a.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     return `
       <tr>
         <td class="cell-primary">${muni_escapeHtml(a.businessOrEvent || a.appNumber)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${muni_escapeHtml(venueName)}</span></td>
-        <td>${muni_escapeHtml(a.date)}</td>
-        <td>${muni_escapeHtml(String(attendance))}</td>
+        <td title="${muni_escapeHtml(a.date)}">${shortDate}</td>
+        <td>${muni_escapeHtml(String(patrons))}</td>
         <td><span class="badge ${permitBadge}">${permitStatus}</span></td>
         <td><span class="badge ${riskBadge}">${risk}</span></td>
       </tr>`;
@@ -28612,15 +28661,20 @@ function muni_renderRevenueSnapshot(){
   const total = specialFees + annualFees + adFees;
 
   const slices = [
-    { label: 'Special Permit Fees', value: specialFees, displayValue: muni_formatCurrencyRound(specialFees), color: 'var(--dvz-1)' },
-    { label: 'Annual Permit Fees', value: annualFees, displayValue: muni_formatCurrencyRound(annualFees), color: 'var(--dvz-2)' },
-    { label: 'Advertisement Fees', value: adFees, displayValue: muni_formatCurrencyRound(adFees), color: 'var(--dvz-3)' }
+    { label: 'Special Permit Fees', value: specialFees, displayValue: muni_formatCurrencyCompact(specialFees), title: muni_formatCurrencyRound(specialFees), color: 'var(--dvz-1)' },
+    { label: 'Annual Permit Fees', value: annualFees, displayValue: muni_formatCurrencyCompact(annualFees), title: muni_formatCurrencyRound(annualFees), color: 'var(--dvz-2)' },
+    { label: 'Advertisement Fees', value: adFees, displayValue: muni_formatCurrencyCompact(adFees), title: muni_formatCurrencyRound(adFees), color: 'var(--dvz-3)' }
   ].filter(s => s.value > 0);
   window.renderPieChart('muni_revenueChart', 'muni_revenueLegend', slices);
-  document.getElementById('muni_revenueChartTotal').textContent = muni_formatCurrencyRound(total);
-  document.getElementById('dashRevenueOutstanding').textContent = muni_formatCurrencyRound(outstanding);
-  document.getElementById('dashRevenueRefunds').textContent = muni_formatCurrencyRound(refunds);
-  document.getElementById('dashRevenuePromotions').textContent = muni_formatCurrencyRound(promotions);
+  const setCompact = (id, amount) => {
+    const el = document.getElementById(id);
+    el.textContent = muni_formatCurrencyCompact(amount);
+    el.title = muni_formatCurrencyRound(amount);
+  };
+  setCompact('muni_revenueChartTotal', total);
+  setCompact('dashRevenueOutstanding', outstanding);
+  setCompact('dashRevenueRefunds', refunds);
+  setCompact('dashRevenuePromotions', promotions);
 }
 
 // Premium only. Pulled straight from the real SLA breach engine
@@ -32747,11 +32801,12 @@ function renderPieChart(chartId, legendId, slices){
 
   legendEl.innerHTML = slices.map(s => {
     const pct = total ? Math.round((s.value / total) * 100) : 0;
+    const titleAttr = s.title !== undefined ? ` title="${admin_escapeHtml(s.title)}"` : '';
     return `
       <div class="pie-legend-row">
         <span class="pie-legend-dot" style="background:${s.color};"></span>
         <span class="pie-legend-label">${admin_escapeHtml(s.label)}</span>
-        <span class="pie-legend-value">${s.displayValue !== undefined ? s.displayValue : s.value} (${pct}%)</span>
+        <span class="pie-legend-value"${titleAttr}>${s.displayValue !== undefined ? s.displayValue : s.value} (${pct}%)</span>
       </div>
     `;
   }).join('');
