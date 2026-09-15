@@ -2246,15 +2246,18 @@
   /* Turns the plain filled .pie-chart into a donut by punching a
      surface-colored hole in the middle, with room for a center total —
      matches the app's own "no new component library" convention (plain
-     CSS over SVG/canvas) already used for .pie-chart itself. */
-  .pie-chart-wrap{ position:relative; width:84px; height:84px; flex-shrink:0; }
-  .pie-chart-wrap .pie-chart{ width:84px; height:84px; }
+     CSS over SVG/canvas) already used for .pie-chart itself. Sized (and the
+     hole inset with it) so a compact currency figure like "J$124.9K" has
+     real breathing room against the ring rather than crowding it. */
+  .pie-chart-wrap{ position:relative; width:124px; height:124px; flex-shrink:0; }
+  .pie-chart-wrap .pie-chart{ width:124px; height:124px; }
   .pie-chart-hole{
-    position:absolute; inset:14px; border-radius:50%; background:var(--bg);
+    position:absolute; inset:22px; border-radius:50%; background:var(--bg);
     display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+    padding: 4px; box-sizing:border-box; gap:2px;
   }
-  .pie-chart-hole .pcc-value{ font-weight:800; font-size:14px; color:var(--text); line-height:1.15; }
-  .pie-chart-hole .pcc-label{ font-size:8.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em; }
+  .pie-chart-hole .pcc-value{ font-weight:800; font-size:15px; color:var(--text); line-height:1.2; overflow-wrap:anywhere; }
+  .pie-chart-hole .pcc-label{ font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em; }
 
   /* ---- Municipal officer portal: enhanced dashboard (Standard/Premium
      tiers only — see 'dashboardInsights'/'dashboardCeoActions'/
@@ -2302,6 +2305,43 @@
      leaving an empty gap where the hidden panel was. */
   .dash-row-bottom{ display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:20px; align-items:stretch; margin-bottom:24px; }
   .dash-row-bottom > .panel{ margin-bottom:0; }
+
+  /* Title sizing for both dashboard rows: a card in a 3-up (or even 2-up)
+     column is much narrower than this app's other full-width panels, so
+     the same 16.5px header that fits fine elsewhere can crowd a "View All"
+     button or run long (e.g. "Event Map — <municipality name>"). Shrink the
+     font, let it wrap onto its own line above the button instead of
+     truncating (nothing about a municipality's own name should get cut
+     off), and keep the button itself from being squeezed. */
+  .dash-row-top .panel-head, .dash-row-bottom .panel-head{ row-gap: 6px; }
+  .dash-row-top .panel-head h2, .dash-row-bottom .panel-head h2{
+    font-size: 14px; line-height: 1.3; min-width: 0; flex: 1 1 auto; overflow-wrap: break-word;
+  }
+  .dash-row-top .panel-head .btn-sm, .dash-row-bottom .panel-head .btn-sm{ flex-shrink: 0; }
+
+  /* Key Insights: a full-width strip between the KPI row and the card grid
+     below it — a distinct tinted surface (rather than the plain .panel
+     white/dark) so it reads as a callout, not another data card. */
+  .key-insights-card{
+    background: linear-gradient(135deg, var(--blue-tint), var(--bg) 70%);
+    border-color: var(--blue-tint);
+  }
+  .ki-head{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .ki-head-icon{
+    width:30px; height:30px; border-radius:50%; flex-shrink:0;
+    background: var(--amber-tint); color: var(--amber);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .ki-head-icon svg{ width:16px; height:16px; }
+  .ki-head h2{ margin:0; font-size:16px; font-weight:800; color:var(--blue); }
+  .ki-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; }
+  .ki-tile{
+    background: var(--bg); border:1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; display:flex; flex-direction:column; gap:10px; min-width:0;
+  }
+  .ki-tile-icon{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .ki-tile-icon svg{ width:16px; height:16px; }
+  .ki-tile-text{ font-size:13px; color:var(--text); line-height:1.4; overflow-wrap:break-word; }
 
   .dash-map-placeholder{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -7673,6 +7713,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="sc-label">Revenue Collected</div>
             <div class="sc-trend-note">vs. previous 30 days</div>
           </div>
+        </div>
+
+        <!-- Key Insights: a full-width strip of short, real, computed
+             callouts sitting between the KPI row and the card grid below.
+             Standard+Premium (same gate as the rest of this dashboard) —
+             see muni_renderKeyInsights(). -->
+        <div class="panel key-insights-card">
+          <div class="ki-head">
+            <span class="ki-head-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.5.4.8 1 .8 1.6v.7h6.4v-.7c0-.6.3-1.2.8-1.6A7 7 0 0012 2z"/></svg>
+            </span>
+            <h2>Key Insights</h2>
+          </div>
+          <div class="ki-grid" id="muni_keyInsightsGrid"></div>
         </div>
 
         <!-- Row 1: Event Map / Upcoming Events & Risk / Event Types — kept
@@ -25981,6 +26035,12 @@ async function loadVenues(){
     venues = venues.filter(v => !fetchedIds.has(v.id));
     fetched.forEach(v => venues.push(v));
     if(!document.getElementById('page-venues').classList.contains('hidden')){ renderVenues(); renderPendingVenues(); }
+    // Flagged-venues tile on the Muni dashboard reads myVenues() live, so it
+    // needs a refresh whenever venues load — regardless of which page is
+    // currently showing (mirrors loadSubmittedApplications()'s unconditional
+    // muni_renderAll() call, just scoped to this one tile instead of a full
+    // dashboard re-render).
+    muni_renderKeyInsights();
   } catch(err){ /* keep local/seed venues */ }
 }
 
@@ -27044,6 +27104,9 @@ async function loadWatchlist(){
     watchlist = watchlist.filter(w => !fetchedTrns.has(w.trn));
     fetched.forEach(w => watchlist.push(w));
     if(!document.getElementById('page-watchlist').classList.contains('hidden')) renderWatchlist();
+    // Flagged-individuals tile on the Muni dashboard reads myWatchlist() live
+    // — see the matching comment in loadVenues() above.
+    muni_renderKeyInsights();
   } catch(err){ /* keep local/seed watchlist */ }
 }
 
@@ -28453,10 +28516,125 @@ async function muni_renderDashboardMode(){
   muniDashSlaResult = computeSlaBreaches(rules);
 
   muni_renderDashboardKpis();
+  muni_renderKeyInsights();
   muni_renderUpcomingEvents();
   muni_renderEventTypesChart();
   if(showRevenue) muni_renderRevenueSnapshot();
   if(showCeoActions) muni_renderCeoActions();
+}
+
+// Key Insights: a full-width strip of short, real, computed callouts
+// sitting between the KPI row and the card grid below it (see
+// #muni_keyInsightsGrid in muni_page-dashboard's own HTML). Every tile here
+// is derived from the same real records/engines the rest of this dashboard
+// already uses — nothing is invented, and where no honest trend exists (SLA
+// compliance has no stored daily-snapshot history to compare against, same
+// reasoning as the Pending Applications/SLA Breaches KPI cards), the tile
+// shows a plain point-in-time figure rather than a fabricated up/down
+// arrow. Also called from loadVenues()/loadWatchlist() (not just from here)
+// so the flagged-individuals/flagged-venues tiles pick up fresh data
+// whenever that storage loads, the same way loadSubmittedApplications()
+// already re-renders the whole dashboard once applications load.
+function muni_renderKeyInsights(){
+  const grid = document.getElementById('muni_keyInsightsGrid');
+  if(!grid || !currentUser) return;
+  const DAY_MS = 86400000;
+  const now = Date.now();
+  const list = myApplications();
+
+  // 1) Events within the next 7 days whose permit isn't fully in place yet —
+  // the same "Incomplete" definition muni_renderUpcomingEvents() itself uses
+  // (missing required documents and/or unverified payment), but always a
+  // fixed 7-day window regardless of whichever tab that table currently has
+  // selected.
+  const soon7d = list.filter(a => {
+    if(a.licenseType === 'Annual' || a.status === 'Rejected' || a.status === 'Withdrawn' || !a.date) return false;
+    const t = new Date(a.date).getTime();
+    return !isNaN(t) && t >= now && t <= now + 7 * DAY_MS;
+  });
+  const incompleteCount = soon7d.filter(a => !a.requiredDocumentsSubmitted || !a.paymentVerified).length;
+
+  // 2) Revenue trend — identical formula/window to the Revenue Collected KPI
+  // card (municipal portion only, verified payments only, last 30 days vs
+  // the 30 days before that).
+  const last30Start = now - 30 * DAY_MS, prev30Start = now - 60 * DAY_MS;
+  const inWindow = (iso, start, end) => {
+    if(!iso) return false;
+    const t = new Date(iso).getTime();
+    return !isNaN(t) && t >= start && t < end;
+  };
+  const muniRevenueIn = (start, end) => list.reduce((sum, a) => {
+    if(!a.paymentVerified || !inWindow(a.paymentVerifiedAt, start, end)) return sum;
+    const costs = a.raw && a.raw.costs;
+    const amt = costs ? (costs.total - costs.applicationFee) : (a.paymentAmount || 0);
+    return sum + amt;
+  }, 0);
+  const revLast30 = muniRevenueIn(last30Start, now);
+  const revPrev30 = muniRevenueIn(prev30Start, last30Start);
+  let revenueText, revenueUp = true;
+  if(!revPrev30){
+    revenueText = revLast30 ? 'New revenue in the last 30 days' : 'No revenue recorded in the last 30 days';
+  } else {
+    const pct = Math.round(((revLast30 - revPrev30) / revPrev30) * 100);
+    revenueUp = pct >= 0;
+    revenueText = `Revenue ${revenueUp ? 'up' : 'down'} ${Math.abs(pct)}% compared to last month`;
+  }
+
+  // 3) SLA compliance right now — % of currently-open applications with no
+  // active stage breach, off the same real engine (muniDashSlaResult,
+  // computed by muni_renderDashboardMode() just before this runs) that
+  // already powers the SLA Breaches page and CEO Action Required. No
+  // "vs last month" arrow: this app has no daily-snapshot history to
+  // honestly compare a point-in-time rate against.
+  const openCount = muniDashSlaResult.openCount;
+  const breachedCount = muniDashSlaResult.breached.length;
+  const compliancePct = openCount > 0 ? Math.round(((openCount - breachedCount) / openCount) * 100) : 100;
+  const complianceTone = compliancePct >= 90 ? 'good' : (compliancePct >= 70 ? 'warn' : 'bad');
+
+  // 4) Total flagged individuals — this municipality's own active Watch
+  // List entries (myWatchlist()), the same set the Watch List page itself
+  // shows by default. A JCF-only cross-agency flag isn't counted here —
+  // that belongs to JCF, not this municipality (see myWatchlist()'s own
+  // muniId scoping, and its own comment on the shared/cross-agency table
+  // this reads from).
+  const flaggedIndividuals = myWatchlist().filter(w => w.status === 'Active').length;
+
+  // 5) Flagged venues — this municipality's own venues currently flagged
+  // unavailable (venue.flagged; see openFlagVenueModal()/submitFlagVenue()).
+  const flaggedVenues = myVenues().filter(v => v.flagged).length;
+
+  const toneColors = {
+    good: { bg: 'var(--green-tint)', fg: 'var(--green)' },
+    warn: { bg: 'var(--amber-tint)', fg: 'var(--amber)' },
+    bad: { bg: 'var(--red-tint)', fg: 'var(--red)' }
+  };
+  const calendarIcon = '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>';
+  const trendUpIcon = '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>';
+  const trendDownIcon = '<polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>';
+  const shieldIcon = '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>';
+  const userIcon = '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>';
+  const buildingIcon = '<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1"/>';
+
+  const tile = (toneKey, iconPath, html) => {
+    const c = toneColors[toneKey];
+    return `<div class="ki-tile">
+      <div class="ki-tile-icon" style="background:${c.bg}; color:${c.fg};"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconPath}</svg></div>
+      <div class="ki-tile-text">${html}</div>
+    </div>`;
+  };
+
+  const tiles = [
+    tile(incompleteCount > 0 ? 'warn' : 'good', calendarIcon,
+      `<strong>${incompleteCount}</strong> event${incompleteCount === 1 ? '' : 's'} within 7 days ${incompleteCount === 1 ? 'has' : 'have'} incomplete permits`),
+    tile(revenueUp ? 'good' : 'bad', revenueUp ? trendUpIcon : trendDownIcon, revenueText),
+    tile(complianceTone, shieldIcon, `SLA compliance at <strong>${compliancePct}%</strong> right now`),
+    tile(flaggedIndividuals > 0 ? 'bad' : 'good', userIcon,
+      `<strong>${flaggedIndividuals}</strong> flagged individual${flaggedIndividuals === 1 ? '' : 's'} on your Watch List`),
+    tile(flaggedVenues > 0 ? 'warn' : 'good', buildingIcon,
+      `<strong>${flaggedVenues}</strong> flagged venue${flaggedVenues === 1 ? '' : 's'}`)
+  ];
+
+  grid.innerHTML = tiles.join('');
 }
 
 // sentiment: 'positive' (more = good news, e.g. Approved), 'negative' (more
@@ -31692,6 +31870,7 @@ window.closePromotionModal = closePromotionModal;
 window.savePromotion = savePromotion;
 window.togglePromotionStatus = togglePromotionStatus;
 window.loadVenues = loadVenues;
+window.loadWatchlist = loadWatchlist;
 window.atdGenerateVenueId = atdGenerateVenueId;
 // Exposed for the Admin portal's own <script> scope (a separate closure —
 // see renderBilling()/adminSetAgencyTier()) and for tests driving either
