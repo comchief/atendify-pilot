@@ -25,6 +25,21 @@
     --amber: #b45309;
     --amber-tint: #fef6e7;
     --radius: 8px;
+    /* Chart-only categorical series (Municipal officer portal's enhanced
+       dashboard donuts — Event Types, Permit Revenue Snapshot). Kept
+       separate from --blue/--purple/--red/--amber above: those are tuned
+       for single-color icon/badge accents, not a multi-series categorical
+       set, and validated CVD-safety testing showed the button/badge blue
+       and purple sit too close together, and red/amber too close together,
+       to tell apart at a glance or under color-vision deficiency. This
+       5-hue set (plus --dvz-other as a shared "everything else" bucket) is
+       validated all-pairs distinguishable in both light and dark mode. */
+    --dvz-1: #2a78d6;
+    --dvz-2: #eb6834;
+    --dvz-3: #1baf7a;
+    --dvz-4: #eda100;
+    --dvz-5: #e87ba4;
+    --dvz-other: #6b7280;
   }
   [data-theme="dark"]{
     --bg: #14161c;
@@ -38,6 +53,12 @@
     --info-text: #a9b3ff;
     --green-tint: #123324;
     --amber-tint: #382a12;
+    --dvz-1: #3987e5;
+    --dvz-2: #d95926;
+    --dvz-3: #199e70;
+    --dvz-4: #c98500;
+    --dvz-5: #d55181;
+    --dvz-other: #9ca3af;
   }
   *{ box-sizing: border-box; }
   html,body{ margin:0; padding:0; }
@@ -2222,6 +2243,51 @@
   .pie-legend-label{ color: var(--text); font-weight:600; }
   .pie-legend-value{ color: var(--text-muted); }
 
+  /* Turns the plain filled .pie-chart into a donut by punching a
+     surface-colored hole in the middle, with room for a center total —
+     matches the app's own "no new component library" convention (plain
+     CSS over SVG/canvas) already used for .pie-chart itself. */
+  .pie-chart-wrap{ position:relative; width:84px; height:84px; flex-shrink:0; }
+  .pie-chart-wrap .pie-chart{ width:84px; height:84px; }
+  .pie-chart-hole{
+    position:absolute; inset:14px; border-radius:50%; background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;
+  }
+  .pie-chart-hole .pcc-value{ font-weight:800; font-size:14px; color:var(--text); line-height:1.15; }
+  .pie-chart-hole .pcc-label{ font-size:8.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.03em; }
+
+  /* ---- Municipal officer portal: enhanced dashboard (Standard/Premium
+     tiers only — see 'dashboardInsights'/'dashboardCeoActions'/
+     'dashboardRevenueSnapshot' in ATD_TIER_FEATURE_CATALOG) ---- */
+  .stat-grid-enhanced{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .sc-trend{ display:inline-flex; align-items:center; gap:3px; font-size:12.5px; font-weight:700; margin-left:8px; }
+  .sc-trend.trend-good{ color: var(--green); }
+  .sc-trend.trend-bad{ color: var(--red); }
+  .sc-trend.trend-neutral{ color: var(--text-muted); }
+  .sc-trend-note{ font-size:11.5px; color:var(--text-muted); margin-top:4px; }
+  .dash-3col{ display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:20px; align-items:start; }
+  .dash-3col > div{ display:flex; flex-direction:column; gap:20px; }
+  @media (max-width: 1150px){ .dash-3col{ grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 760px){ .dash-3col{ grid-template-columns: 1fr; } }
+  .dash-map-placeholder{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:10px; padding: 44px 20px; color: var(--text-muted);
+    border: 1.5px dashed var(--border); border-radius: var(--radius); min-height: 280px; flex: 1;
+  }
+  .dash-map-placeholder svg{ width:34px; height:34px; opacity:0.6; }
+  .dash-map-placeholder .dmp-title{ font-weight:700; color: var(--text); font-size:14px; }
+  .dash-risk-tabs{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .dash-risk-tab{
+    padding:6px 12px; border-radius:999px; border:1px solid var(--border); background:var(--bg);
+    color:var(--text-muted); font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .dash-risk-tab.active{ background:var(--blue); border-color:var(--blue); color:#fff; }
+
   .panel{
     background: var(--bg);
     border: 1px solid var(--border);
@@ -2437,6 +2503,21 @@
     --amber: #b45309;
     --amber-tint: #fef6e7;
     --radius: 8px;
+    /* Chart-only categorical series (Municipal officer portal's enhanced
+       dashboard donuts — Event Types, Permit Revenue Snapshot). Kept
+       separate from --blue/--purple/--red/--amber above: those are tuned
+       for single-color icon/badge accents, not a multi-series categorical
+       set, and validated CVD-safety testing showed the button/badge blue
+       and purple sit too close together, and red/amber too close together,
+       to tell apart at a glance or under color-vision deficiency. This
+       5-hue set (plus --dvz-other as a shared "everything else" bucket) is
+       validated all-pairs distinguishable in both light and dark mode. */
+    --dvz-1: #2a78d6;
+    --dvz-2: #eb6834;
+    --dvz-3: #1baf7a;
+    --dvz-4: #eda100;
+    --dvz-5: #e87ba4;
+    --dvz-other: #6b7280;
   }
   [data-theme="dark"]{
     --bg: #14161c;
@@ -2450,6 +2531,12 @@
     --info-text: #a9b3ff;
     --green-tint: #123324;
     --amber-tint: #382a12;
+    --dvz-1: #3987e5;
+    --dvz-2: #d95926;
+    --dvz-3: #199e70;
+    --dvz-4: #c98500;
+    --dvz-5: #d55181;
+    --dvz-other: #9ca3af;
   }
   *{ box-sizing: border-box; }
   html,body{ margin:0; padding:0; }
@@ -6010,7 +6097,19 @@
     // placement-location flag; 'adsManageLocations' is the separate
     // Standard Advertisement Locations catalog those items can point at.
     { key: 'adsManageCategories', label: 'Advertisement Module — Add/Delete Items & Categories' },
-    { key: 'adsManageLocations', label: 'Advertisement Module — Add/Remove Standard Locations' }
+    { key: 'adsManageLocations', label: 'Advertisement Module — Add/Remove Standard Locations' },
+    // The Municipal officer portal's Dashboard page itself, on every tier,
+    // shows the original simple 4-card + Recent Applications view (see
+    // muni_page-dashboard's own two containers, gated by
+    // atdMuniModuleLocked('dashboardInsights')). These three keys are what
+    // Standard/Premium layer ON TOP of that baseline — 'dashboardInsights'
+    // is the enhanced KPI row (7 cards) + Upcoming Events & Risk + Event
+    // Types donut + the Event Map placeholder; 'dashboardCeoActions' and
+    // 'dashboardRevenueSnapshot' are two further cards reserved for Premium
+    // only, per the explicit tier split the user chose.
+    { key: 'dashboardInsights', label: 'Dashboard — Enhanced Insights (KPI row, Upcoming Events & Risk, Event Types, Event Map)' },
+    { key: 'dashboardCeoActions', label: 'Dashboard — CEO Action Required' },
+    { key: 'dashboardRevenueSnapshot', label: 'Dashboard — Permit Revenue Snapshot' }
   ];
   // Factory fallback, used until an Admin ever saves an edit (or if the
   // saved record is ever missing/corrupt) — matches what MUNI_TIER_MODULES
@@ -6020,8 +6119,8 @@
   // two sub-capability keys above for what's layered on top per tier.
   window.ATD_DEFAULT_TIER_MODULES = {
     Essential: ['ads'],
-    Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline', 'ads', 'adsManageCategories'],
-    Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline', 'adsManageCategories', 'adsManageLocations']
+    Standard: ['reports', 'eventsCalendar', 'slaBreaches', 'activityTimeline', 'ads', 'adsManageCategories', 'dashboardInsights'],
+    Premium: ['reports', 'eventsCalendar', 'slaBreaches', 'promotions', 'ads', 'activityTimeline', 'adsManageCategories', 'adsManageLocations', 'dashboardInsights', 'dashboardCeoActions', 'dashboardRevenueSnapshot']
   };
   window.atdGetTierModulesConfig = async function(){
     const fallback = JSON.parse(JSON.stringify(window.ATD_DEFAULT_TIER_MODULES));
@@ -7460,42 +7559,171 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     <!-- ===== DASHBOARD PAGE ===== -->
     <div class="page" id="muni_page-dashboard">
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="sc-top">
-            <div class="sc-icon" style="background:var(--blue-tint); color:var(--blue);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+
+      <!-- Essential tier: the original simple dashboard. Shown only when
+           'dashboardInsights' is locked for this municipality's tier — see
+           muni_renderDashboardMode() in the Municipal officer portal's own
+           script scope. -->
+      <div id="muni_dashboardBasic">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="sc-top">
+              <div class="sc-icon" style="background:var(--blue-tint); color:var(--blue);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+              </div>
             </div>
+            <div class="sc-value" id="statTotal">0</div>
+            <div class="sc-label">Total applications</div>
           </div>
-          <div class="sc-value" id="statTotal">0</div>
-          <div class="sc-label">Total applications</div>
+          <div class="stat-card">
+            <div class="sc-top">
+              <div class="sc-icon" style="background:var(--gray-tint,var(--track)); color:var(--text-muted);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+              </div>
+            </div>
+            <div class="sc-value" id="statAwaitingPayment">0</div>
+            <div class="sc-label">Awaiting payment</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top">
+              <div class="sc-icon" style="background:var(--purple-tint); color:var(--purple);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+            </div>
+            <div class="sc-value" id="statPendingApproval">0</div>
+            <div class="sc-label">Pending approval</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top">
+              <div class="sc-icon" style="background:var(--green-tint); color:var(--green);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+            </div>
+            <div class="sc-value" id="statApproved">0</div>
+            <div class="sc-label">Approved</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="sc-top">
-            <div class="sc-icon" style="background:var(--gray-tint,var(--track)); color:var(--text-muted);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-            </div>
+      </div>
+
+      <!-- Standard/Premium: enhanced dashboard. See muni_renderDashboardInsights(). -->
+      <div id="muni_dashboardEnhanced" class="hidden">
+        <div class="stat-grid-enhanced">
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--blue-tint); color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div></div>
+            <div class="sc-value" id="dashKpiReceived">0<span class="sc-trend" id="dashKpiReceivedTrend"></span></div>
+            <div class="sc-label">Applications Received</div>
+            <div class="sc-trend-note">vs. previous 30 days</div>
           </div>
-          <div class="sc-value" id="statAwaitingPayment">0</div>
-          <div class="sc-label">Awaiting payment</div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--amber-tint); color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+            <div class="sc-value" id="dashKpiPending">0</div>
+            <div class="sc-label">Pending Applications</div>
+            <div class="sc-trend-note">Right now</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--green-tint); color:var(--green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
+            <div class="sc-value" id="dashKpiApproved">0<span class="sc-trend" id="dashKpiApprovedTrend"></span></div>
+            <div class="sc-label">Approved</div>
+            <div class="sc-trend-note">vs. previous 30 days</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--red-tint,#fdecea); color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div></div>
+            <div class="sc-value" id="dashKpiRejected">0<span class="sc-trend" id="dashKpiRejectedTrend"></span></div>
+            <div class="sc-label">Rejected / Declined</div>
+            <div class="sc-trend-note">vs. previous 30 days</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--purple-tint); color:var(--purple);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l8-4v18M13 21V11l6 4v6"/></svg></div></div>
+            <div class="sc-value" id="dashKpiAwaitingAgency">0</div>
+            <div class="sc-label">Awaiting Agency Review</div>
+            <div class="sc-trend-note">Right now</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--red-tint,#fdecea); color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div></div>
+            <div class="sc-value" id="dashKpiSlaBreaches">0</div>
+            <div class="sc-label">SLA Breaches</div>
+            <div class="sc-trend-note">Right now</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-top"><div class="sc-icon" style="background:var(--green-tint); color:var(--green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5a2.5 2.5 0 012.5-2.5h1A2.5 2.5 0 0115 9.5a2.5 2.5 0 01-2.5 2.5h-1A2.5 2.5 0 009 14.5a2.5 2.5 0 002.5 2.5h1a2.5 2.5 0 002.5-2.5"/></svg></div></div>
+            <div class="sc-value" id="dashKpiRevenue">J$0<span class="sc-trend" id="dashKpiRevenueTrend"></span></div>
+            <div class="sc-label">Revenue Collected</div>
+            <div class="sc-trend-note">vs. previous 30 days</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="sc-top">
-            <div class="sc-icon" style="background:var(--purple-tint); color:var(--purple);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+
+        <div class="dash-3col">
+          <div>
+            <div class="panel" style="display:flex; flex-direction:column; flex:1;">
+              <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
+              <div class="dash-map-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+                <div class="dmp-title">Coming soon</div>
+                <div>Plotting venues on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
+              </div>
             </div>
           </div>
-          <div class="sc-value" id="statPendingApproval">0</div>
-          <div class="sc-label">Pending approval</div>
-        </div>
-        <div class="stat-card">
-          <div class="sc-top">
-            <div class="sc-icon" style="background:var(--green-tint); color:var(--green);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <div>
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Upcoming Events &amp; Risk</h2>
+                <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
+              </div>
+              <div class="dash-risk-tabs">
+                <button class="dash-risk-tab active" data-window="72h" onclick="muni_setUpcomingWindow('72h')">Next 72 Hours</button>
+                <button class="dash-risk-tab" data-window="7d" onclick="muni_setUpcomingWindow('7d')">Next 7 Days</button>
+                <button class="dash-risk-tab" data-window="30d" onclick="muni_setUpcomingWindow('30d')">Next 30 Days</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead><tr><th>Event / Venue</th><th>Event Date</th><th>Attendance</th><th>Permit Status</th><th>Risk</th></tr></thead>
+                  <tbody id="muni_upcomingEventsBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel hidden" id="muni_dashboardRevenuePanel">
+              <div class="panel-head"><h2>Permit Revenue Snapshot</h2></div>
+              <div class="pie-card-body">
+                <div class="pie-chart-wrap">
+                  <div class="pie-chart" id="muni_revenueChart"></div>
+                  <div class="pie-chart-hole"><div class="pcc-value" id="muni_revenueChartTotal">J$0</div><div class="pcc-label">Total</div></div>
+                </div>
+                <div class="pie-legend" id="muni_revenueLegend"></div>
+              </div>
+              <div class="field-row" style="margin-top:18px; grid-template-columns:repeat(3,1fr);">
+                <div><div class="sc-label">Outstanding</div><div class="sc-value" style="font-size:16px;" id="dashRevenueOutstanding">J$0</div></div>
+                <div><div class="sc-label">Refunds</div><div class="sc-value" style="font-size:16px;" id="dashRevenueRefunds">J$0</div></div>
+                <div><div class="sc-label">Promotions</div><div class="sc-value" style="font-size:16px;" id="dashRevenuePromotions">J$0</div></div>
+              </div>
             </div>
           </div>
-          <div class="sc-value" id="statApproved">0</div>
-          <div class="sc-label">Approved</div>
+          <div>
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Event Types</h2>
+                <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
+              </div>
+              <div class="pie-card-body">
+                <div class="pie-chart-wrap">
+                  <div class="pie-chart" id="muni_eventTypesChart"></div>
+                  <div class="pie-chart-hole"><div class="pcc-value" id="muni_eventTypesChartTotal">0</div><div class="pcc-label">Total</div></div>
+                </div>
+                <div class="pie-legend" id="muni_eventTypesLegend"></div>
+              </div>
+            </div>
+            <div class="panel hidden" id="muni_dashboardCeoActionsPanel">
+              <div class="panel-head">
+                <h2>CEO Action Required</h2>
+                <button class="btn btn-sm" onclick="muni_goPage('slaBreaches')">View All</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead><tr><th>Application</th><th>Event / Venue</th><th>Issue</th><th>Status</th></tr></thead>
+                  <tbody id="muni_ceoActionsBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -28087,6 +28315,10 @@ function muni_escapeHtml(s){
 async function muni_renderAll(){
   muni_renderStats();
   muni_renderRecentApps();
+  // Fire-and-forget, same contract as muni_renderAll() itself has always
+  // had for every caller — it awaits its own async work (the SLA policy
+  // lookup) internally rather than making every render pass wait on it.
+  muni_renderDashboardMode();
   // Awaited (and moved ahead of muni_renderApplications()) so that
   // function's own "needs attention" red dot (see its rowDot) reads
   // notifPersisted already refreshed for THIS render, not whatever was left
@@ -28122,6 +28354,308 @@ function muni_renderRecentApps(){
       <td>${muni_statusBadge(a.status)}</td>
     </tr>
   `).join('');
+}
+
+// ==================== Enhanced Dashboard (Standard/Premium tiers) ====================
+// Gated by 'dashboardInsights'/'dashboardCeoActions'/'dashboardRevenueSnapshot'
+// in ATD_TIER_FEATURE_CATALOG (see MUNI_TIER_MODULES's own comment on the
+// tier-gating mechanism this reuses). Essential keeps the original simple
+// 4-card dashboard (#muni_dashboardBasic); this whole block only touches
+// #muni_dashboardEnhanced. Called from muni_renderAll() right after
+// muni_renderStats() so both dashboard modes always have current data,
+// regardless of which one is actually visible.
+function muni_formatCurrencyRound(amount){
+  return 'J$' + Math.round(amount || 0).toLocaleString('en-US');
+}
+
+// Cache of the current SLA-breach computation, shared between
+// muni_renderDashboardKpis()/muni_renderUpcomingEvents()/muni_renderCeoActions()
+// within one render pass — computeSlaBreaches() itself is cheap (pure, no
+// I/O) but re-running it 3x per render for the same rules is pointless, and
+// muni_setUpcomingWindow() (a tab click) needs last-known results without
+// re-fetching this municipality's SLA policy record from storage every time.
+let muniDashSlaResult = { openCount: 0, breached: [], dueSoon: [] };
+let muniDashUpcomingWindow = '72h';
+
+async function muni_renderDashboardMode(){
+  const basicEl = document.getElementById('muni_dashboardBasic');
+  const enhancedEl = document.getElementById('muni_dashboardEnhanced');
+  if(!basicEl || !enhancedEl) return;
+  const enhanced = !atdMuniModuleLocked('dashboardInsights');
+  basicEl.classList.toggle('hidden', enhanced);
+  enhancedEl.classList.toggle('hidden', !enhanced);
+  if(!enhanced) return;
+
+  const nameEl = document.getElementById('dashMapMuniName');
+  if(nameEl) nameEl.textContent = myMunicipalityName();
+
+  const showRevenue = !atdMuniModuleLocked('dashboardRevenueSnapshot');
+  const showCeoActions = !atdMuniModuleLocked('dashboardCeoActions');
+  document.getElementById('muni_dashboardRevenuePanel').classList.toggle('hidden', !showRevenue);
+  document.getElementById('muni_dashboardCeoActionsPanel').classList.toggle('hidden', !showCeoActions);
+
+  // Same SLA policy lookup renderSlaBreaches() itself does, reused here so
+  // "SLA Breaches"/"CEO Action Required" reflect this municipality's own
+  // configured targets rather than the hardcoded defaults.
+  let rules = DEFAULT_SLA_RULES;
+  if(window.storage && currentUser){
+    try{
+      const result = await window.storage.get(`municipality:${currentUser.muniId}:settings`, true);
+      if(result && result.value) rules = normalizeSlaRules(JSON.parse(result.value));
+    } catch(err){ /* fall back to default */ }
+  }
+  muniDashSlaResult = computeSlaBreaches(rules);
+
+  muni_renderDashboardKpis();
+  muni_renderUpcomingEvents();
+  muni_renderEventTypesChart();
+  if(showRevenue) muni_renderRevenueSnapshot();
+  if(showCeoActions) muni_renderCeoActions();
+}
+
+// sentiment: 'positive' (more = good news, e.g. Approved), 'negative' (more
+// = bad news, e.g. Rejected), 'neutral' (no judgement either way, e.g. raw
+// volume received). Never fabricates a trend for a metric with no prior
+// period to compare — returns '' rather than a misleading 0%/new badge.
+function muniDashTrend(current, previous, sentiment){
+  if(!previous){
+    if(!current) return '';
+    return `<span class="sc-trend trend-neutral">new</span>`;
+  }
+  const pct = Math.round(((current - previous) / previous) * 100);
+  const arrow = pct >= 0 ? '▲' : '▼';
+  let cls = 'trend-neutral';
+  if(sentiment === 'positive') cls = pct >= 0 ? 'trend-good' : 'trend-bad';
+  else if(sentiment === 'negative') cls = pct >= 0 ? 'trend-bad' : 'trend-good';
+  return `<span class="sc-trend ${cls}">${arrow} ${Math.abs(pct)}%</span>`;
+}
+
+// Every headline number below is a real, live count/sum off this
+// municipality's own application records — nothing here is estimated or
+// sampled. The "vs. previous 30 days" badge only appears where a genuine
+// before/after comparison is possible from a timestamp already on the
+// record (submittedDate, decidedAt, paymentVerifiedAt); Pending
+// Applications, Awaiting Agency Review, and SLA Breaches are point-in-time
+// backlog states with no stored history to compare against, so they're
+// shown as a plain "right now" count rather than an invented trend.
+function muni_renderDashboardKpis(){
+  const list = myApplications();
+  const DAY_MS = 86400000;
+  const now = Date.now();
+  const last30Start = now - 30 * DAY_MS;
+  const prev30Start = now - 60 * DAY_MS;
+  const inWindow = (iso, start, end) => {
+    if(!iso) return false;
+    const t = new Date(iso).getTime();
+    return !isNaN(t) && t >= start && t < end;
+  };
+
+  // Applications Received — all-time total (matches the Event Types
+  // donut's own total when every application here is a Special Event),
+  // trended off how many were submitted in the last 30 days vs the 30
+  // before that.
+  const receivedLast30 = list.filter(a => inWindow(a.submitted, last30Start, now)).length;
+  const receivedPrev30 = list.filter(a => inWindow(a.submitted, prev30Start, last30Start)).length;
+  document.getElementById('dashKpiReceived').innerHTML = `${list.length}${muniDashTrend(receivedLast30, receivedPrev30, 'neutral')}`;
+
+  // Pending Applications — live backlog snapshot.
+  const openStatuses = ['Submitted', 'Payment Received', 'Processing', 'Pending Approval'];
+  document.getElementById('dashKpiPending').textContent = list.filter(a => openStatuses.includes(a.status)).length;
+
+  // Approved / Rejected — all-time totals, trended off decidedAt.
+  const approvedTotal = list.filter(a => a.status === 'Approved').length;
+  const approvedLast30 = list.filter(a => a.status === 'Approved' && inWindow(a.decidedAt, last30Start, now)).length;
+  const approvedPrev30 = list.filter(a => a.status === 'Approved' && inWindow(a.decidedAt, prev30Start, last30Start)).length;
+  document.getElementById('dashKpiApproved').innerHTML = `${approvedTotal}${muniDashTrend(approvedLast30, approvedPrev30, 'positive')}`;
+
+  const rejectedTotal = list.filter(a => a.status === 'Rejected').length;
+  const rejectedLast30 = list.filter(a => a.status === 'Rejected' && inWindow(a.decidedAt, last30Start, now)).length;
+  const rejectedPrev30 = list.filter(a => a.status === 'Rejected' && inWindow(a.decidedAt, prev30Start, last30Start)).length;
+  document.getElementById('dashKpiRejected').innerHTML = `${rejectedTotal}${muniDashTrend(rejectedLast30, rejectedPrev30, 'negative')}`;
+
+  // Awaiting Agency Review — Pending Approval applications with no
+  // recommendation on file yet (see jcfd_saveRecommendation() — once a
+  // linked agency records one, the CEO can act, so it's no longer waiting
+  // on the agency).
+  document.getElementById('dashKpiAwaitingAgency').textContent =
+    list.filter(a => a.status === 'Pending Approval' && !a.recommendation).length;
+
+  // SLA Breaches — the real SLA engine (computeSlaBreaches(), the same one
+  // the SLA Breaches page itself uses), not a re-derived approximation.
+  document.getElementById('dashKpiSlaBreaches').textContent = muniDashSlaResult.breached.length;
+
+  // Revenue Collected — municipal portion only (excludes the Atendify
+  // application fee, which never reaches the municipality), same formula
+  // renderReports() uses for "Municipal fees collected (verified)". Headline
+  // is the all-time verified total; trend compares the last 30 days'
+  // verified revenue against the 30 days before.
+  const muniRevenueIn = (start, end) => list.reduce((sum, a) => {
+    if(!a.paymentVerified || !inWindow(a.paymentVerifiedAt, start, end)) return sum;
+    const costs = a.raw && a.raw.costs;
+    const amt = costs ? (costs.total - costs.applicationFee) : (a.paymentAmount || 0);
+    return sum + amt;
+  }, 0);
+  const revenueAllTime = list.reduce((sum, a) => {
+    if(!a.paymentVerified) return sum;
+    const costs = a.raw && a.raw.costs;
+    return sum + (costs ? (costs.total - costs.applicationFee) : (a.paymentAmount || 0));
+  }, 0);
+  const revenueLast30 = muniRevenueIn(last30Start, now);
+  const revenuePrev30 = muniRevenueIn(prev30Start, last30Start);
+  document.getElementById('dashKpiRevenue').innerHTML = `${muni_formatCurrencyRound(revenueAllTime)}${muniDashTrend(revenueLast30, revenuePrev30, 'positive')}`;
+}
+
+function muni_setUpcomingWindow(win){
+  muniDashUpcomingWindow = win;
+  document.querySelectorAll('.dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.window === win));
+  muni_renderUpcomingEvents();
+}
+window.muni_setUpcomingWindow = muni_setUpcomingWindow;
+
+// Special Event applications (Annual permits aren't tied to a single event
+// date) whose event date falls inside the selected window, not yet
+// Rejected/Withdrawn. Permit Status and Risk are both derived from real
+// tracked fields — nothing here is a guess:
+//   Permit Status: Incomplete (required documents or payment still
+//   missing) -> Partial (both in, but not yet a final decision) -> Complete
+//   (Approved).
+//   Risk: Low once Approved regardless of timing; otherwise High if the
+//   event is inside 72 hours OR this application already has a live SLA
+//   breach, Medium if it's inside 7 days, Low otherwise.
+function muni_renderUpcomingEvents(){
+  const body = document.getElementById('muni_upcomingEventsBody');
+  if(!body) return;
+  const HOUR_MS = 3600000, DAY_MS = 86400000;
+  const now = Date.now();
+  const windowMs = muniDashUpcomingWindow === '72h' ? 72 * HOUR_MS : muniDashUpcomingWindow === '7d' ? 7 * DAY_MS : 30 * DAY_MS;
+  const breachedAppNumbers = new Set(muniDashSlaResult.breached.map(r => r.a.appNumber));
+
+  const list = myApplications().filter(a => {
+    if(a.licenseType === 'Annual' || a.status === 'Rejected' || a.status === 'Withdrawn' || !a.date) return false;
+    const t = new Date(a.date).getTime();
+    return !isNaN(t) && t >= now && t <= now + windowMs;
+  }).sort((a,b) => new Date(a.date) - new Date(b.date));
+
+  if(!list.length){
+    body.innerHTML = `<tr><td colspan="5" class="table-empty">No upcoming events in this window.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = list.map(a => {
+    const venueName = (a.raw && a.raw.venue && a.raw.venue.name) || 'N/A';
+    const attendance = (a.raw && a.raw.amusement && a.raw.amusement.patrons) || '—';
+    const permitStatus = (!a.requiredDocumentsSubmitted || !a.paymentVerified) ? 'Incomplete'
+      : a.status === 'Approved' ? 'Complete' : 'Partial';
+    const permitBadge = { Incomplete: 'badge-red', Partial: 'badge-amber', Complete: 'badge-green' }[permitStatus];
+    const hoursUntil = (new Date(a.date).getTime() - now) / HOUR_MS;
+    let risk = 'Low';
+    if(a.status !== 'Approved'){
+      if(breachedAppNumbers.has(a.appNumber) || hoursUntil <= 72) risk = 'High';
+      else if(hoursUntil <= 24 * 7) risk = 'Medium';
+    }
+    const riskBadge = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' }[risk];
+    return `
+      <tr>
+        <td class="cell-primary">${muni_escapeHtml(a.businessOrEvent || a.appNumber)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${muni_escapeHtml(venueName)}</span></td>
+        <td>${muni_escapeHtml(a.date)}</td>
+        <td>${muni_escapeHtml(String(attendance))}</td>
+        <td><span class="badge ${permitBadge}">${permitStatus}</span></td>
+        <td><span class="badge ${riskBadge}">${risk}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+// Special Event applications grouped by their chosen amusement type — the
+// CEO's own configurable Form Elements catalog (see defaultFormElements()'s
+// eventTypes / the Form Elements page), so this reflects whatever
+// categories this municipality actually uses, not a hardcoded list. Top 5
+// by count get their own slice; anything past that folds into "Other" per
+// the categorical-color rule (a chart never grows an unlimited number of
+// distinct hues).
+function muni_renderEventTypesChart(){
+  const list = myApplications().filter(a => a.licenseType !== 'Annual' && a.status !== 'Withdrawn');
+  const counts = {};
+  list.forEach(a => {
+    const key = a.businessOrEvent || 'Unspecified';
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]);
+  const colors = ['var(--dvz-1)', 'var(--dvz-2)', 'var(--dvz-3)', 'var(--dvz-4)', 'var(--dvz-5)'];
+  const slices = sorted.slice(0, 5).map(([label, value], i) => ({ label, value, color: colors[i] }));
+  const otherTotal = sorted.slice(5).reduce((sum, [, v]) => sum + v, 0);
+  if(otherTotal > 0) slices.push({ label: 'Other', value: otherTotal, color: 'var(--dvz-other)' });
+  window.renderPieChart('muni_eventTypesChart', 'muni_eventTypesLegend', slices);
+  const totalEl = document.getElementById('muni_eventTypesChartTotal');
+  if(totalEl) totalEl.textContent = list.length;
+}
+
+// Premium only. Special Permit Fees / Annual Permit Fees / Advertisement
+// Fees are each a real sum off verified applications' own cost breakdown
+// (the same costs.venueCost/costs.adTotal fields renderReports() and the
+// application detail view already show). Outstanding is the municipal
+// portion of costs still awaiting payment verification on an application
+// that's still open. Refunds sums each application's own refundAmount
+// (Admin's Fee Adjustments Credit Notes). Promotions sums
+// costs.promoDiscountAmount wherever a promo code was actually applied.
+function muni_renderRevenueSnapshot(){
+  const list = myApplications();
+  let specialFees = 0, annualFees = 0, adFees = 0, outstanding = 0, promotions = 0;
+  list.forEach(a => {
+    const costs = a.raw && a.raw.costs;
+    if(!costs) return;
+    if(a.paymentVerified){
+      if(a.licenseType === 'Annual') annualFees += (costs.venueCost || 0);
+      else specialFees += (costs.venueCost || 0);
+      adFees += (costs.adTotal || 0);
+    } else if(a.status !== 'Rejected' && a.status !== 'Withdrawn'){
+      outstanding += Math.max(0, (costs.total || 0) - (costs.applicationFee || 0));
+    }
+    if(costs.promoApplied) promotions += (costs.promoDiscountAmount || 0);
+  });
+  const refunds = list.reduce((sum, a) => sum + ((a.raw && a.raw.refundAmount) || 0), 0);
+  const total = specialFees + annualFees + adFees;
+
+  const slices = [
+    { label: 'Special Permit Fees', value: specialFees, displayValue: muni_formatCurrencyRound(specialFees), color: 'var(--dvz-1)' },
+    { label: 'Annual Permit Fees', value: annualFees, displayValue: muni_formatCurrencyRound(annualFees), color: 'var(--dvz-2)' },
+    { label: 'Advertisement Fees', value: adFees, displayValue: muni_formatCurrencyRound(adFees), color: 'var(--dvz-3)' }
+  ].filter(s => s.value > 0);
+  window.renderPieChart('muni_revenueChart', 'muni_revenueLegend', slices);
+  document.getElementById('muni_revenueChartTotal').textContent = muni_formatCurrencyRound(total);
+  document.getElementById('dashRevenueOutstanding').textContent = muni_formatCurrencyRound(outstanding);
+  document.getElementById('dashRevenueRefunds').textContent = muni_formatCurrencyRound(refunds);
+  document.getElementById('dashRevenuePromotions').textContent = muni_formatCurrencyRound(promotions);
+}
+
+// Premium only. Pulled straight from the real SLA breach engine
+// (muniDashSlaResult, computed by muni_renderDashboardMode() just before
+// this runs) — not a separately-invented "action needed" list, so it can
+// never disagree with the SLA Breaches page itself. Most overdue first
+// (computeSlaBreaches() already sorts it that way), capped to the 8 worst
+// so this card stays a triage list, not a duplicate of the full page.
+function muni_renderCeoActions(){
+  const body = document.getElementById('muni_ceoActionsBody');
+  if(!body) return;
+  const breached = muniDashSlaResult.breached.slice(0, 8);
+  if(!breached.length){
+    body.innerHTML = `<tr><td colspan="4" class="table-empty">Nothing needs your attention right now.</td></tr>`;
+    return;
+  }
+  body.innerHTML = breached.map(r => {
+    const venueName = (r.a.raw && r.a.raw.venue && r.a.raw.venue.name) || 'N/A';
+    const eventLabel = r.a.businessOrEvent || r.a.licenseType || 'Application';
+    const overdueText = r.overdueDays > 0 ? `${r.overdueDays} day(s)` : `${r.overdueHours} hour(s)`;
+    const issue = `${r.label} overdue by ${overdueText}`;
+    const severity = r.overdueDays >= 3 ? 'Critical' : (r.overdueDays >= 1 ? 'High' : 'Medium');
+    const sevBadge = { Critical: 'badge-red', High: 'badge-amber', Medium: 'badge-gray' }[severity];
+    return `
+      <tr>
+        <td class="cell-primary"><a href="#" onclick='muni_openAppModal(${JSON.stringify(r.a.appNumber)}); return false;'>${muni_escapeHtml(r.a.appNumber)}</a></td>
+        <td>${muni_escapeHtml(eventLabel)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${muni_escapeHtml(venueName)}</span></td>
+        <td>${muni_escapeHtml(issue)}</td>
+        <td><span class="badge ${sevBadge}">${severity}</span></td>
+      </tr>`;
+  }).join('');
 }
 
 let currentAppCategory = '';
@@ -32190,6 +32724,11 @@ async function admin_renderNationalOverview(){
   if(updatedEl) updatedEl.textContent = 'Last updated ' + new Date().toLocaleString();
 }
 
+// Exported so the Municipal officer portal's own dashboard (a separate
+// top-level script scope — see MUNI_TIER_MODULES's own comment on why
+// these portals don't share a scope) can reuse this exact conic-gradient
+// donut + legend renderer for its new Event Types / Permit Revenue
+// Snapshot cards, rather than a second, drifting copy of the same logic.
 function renderPieChart(chartId, legendId, slices){
   const chartEl = document.getElementById(chartId);
   const legendEl = document.getElementById(legendId);
@@ -32216,11 +32755,12 @@ function renderPieChart(chartId, legendId, slices){
       <div class="pie-legend-row">
         <span class="pie-legend-dot" style="background:${s.color};"></span>
         <span class="pie-legend-label">${admin_escapeHtml(s.label)}</span>
-        <span class="pie-legend-value">${s.value} (${pct}%)</span>
+        <span class="pie-legend-value">${s.displayValue !== undefined ? s.displayValue : s.value} (${pct}%)</span>
       </div>
     `;
   }).join('');
 }
+window.renderPieChart = renderPieChart;
 
 function admin_statusBadge(status){
   // Matches the Municipal officer portal's own muni_statusBadge() color
