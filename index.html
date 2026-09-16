@@ -4027,7 +4027,21 @@
         // INSERT muni's own INSERT policy already allowed, without ever
         // touching upsert's broken conflict probe.
         var isApplicantNotification = key.indexOf('applicantNotification:') === 0;
-        var useInsertOnly = isAuditLog;
+        // Same class of bug again (see isAuditLog above), found while adding
+        // Municipal Credit (fix59_municipal_credit.sql): approveMunicipalCredit()
+        // writes a fresh 'walletTransaction:' row from an authenticated 'muni'
+        // session, which has an INSERT policy for this prefix (scoped to its
+        // own muniId) but no SELECT policy at all — upsert()'s implicit
+        // conflict probe would fail RLS with 42501 on a row that doesn't even
+        // exist yet, before ever reaching the INSERT policy that allows it.
+        // Every walletTransaction key is a fresh gen_random_uuid()/crypto.
+        // randomUUID() id and — by this whole ledger's own design (see
+        // fix22_wallet.sql: "every credit and every redemption is its own
+        // row") — is NEVER re-saved by anyone, Admin's existing Credit Note
+        // writes included, so routing the whole prefix through a plain
+        // insert is correct for every writer, not just muni.
+        var isWalletTransaction = key.indexOf('walletTransaction:') === 0;
+        var useInsertOnly = isAuditLog || isWalletTransaction;
         var useUpdateOnly = isApplicantNotification;
         // Fix #50 follow-up: fix50_adlocations_rls.sql's own policies check
         // out fine (all three confirmed present in pg_policies) and a CEO's
@@ -4484,6 +4498,20 @@
         return client.rpc('atd_wallet_redeem', { p_amount: amount, p_app_number: appNumber, p_reason: reason || null });
       });
       if (res.error) { window.atdShowDebugError('walletRedeem(' + amount + ')', res.error); return { ok: false, error: res.error.message }; }
+      return res.data || { ok: false };
+    },
+    // Municipal Credit's own redemption — see fix59_municipal_credit.sql's
+    // atd_wallet_redeem_municipal(). Deliberately a SEPARATE function from
+    // walletRedeem above (not just a new param on it): that RPC now sums
+    // only Atendify-sourced credit (creditSource:'atendify'/legacy rows), so
+    // Municipal Credit — scoped to one specific municipality via p_muni_id —
+    // can never be spent on Atendify's application fee, and vice versa.
+    walletRedeemMunicipal: async function (amount, appNumber, muniId, reason) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_wallet_redeem_municipal', { p_amount: amount, p_app_number: appNumber, p_muni_id: String(muniId), p_reason: reason || null });
+      });
+      if (res.error) { window.atdShowDebugError('walletRedeemMunicipal(' + amount + ')', res.error); return { ok: false, error: res.error.message }; }
       return res.data || { ok: false };
     },
 
@@ -13625,8 +13653,35 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Balance is always recomputed from the transaction list itself, never
   // trusted as a stored number — see fix22_wallet.sql's comment on why this
   // is a ledger, not a balance column.
-  function acct_walletBalance(transactions){
-    return transactions.reduce(function(sum, t){ return sum + (Number(t.amount) || 0); }, 0);
+  //
+  // Two kinds of credit now share this one ledger, and they are NOT
+  // interchangeable — see fix59_municipal_credit.sql: Atendify Credit
+  // (issued by Admin's own Fee Adjustments panel; legacy rows carry no
+  // creditSource at all, and are Atendify credit by definition — it's the
+  // only kind that existed before Municipal Credit did) spends only on a
+  // future application's Atendify service fee. Municipal Credit (issued by
+  // one specific municipality's own CEO — see requestMunicipalCredit()/
+  // approveMunicipalCredit() in the Muni portal) spends only on a future
+  // Municipal License fee at that SAME municipality — never at another one,
+  // and never on Atendify's fee. acct_walletBalances() splits the ledger
+  // into exactly that shape so the wallet page (and anywhere else that ever
+  // needs a balance) can't accidentally blend them into one misleading
+  // number.
+  function acct_walletBalances(transactions){
+    const atendify = transactions
+      .filter(function(t){ return t.creditSource !== 'municipal'; })
+      .reduce(function(sum, t){ return sum + (Number(t.amount) || 0); }, 0);
+    const byMuni = {};
+    transactions.forEach(function(t){
+      if(t.creditSource !== 'municipal' || t.muniId == null) return;
+      const key = String(t.muniId);
+      if(!byMuni[key]) byMuni[key] = { muniId: t.muniId, muniName: t.muniName || `Municipality #${t.muniId}`, balance: 0 };
+      byMuni[key].balance += (Number(t.amount) || 0);
+      // A later transaction's muniName (if it ever differs) wins, same
+      // reasoning as "recompute from history" elsewhere in this app.
+      if(t.muniName) byMuni[key].muniName = t.muniName;
+    });
+    return { atendify, municipal: Object.values(byMuni) };
   }
 
   async function acct_renderWallet(){
@@ -13637,26 +13692,43 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     const transactions = await window.ATDBackend.walletTransactions();
-    const balance = acct_walletBalance(transactions);
+    const balances = acct_walletBalances(transactions);
     transactions.sort(function(a,b){ return (b.issuedAt || '').localeCompare(a.issuedAt || ''); });
 
     let html = '<h2>Wallet</h2>';
     html += '<div class="acct-tiles"><div class="acct-tile">' +
-      '<div class="acct-tile-label">Available balance</div>' +
-      '<div class="acct-tile-title">' + acctFormatCurrency(balance) + '</div>' +
-      '<div class="acct-tile-sub">Credited from Credit Notes; spend it at checkout as "Credit Wallet" on a future application\'s Atendify service fee.</div>' +
+      '<div class="acct-tile-label">Atendify Credit</div>' +
+      '<div class="acct-tile-title">' + acctFormatCurrency(balances.atendify) + '</div>' +
+      '<div class="acct-tile-sub">Credited by Atendify\'s own Credit Notes; spend it at checkout as "Credit Wallet" on a future application\'s Atendify service fee. Cannot be used toward a Municipal License fee.</div>' +
       '</div></div>';
 
+    if(balances.municipal.length){
+      html += '<h3 style="margin-top:24px; margin-bottom:6px; font-size:15px;">Municipal Credit</h3>' +
+        '<p class="col-desc" style="margin-top:0;">Issued by a Municipal Corporation as a refund on its own License Fee — spendable only on a future Special or Annual License fee at that same municipality, never on Atendify\'s service fee or at a different municipality.</p>' +
+        '<div class="acct-tiles">';
+      balances.municipal.forEach(function(m){
+        html += '<div class="acct-tile">' +
+          '<div class="acct-tile-label">' + acctEscapeHtml(m.muniName) + '</div>' +
+          '<div class="acct-tile-title">' + acctFormatCurrency(m.balance) + '</div>' +
+          '<div class="acct-tile-sub">Spendable only on a Municipal License fee at ' + acctEscapeHtml(m.muniName) + '.</div>' +
+          '</div>';
+      });
+      html += '</div>';
+    }
+
     if(!transactions.length){
-      html += '<p class="col-desc">No wallet activity yet. If an application is ever refunded, the Credit Note is added here instead of a cash refund.</p>';
+      html += '<p class="col-desc" style="margin-top:20px;">No wallet activity yet. If an application is ever refunded, a Credit Note or Municipal Credit is added here instead of a cash refund.</p>';
     } else {
+      html += '<h3 style="margin-top:24px; margin-bottom:6px; font-size:15px;">Activity</h3>';
       html += '<div class="acct-app-card" style="flex-direction:column; align-items:stretch; gap:0;">';
       transactions.forEach(function(t){
         const isCredit = Number(t.amount) > 0;
         const dateStr = (t.issuedAt || '').slice(0,10);
+        const isMunicipal = t.creditSource === 'municipal';
+        const sourceTag = isMunicipal ? (t.muniName || 'Municipal Credit') : 'Atendify Credit';
         html += '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-color, #e2e2e6);">' +
           '<div><div class="main" style="font-size:14px;">' + acctEscapeHtml(t.reason || (isCredit ? 'Credit Note' : 'Applied to application')) + '</div>' +
-          '<div class="sub">' + acctEscapeHtml(dateStr) + (t.appNumber ? ' · ' + acctEscapeHtml(t.appNumber) : '') + '</div></div>' +
+          '<div class="sub">' + acctEscapeHtml(dateStr) + (t.appNumber ? ' · ' + acctEscapeHtml(t.appNumber) : '') + ' · <span class="badge ' + (isMunicipal ? 'badge-blue' : 'badge-gray') + '" style="font-size:10px;">' + acctEscapeHtml(sourceTag) + '</span></div></div>' +
           '<div style="font-weight:700; color:' + (isCredit ? '#1a7f37' : '#c0392b') + '; white-space:nowrap;">' + (isCredit ? '+' : '-') + acctFormatCurrency(Math.abs(Number(t.amount) || 0)) + '</div>' +
           '</div>';
       });
@@ -22545,6 +22617,7 @@ async function renderMmPaymentStage(){
           <option value="">Select an option</option>
           <option>Bank Transfer</option>
           <option>Cash</option>
+          <option>Municipal Credit</option>
         </select>
       </div>
       <div id="lfMethodBody"></div>
@@ -22673,7 +22746,15 @@ async function renderApWalletOption(){
     return;
   }
   const transactions = window.ATDBackend.walletTransactions ? await window.ATDBackend.walletTransactions() : [];
-  const balance = transactions.reduce((sum,t)=>sum + (Number(t.amount) || 0), 0);
+  // Municipal Credit (creditSource:'municipal') can only ever pay a
+  // Municipal License fee — never Atendify's own application fee — so it's
+  // excluded here the same way atd_wallet_redeem itself now excludes it at
+  // the balance-check layer (see fix59_municipal_credit.sql). Legacy rows
+  // predating this fix have no creditSource at all and are Atendify credit
+  // by definition (the only kind that existed before this feature).
+  const balance = transactions
+    .filter(t => t.creditSource !== 'municipal')
+    .reduce((sum,t)=>sum + (Number(t.amount) || 0), 0);
   const owed = (currentAppRecord && currentAppRecord.costs && currentAppRecord.costs.applicationFee) || 0;
   const sufficient = balance >= owed;
   body.innerHTML = `
@@ -22782,6 +22863,16 @@ function onLfMethodChange(){
     return;
   }
 
+  // Municipal Credit skips the upload/receipt flow entirely — it's a
+  // same-system wallet debit, balance-checked and applied instantly (see
+  // renderApMunicipalCreditOption()/payLicenseFeeByMunicipalCredit()), not
+  // an out-of-band payment someone has to prove happened.
+  if(method === 'Municipal Credit'){
+    body.innerHTML = `<div class="info-banner" style="display:block;">Checking your Municipal Credit balance…</div>`;
+    renderApMunicipalCreditOption();
+    return;
+  }
+
   let html = '';
   if(method === 'Bank Transfer'){
     html += `
@@ -22796,6 +22887,86 @@ function onLfMethodChange(){
   attachDropzoneHandlers('lfDropzone', 'lfFile', 'lfFileLabel');
   if(method === 'Bank Transfer') loadMuniBankInfoInto('lfBankBody');
 }
+
+// Mirrors renderApWalletOption()/payApplicationFeeByWallet() (Stage 1's
+// "Credit Wallet" option) exactly, but scoped to THIS municipality's own
+// Municipal Credit balance only — see fix59_municipal_credit.sql. All-or-
+// nothing, same as the Atendify wallet: only offered as a real payment
+// option once the balance covers the full License Fee, and auto-verified
+// the instant it's redeemed (the balance-checked RPC that succeeded IS the
+// proof this money moved — there's nothing left for an Accountant to check).
+async function renderApMunicipalCreditOption(){
+  const body = document.getElementById('lfMethodBody');
+  if(!body) return;
+  const profile = window.ATDBackend && window.ATDBackend.getProfile ? await window.ATDBackend.getProfile() : null;
+  if(!profile){
+    body.innerHTML = `
+      <div class="info-banner" style="display:block;">
+        Municipal Credit is only available to signed-in accounts (your credit balance is tied to your account, not a guest submission). Sign in first, or choose Bank Transfer/Cash instead.
+      </div>`;
+    return;
+  }
+  const transactions = window.ATDBackend.walletTransactions ? await window.ATDBackend.walletTransactions() : [];
+  // Only THIS application's own municipality's credit counts — a credit
+  // another municipality issued can never pay this one's License Fee.
+  const balance = transactions
+    .filter(t => t.creditSource === 'municipal' && String(t.muniId) === String(currentAppRecord.muniId))
+    .reduce((sum,t)=>sum + (Number(t.amount) || 0), 0);
+  const owed = (currentAppRecord && currentAppRecord.costs) ? (currentAppRecord.costs.total - (currentAppRecord.costs.applicationFee || 0)) : 0;
+  const sufficient = balance >= owed && owed > 0;
+  body.innerHTML = `
+    <div class="info-banner" style="display:block; margin-bottom:18px;">
+      ${poa_escapeHtml(currentAppRecord.municipalityName)} Municipal Credit balance: <strong>${poa_formatCurrency(balance)}</strong>${sufficient ? '' : ' — not enough to cover this fee.'}
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" ${sufficient ? '' : 'disabled'} onclick="payLicenseFeeByMunicipalCredit()">Pay with Municipal Credit</button>
+    </div>
+  `;
+}
+window.renderApMunicipalCreditOption = renderApMunicipalCreditOption;
+
+async function payLicenseFeeByMunicipalCredit(){
+  if(!window.ATDBackend || !window.ATDBackend.walletRedeemMunicipal) return;
+  const owedAmount = (currentAppRecord && currentAppRecord.costs) ? (currentAppRecord.costs.total - (currentAppRecord.costs.applicationFee || 0)) : 0;
+  const result = await window.ATDBackend.walletRedeemMunicipal(owedAmount, currentAppRecord.appNumber, currentAppRecord.muniId, `License Fee — ${currentAppRecord.appNumber}`);
+  if(!result || !result.ok){
+    poa_showToast(result && result.error === 'insufficient balance' ? 'Insufficient Municipal Credit balance.' : 'Could not process Municipal Credit payment. Please try again.');
+    return;
+  }
+  // fileName is deliberately non-empty (there is no real uploaded file) —
+  // getPaymentStage() reads paymentReceipt.fileName truthiness to decide
+  // whether the License Fee step is done, the same way applicationFeePaid
+  // (a real boolean) gates Stage 1. The Muni Payment Verification card
+  // separately hides its "View" button for this exact method, since there's
+  // no file behind it to view.
+  currentAppRecord.paymentReceipt = {
+    method: 'Municipal Credit', referenceNumber: 'MUNICREDIT-' + Date.now().toString().slice(-8),
+    fileName: 'Paid via Municipal Credit (no file)', uploadedDate: new Date().toISOString().slice(0,10)
+  };
+  if(!currentAppRecord.paymentSubmittedAt){
+    currentAppRecord.paymentSubmittedAt = new Date().toISOString();
+  }
+  currentAppRecord.paymentVerified = true;
+  currentAppRecord.paymentReceiptNumber = currentAppRecord.paymentReceipt.referenceNumber;
+  currentAppRecord.paymentNotes = 'Auto-verified — paid via the applicant\'s own Municipal Credit wallet.';
+  if(!currentAppRecord.paymentVerifiedAt) currentAppRecord.paymentVerifiedAt = new Date().toISOString();
+  if(currentAppRecord.status === 'Submitted') currentAppRecord.status = 'Payment Received';
+  await mmPersist();
+  if(window.atdLogAudit){
+    const actorEmail = (window.AccountBridge && window.AccountBridge.getCurrentUser()) ? window.AccountBridge.getCurrentUser().email : '';
+    window.atdLogAudit({ portal: 'poa', actor: actorEmail || '(applicant)', actorRole: 'Applicant', action: 'application.licenseFeeAutoVerified', details: `${currentAppRecord.appNumber}: License fee paid and auto-verified via Municipal Credit.`, muniId: currentAppRecord.muniId });
+  }
+  if(currentAppRecord.muniId != null && window.atdNotify){
+    window.atdNotify(currentAppRecord.muniId, 'review', 'payment_verified',
+      (currentAppRecord.costs && currentAppRecord.costs.venueIsNew)
+        ? `License Fee paid via Municipal Credit for ${currentAppRecord.appNumber} — venue inspection and review/recommendation are now due.`
+        : `License Fee paid via Municipal Credit for ${currentAppRecord.appNumber} — review/recommendation is now due.`,
+      currentAppRecord.appNumber);
+  }
+  poa_showToast('License Fee paid from your Municipal Credit — automatically verified, no further action needed.');
+  renderMmPaymentStage();
+}
+window.payLicenseFeeByMunicipalCredit = payLicenseFeeByMunicipalCredit;
 
 async function submitLicenseFeePayment(){
   const method = document.getElementById('lfMethodSelect').value;
@@ -28817,9 +28988,17 @@ function muni_renderEventTypesChart(){
 // (the same costs.venueCost/costs.adTotal fields renderReports() and the
 // application detail view already show). Outstanding is the municipal
 // portion of costs still awaiting payment verification on an application
-// that's still open. Refunds sums each application's own refundAmount
-// (Admin's Fee Adjustments Credit Notes). Promotions sums
-// costs.promoDiscountAmount wherever a promo code was actually applied.
+// that's still open. Promotions sums costs.promoDiscountAmount wherever a
+// promo code was actually applied (this municipality's own promotion,
+// always discounting only its own Venue/Ad cost — never Atendify's fee).
+//
+// Refunds is deliberately scoped to THIS municipality's own money: it sums
+// each application's own Approved Municipal Credit requests (see
+// requestMunicipalCredit()/approveMunicipalCredit(), a.municipalCredits) —
+// never the old application-level `refundAmount` field, which is Admin's
+// own Atendify Credit Note (a refund of Atendify's application fee, not
+// this municipality's revenue). Showing that here would have overstated
+// this municipality's own refund activity with money it never touched.
 function muni_renderRevenueSnapshot(){
   const list = myApplications();
   let specialFees = 0, annualFees = 0, adFees = 0, outstanding = 0, promotions = 0;
@@ -28835,7 +29014,10 @@ function muni_renderRevenueSnapshot(){
     }
     if(costs.promoApplied) promotions += (costs.promoDiscountAmount || 0);
   });
-  const refunds = list.reduce((sum, a) => sum + ((a.raw && a.raw.refundAmount) || 0), 0);
+  const refunds = list.reduce((sum, a) => {
+    const credits = (a.raw && a.raw.municipalCredits) || [];
+    return sum + credits.filter(c => c.status === 'Approved').reduce((s, c) => s + (c.amount || 0), 0);
+  }, 0);
   const total = specialFees + annualFees + adFees;
 
   const slices = [
@@ -29918,8 +30100,14 @@ async function renderAppDetail(){
   cardsHtml += `<div class="official-card"><h4>Payment Verification</h4>`;
   cardsHtml += `<div class="readback-row" style="margin-bottom:10px;">Amount to verify: <strong>${muni_formatCurrency(municipalAmountDue)}</strong> — payable to ${muni_escapeHtml(myMunicipalityName())} <span style="color:var(--text-muted);">(excludes the ${muni_formatCurrency(pvCosts.applicationFee)} Atendify application fee)</span></div>`;
   if(licenseFeeReceipt && licenseFeeReceipt.fileName){
-    cardsHtml += `<div class="readback-row">Applicant submitted: ${muni_escapeHtml(licenseFeeReceipt.fileName)} via ${muni_escapeHtml(licenseFeeReceipt.method || 'N/A')}, ref# ${muni_escapeHtml(licenseFeeReceipt.referenceNumber || 'N/A')}
-      <button class="btn btn-sm" style="margin-left:8px;" onclick="openApplicantFileModal('paymentReceipt')">View</button></div>`;
+    // A Municipal Credit payment (see payLicenseFeeByMunicipalCredit()) has
+    // no uploaded receipt file behind it at all — it's a same-system wallet
+    // debit, already proven by the balance-checked RPC that made it, so
+    // there's nothing for "View" to open. Every other method (Bank
+    // Transfer/Cash) really did upload a file, so keeps the button.
+    const isCreditPayment = licenseFeeReceipt.method === 'Municipal Credit';
+    cardsHtml += `<div class="readback-row">Applicant submitted: ${muni_escapeHtml(licenseFeeReceipt.fileName)} via ${muni_escapeHtml(licenseFeeReceipt.method || 'N/A')}${licenseFeeReceipt.referenceNumber ? `, ref# ${muni_escapeHtml(licenseFeeReceipt.referenceNumber)}` : ''}
+      ${isCreditPayment ? '' : `<button class="btn btn-sm" style="margin-left:8px;" onclick="openApplicantFileModal('paymentReceipt')">View</button>`}</div>`;
   }
   if(a.paymentVerified){
     cardsHtml += `<div class="status-banner good"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Payment verified</div>`;
@@ -29946,6 +30134,73 @@ async function renderAppDetail(){
     } else {
       cardsHtml += `<p class="no-permission-note">You don't have permission to verify payments.</p>`;
     }
+  }
+  cardsHtml += `</div>`;
+
+  // ---- Municipal Credit card ----
+  // A refund/credit THIS municipality issues out of its own revenue — never
+  // confused with Admin's Atendify-side "Credit Note" (Fee Adjustments panel,
+  // refunds the Atendify application fee only). An Accountant requests it
+  // (hasPerm('payment'), the same permission bit that gates Payment
+  // Verification above); the CEO gives final approval (hasPerm('approve') —
+  // deliberately the full-CEO bit, not 'approveCapped', since issuing money
+  // is not the kind of patron-capped delegation that permission covers).
+  // Only once Approved does approveMunicipalCredit() actually write a
+  // walletTransaction row (creditSource:'municipal', scoped to this
+  // muniId) — a.municipalCredits itself is just this application's own
+  // request/decision history, kept for audit even though the applicant's
+  // real spendable balance lives in their wallet.
+  const mcRequests = a.municipalCredits || [];
+  const mcOwnerEmail = a.raw && a.raw.ownerEmail;
+  cardsHtml += `<div class="official-card"><h4>Municipal Credit</h4>
+    <p class="col-desc" style="margin-top:-4px;">A refund credited to the applicant's own wallet, spendable only on a future Municipal License fee (Special or Annual) at ${muni_escapeHtml(myMunicipalityName())} — never on Atendify's own application fee. An Accountant requests the amount; the CEO gives final approval before anything is credited.</p>`;
+  if(mcRequests.length){
+    mcRequests.forEach((req, idx) => {
+      const mcStatusClass = req.status === 'Approved' ? 'badge-green' : req.status === 'Rejected' ? 'badge-red' : 'badge-amber';
+      cardsHtml += `<div style="border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+          <div>
+            <div style="font-weight:700;">${muni_formatCurrency(req.amount)}</div>
+            <div class="cell-sub">${muni_escapeHtml(req.reason)}</div>
+            <div class="cell-sub">Requested by ${muni_escapeHtml(req.requestedBy)} on ${muni_escapeHtml(req.requestedDate)}</div>
+          </div>
+          <span class="badge ${mcStatusClass}">${req.status}</span>
+        </div>`;
+      if(req.status === 'Approved'){
+        cardsHtml += `<div class="readback-row">Approved by ${muni_escapeHtml(req.decidedBy)} on ${muni_escapeHtml(req.decidedDate)} — ${muni_formatCurrency(req.amount)} credited to the applicant's Municipal Credit wallet (${muni_escapeHtml(myMunicipalityName())} only).</div>`;
+      } else if(req.status === 'Rejected'){
+        cardsHtml += `<div class="readback-row">Rejected by ${muni_escapeHtml(req.decidedBy)} on ${muni_escapeHtml(req.decidedDate)}${req.decisionNote ? `: ${muni_escapeHtml(req.decisionNote)}` : ''}</div>`;
+      } else if(hasPerm('approve')){
+        cardsHtml += `
+          <div class="official-field-label" style="margin-top:10px;">Decision note <span style="font-weight:400; color:var(--text-muted);">(required to reject, optional to approve)</span></div>
+          <textarea id="mcDecisionNote${idx}" placeholder="e.g. Event was cancelled due to weather — approved in full"></textarea>
+          <div class="action-btn-row" style="margin-top:10px;">
+            <button class="btn btn-success btn-sm" onclick="approveMunicipalCredit(${idx})">✔ Approve &amp; credit wallet</button>
+            <button class="btn btn-sm" onclick="rejectMunicipalCredit(${idx})">Reject</button>
+          </div>`;
+      } else {
+        cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">Awaiting CEO approval.</p>`;
+      }
+      cardsHtml += `</div>`;
+    });
+  } else {
+    cardsHtml += `<p class="recommendation-note">No Municipal Credit has been requested for this application.</p>`;
+  }
+  if(hasPerm('payment')){
+    if(!mcOwnerEmail){
+      cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">No Municipal Credit can be issued — ${muni_escapeHtml(a.appNumber)} has no registered account to credit (guest submission).</p>`;
+    } else {
+      cardsHtml += `
+        <div class="official-field-label">Amount (JMD)</div>
+        <input type="number" min="0" step="0.01" id="mcAmountInput" placeholder="e.g. 5000" style="margin-bottom:10px;">
+        <div class="official-field-label">Reason</div>
+        <textarea id="mcReasonInput" placeholder="e.g. Event was postponed and the venue cost is being refunded"></textarea>
+        <div class="action-btn-row" style="margin-top:10px;">
+          <button class="btn btn-primary btn-sm" onclick="requestMunicipalCredit()">Request Municipal Credit</button>
+        </div>`;
+    }
+  } else if(!hasPerm('approve')){
+    cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">You don't have permission to request Municipal Credit.</p>`;
   }
   cardsHtml += `</div>`;
 
@@ -30795,6 +31050,7 @@ async function persistIfFromStorage(a){
     a.raw.permitGenerated = a.permitGenerated;
     a.raw.permit = a.permit || null;
     a.raw.additionalPaymentRequests = a.additionalPaymentRequests || [];
+    a.raw.municipalCredits = a.municipalCredits || [];
     a.raw.venueRegistryStatus = a.venueRegistryStatus || '';
     a.raw.venueRegistryRejectReason = a.venueRegistryRejectReason || '';
     a.raw.paymentVerifiedAt = a.paymentVerifiedAt || '';
@@ -30876,6 +31132,124 @@ async function unverifyPayment(){
     return;
   }
   muni_showToast(`Payment unverified for ${a.appNumber}.`);
+  renderAppDetail();
+  muni_renderAll();
+}
+
+// ---- Municipal Credit: Accountant requests, CEO grants final approval ----
+// See the "Municipal Credit card" comment in renderAppDetail() for the full
+// design rationale (why this is a separate mechanism from Admin's own
+// Atendify-side Credit Note, and why it's scoped to this municipality only).
+function requestMunicipalCredit(){
+  const a = applications.find(a => a.id === activeAppId);
+  const ownerEmail = a.raw && a.raw.ownerEmail;
+  if(!ownerEmail){
+    muni_showToast(`Cannot issue Municipal Credit — ${a.appNumber} has no registered account to credit (guest submission).`);
+    return;
+  }
+  const amount = Math.max(0, parseFloat(document.getElementById('mcAmountInput').value) || 0);
+  const reason = document.getElementById('mcReasonInput').value.trim();
+  if(!amount || !reason){
+    muni_showToast('Please enter an amount and a reason for the Municipal Credit.');
+    return;
+  }
+
+  if(!a.municipalCredits) a.municipalCredits = [];
+  a.municipalCredits.push({
+    id: 'mc-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+    amount, reason,
+    status: 'Pending',
+    requestedBy: currentUser.name, requestedByRole: currentUser.role,
+    requestedDate: new Date().toISOString().slice(0,10),
+    decidedBy: '', decidedDate: '', decisionNote: '',
+    walletTransactionId: ''
+  });
+
+  persistIfFromStorage(a);
+  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditRequested', details: `${a.appNumber}: ${muni_formatCurrency(amount)} requested — ${reason}`, muniId: currentUser.muniId });
+  // Notify the CEO (via the shared 'approve' permission) that a credit is
+  // awaiting their decision — mirrors setRecommendation()'s own notify-the-
+  // next-decision-maker pattern.
+  window.atdNotify(a.muniId, 'approve', 'municipal_credit_requested',
+    `${currentUser.name} requested a ${muni_formatCurrency(amount)} Municipal Credit for ${a.appNumber} — awaiting your approval.`, a.appNumber);
+  muni_showToast(`Municipal Credit of ${muni_formatCurrency(amount)} requested — awaiting CEO approval.`);
+  renderAppDetail();
+  muni_renderAll();
+}
+
+async function approveMunicipalCredit(idx){
+  const a = applications.find(a => a.id === activeAppId);
+  const req = a.municipalCredits[idx];
+  if(!req || req.status !== 'Pending') return;
+  const ownerEmail = a.raw && a.raw.ownerEmail;
+  if(!ownerEmail){
+    muni_showToast('Cannot approve — this application no longer has a registered account to credit.');
+    return;
+  }
+  const noteEl = document.getElementById(`mcDecisionNote${idx}`);
+  const note = noteEl ? noteEl.value.trim() : '';
+
+  // Credit the applicant's wallet FIRST — a real, balance-affecting write —
+  // so a failure here leaves the request still Pending (safe to retry)
+  // rather than marking it Approved with no money actually moved.
+  let txKey;
+  try{
+    txKey = 'walletTransaction:' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+    await window.storage.set(txKey, JSON.stringify({
+      id: txKey, ownerEmail, amount: req.amount,
+      // creditSource/muniId/muniName are what keep this scoped to THIS
+      // municipality's own license fees only — see fix59_municipal_credit.sql,
+      // which teaches atd_wallet_redeem_municipal() to sum/debit only rows
+      // matching both creditSource:'municipal' and this exact muniId.
+      creditSource: 'municipal', muniId: a.muniId, muniName: myMunicipalityName(),
+      type: 'municipal_credit', appNumber: a.appNumber, reason: `Municipal Credit — ${a.appNumber}: ${req.reason}`,
+      issuedBy: currentUser.email, issuedAt: new Date().toISOString()
+    }), true);
+  }catch(e){
+    muni_showToast('Could not credit the applicant\'s wallet — your account may not have permission, or the session may have expired. Please try again or contact an Administrator.');
+    return;
+  }
+
+  req.status = 'Approved';
+  req.decidedBy = currentUser.name;
+  req.decidedDate = new Date().toISOString().slice(0,10);
+  req.decisionNote = note;
+  req.walletTransactionId = txKey;
+  const ok = await persistIfFromStorage(a);
+  if(!ok){
+    // The wallet credit already succeeded and is real money the applicant
+    // can spend — don't silently roll that back just because saving this
+    // application's own audit record failed; just warn so it can be fixed.
+    muni_showToast(`${muni_formatCurrency(req.amount)} was credited to the wallet, but saving this application's record failed — please refresh and try again.`);
+  } else {
+    muni_showToast(`Municipal Credit of ${muni_formatCurrency(req.amount)} approved and credited to the applicant's wallet.`);
+  }
+  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditApproved', details: `${a.appNumber}: ${muni_formatCurrency(req.amount)} approved and credited.`, muniId: currentUser.muniId });
+  window.atdNotifyApplicant(ownerEmail, 'municipal_credit_approved',
+    `${myMunicipalityName()} approved a Municipal Credit of ${muni_formatCurrency(req.amount)} for ${a.appNumber} — it's now in your wallet, spendable on a future Municipal License fee at ${myMunicipalityName()}.`, a.appNumber);
+  renderAppDetail();
+  muni_renderAll();
+}
+
+function rejectMunicipalCredit(idx){
+  const a = applications.find(a => a.id === activeAppId);
+  const req = a.municipalCredits[idx];
+  if(!req || req.status !== 'Pending') return;
+  const noteEl = document.getElementById(`mcDecisionNote${idx}`);
+  const note = noteEl ? noteEl.value.trim() : '';
+  if(!note){
+    muni_showToast('Please add a decision note explaining why this Municipal Credit is being rejected.');
+    return;
+  }
+
+  req.status = 'Rejected';
+  req.decidedBy = currentUser.name;
+  req.decidedDate = new Date().toISOString().slice(0,10);
+  req.decisionNote = note;
+
+  persistIfFromStorage(a);
+  window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditRejected', details: `${a.appNumber}: ${muni_formatCurrency(req.amount)} request rejected — ${note}`, muniId: currentUser.muniId });
+  muni_showToast(`Municipal Credit request rejected.`);
   renderAppDetail();
   muni_renderAll();
 }
@@ -31495,6 +31869,14 @@ async function loadSubmittedApplications(silent, btnId){
         permitGenerated: !!rec.permitGenerated,
         permit: rec.permit || null,
         additionalPaymentRequests: rec.additionalPaymentRequests || [],
+        // Municipal Credit requests (Accountant requests, CEO grants final
+        // approval) — see requestMunicipalCredit()/approveMunicipalCredit()/
+        // rejectMunicipalCredit(). Once Approved, each entry is also mirrored
+        // as a real walletTransaction row (creditSource:'municipal') so the
+        // applicant can actually spend it — this array is this application's
+        // own audit trail of that decision, not the source of truth for the
+        // applicant's spendable balance.
+        municipalCredits: rec.municipalCredits || [],
         paymentSubmittedAt: rec.paymentSubmittedAt || '',
         paymentVerifiedAt: rec.paymentVerifiedAt || '',
         venueApprovedAt: rec.venueApprovedAt || '',
@@ -31785,6 +32167,9 @@ window.deleteAdItem = deleteAdItem;
 window.removeAdLocation = removeAdLocation;
 window.deleteUser = deleteUser;
 window.documentAdditionalPayment = documentAdditionalPayment;
+window.requestMunicipalCredit = requestMunicipalCredit;
+window.approveMunicipalCredit = approveMunicipalCredit;
+window.rejectMunicipalCredit = rejectMunicipalCredit;
 window.generateUserPassword = generateUserPassword;
 window.loadSubmittedApplications = loadSubmittedApplications;
 window.muni_attemptLogin = muni_attemptLogin;
