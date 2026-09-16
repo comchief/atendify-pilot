@@ -30152,8 +30152,7 @@ async function renderAppDetail(){
   // real spendable balance lives in their wallet.
   const mcRequests = a.municipalCredits || [];
   const mcOwnerEmail = a.raw && a.raw.ownerEmail;
-  cardsHtml += `<div class="official-card"><h4>Municipal Credit</h4>
-    <p class="col-desc" style="margin-top:-4px;">A refund credited to the applicant's own wallet, spendable only on a future Municipal License fee (Special or Annual) at ${muni_escapeHtml(myMunicipalityName())} — never on Atendify's own application fee. An Accountant requests the amount; the CEO gives final approval before anything is credited.</p>`;
+  cardsHtml += `<div class="official-card"><h4>Municipal Credit</h4>`;
   if(mcRequests.length){
     mcRequests.forEach((req, idx) => {
       const mcStatusClass = req.status === 'Approved' ? 'badge-green' : req.status === 'Rejected' ? 'badge-red' : 'badge-amber';
