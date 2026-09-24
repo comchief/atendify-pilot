@@ -79,6 +79,15 @@
     justify-content:space-between;
     padding: 18px 40px;
     border-bottom: 1px solid var(--border);
+    /* Fix: Home/Track Application/Login/Sign Up/theme-toggle used to sit in
+       one non-wrapping flex row with a fixed 32px gap -- fine on desktop,
+       but at a phone width there's nowhere near enough room for all of it,
+       and it was silently overflowing the viewport (the whole page gained
+       a horizontal scrollbar, and "Atendify"/"Home" visually ran together).
+       Letting the row wrap is a safe, always-on fix -- desktop never has
+       cause to wrap since everything already fits on one line there. */
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
   .logo{
     display:flex;
@@ -92,7 +101,9 @@
   nav{
     display:flex;
     align-items:center;
+    flex-wrap: wrap;
     gap: 32px;
+    row-gap: 10px;
   }
   nav .nav-link{
     font-size: 15px;
@@ -182,7 +193,19 @@
     .grid{ grid-template-columns: 1fr; gap: 28px; }
     main{ padding: 32px 20px 80px; }
     header{ padding: 14px 20px; }
-    nav{ gap: 16px; }
+    nav{ gap: 10px 16px; }
+  }
+  /* A phone-width screen (as opposed to a tablet, already handled just
+     above) doesn't have room even for the reduced 16px gap between five
+     nav items plus the theme toggle -- tighten further and shrink the nav
+     text itself rather than let anything clip or force a horizontal
+     scrollbar. */
+  @media (max-width: 480px){
+    header{ padding: 12px 16px; }
+    .logo{ font-size: 17px; }
+    nav{ gap: 8px 12px; }
+    nav .nav-link, nav .signup-btn, nav .nav-account-btn{ font-size: 13.5px; }
+    nav .signup-btn{ padding: 6px 14px; }
   }
 
   .col-title{
@@ -1262,8 +1285,30 @@
     flex-direction:column;
     padding: 22px 16px;
     position: sticky;
-    top:0;
-    height:100vh;
+    /* 49px = the .suite-back-bar directly above this (now itself pinned to
+       the very top of the viewport -- see its own comment). Offsetting by
+       exactly its height, and shrinking this box by the same amount, means
+       back-bar + sidebar always add up to precisely 100vh -- no more of
+       the sidebar permanently sitting 49px below the fold. */
+    top: 49px;
+    height: calc(100vh - 49px);
+  }
+  /* Fix: a CEO (or any staff role with every nav item unlocked) can have
+     more nav items than fit in one screen's height -- Applications,
+     Advertisements, Events Calendar, Permits, Watchlist, Venues, SLA
+     Breaches, Profile, Users & Roles, Form Elements, Permits & Signatures,
+     Promotions, Bank Account, Subscription & Billing, SLA Policy, Reports,
+     Archive is a lot of ground to cover in one fixed-height sidebar. The
+     logo/agency-name header and the user/logout footer stay pinned in
+     place (this wrapper is the ONLY thing that scrolls), so this only ever
+     scrolls the nav items themselves -- logout is always reachable without
+     hunting for it first. Used by the Municipal/Admin/JCF sidebar (.sidebar)
+     and, separately, the applicant's own .acct-sidebar below. */
+  .sidebar-scroll{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    scrollbar-width:thin;
   }
   .sidebar-logo{
     display:flex; align-items:center; gap:8px;
@@ -2127,8 +2172,11 @@
     flex-direction:column;
     padding: 22px 16px;
     position: sticky;
-    top:0;
-    height:100vh;
+    /* Same fix as the earlier .sidebar block above -- see its comment;
+       kept in sync since this file has two near-identical copies of this
+       stylesheet. */
+    top: 49px;
+    height: calc(100vh - 49px);
   }
   .sidebar-logo{
     display:flex; align-items:center; gap:8px;
@@ -2626,6 +2674,11 @@
     justify-content:space-between;
     padding: 18px 40px;
     border-bottom: 1px solid var(--border);
+    /* Same fix as the earlier header{}/nav{} block above -- see its
+       comment. Two near-identical copies of this stylesheet exist in this
+       file; kept both in sync rather than relying on cascade order. */
+    flex-wrap: wrap;
+    row-gap: 10px;
   }
   .logo{
     display:flex;
@@ -2636,7 +2689,7 @@
     letter-spacing: -0.02em;
   }
   .logo svg, .logo img{ width:24px; height:24px; flex-shrink:0; object-fit:contain; }
-  nav{ display:flex; align-items:center; gap: 32px; }
+  nav{ display:flex; align-items:center; flex-wrap:wrap; gap: 32px; row-gap: 10px; }
   nav .nav-link{ font-size: 15px; color: var(--text); font-weight: 500; cursor:pointer; }
   .theme-toggle{
     cursor:pointer;
@@ -2660,7 +2713,14 @@
     .grid{ grid-template-columns: 1fr; gap: 28px; }
     main{ padding: 32px 20px 80px; }
     header{ padding: 14px 20px; }
-    nav{ gap: 16px; }
+    nav{ gap: 10px 16px; }
+  }
+  @media (max-width: 480px){
+    header{ padding: 12px 16px; }
+    .logo{ font-size: 17px; }
+    nav{ gap: 8px 12px; }
+    nav .nav-link, nav .signup-btn, nav .nav-account-btn{ font-size: 13.5px; }
+    nav .signup-btn{ padding: 6px 14px; }
   }
 
   .col-title{ font-size: 20px; font-weight: 700; margin: 0 0 8px; }
@@ -2912,6 +2972,19 @@
   .suite-back-bar{
     display:flex; align-items:center; gap:14px;
     padding: 10px 24px; background:#14161c; color:#fff; font-size:13.5px;
+    /* Fix: this bar used to sit in normal document flow above the sidebar,
+       which had its own separate height:100vh -- so the two together were
+       always 49px (this bar's own rendered height) taller than the actual
+       viewport, permanently pushing the very bottom of the sidebar (the
+       last ~49px, including part of the user/logout footer) just past the
+       fold until the whole page was scrolled down by that same fixed
+       amount. Pinning this bar to the very top, and having the sidebar
+       start immediately below it at a matching offset (see .sidebar/
+       .acct-sidebar's own top/height, updated to match), means the two
+       always add up to exactly 100vh with nothing left over. */
+    position: sticky;
+    top: 0;
+    z-index: 20;
   }
   .suite-back-bar button{
     background: transparent; border:1px solid rgba(255,255,255,0.3); color:#fff;
@@ -3019,8 +3092,18 @@
   .acct-shell{ display:flex; min-height:calc(100vh - 52px); }
   .acct-sidebar{
     width:240px; flex-shrink:0; background: var(--bg); border-right:1px solid var(--border);
-    display:flex; flex-direction:column; padding:22px 16px; position:sticky; top:0; height:100vh;
+    display:flex; flex-direction:column; padding:22px 16px; position:sticky;
+    /* Same fix as .sidebar's own top/height above -- see its comment: the
+       .suite-back-bar directly above this is now pinned to the very top of
+       the viewport, so this starts immediately below it instead of
+       overlapping, and is shrunk by the same 49px so the two always add
+       up to exactly 100vh. */
+    top: 49px; height: calc(100vh - 49px);
   }
+  /* Same fix as .sidebar-scroll above, for the applicant portal's own
+     sidebar -- keeps its logo header and user/logout footer pinned while
+     only the nav items in between scroll. */
+  .acct-sidebar-scroll{ flex:1 1 auto; min-height:0; overflow-y:auto; scrollbar-width:thin; }
   .acct-sidebar-logo{ display:flex; align-items:center; gap:8px; font-size:17px; font-weight:700; padding:6px 10px 4px; }
   .acct-sidebar-logo img{ width:22px; height:22px; object-fit:contain; }
   .acct-sidebar-sub{ font-size:12.5px; color:var(--text-muted); padding:0 10px 22px; }
@@ -7532,6 +7615,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     </div>
     <div class="sidebar-muni-name" id="sidebarMuniName">—</div>
 
+    <div class="sidebar-scroll">
     <div class="nav-section-label">Overview</div>
     <div class="nav-item active" data-page="dashboard" onclick="muni_goPage('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -7613,6 +7697,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item hidden" data-page="archive" id="navArchive" onclick="muni_goPage('archive')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
       Archive
+    </div>
     </div>
 
     <div class="sidebar-bottom">
@@ -9300,6 +9385,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <span>Atendify Admin</span>
     </div>
 
+    <div class="sidebar-scroll">
     <div class="nav-section-label">Overview</div>
     <div class="nav-item active" data-page="dashboard" onclick="admin_goPage('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -9358,6 +9444,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="nav-item" data-page="settings" onclick="admin_goPage('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       Settings
+    </div>
     </div>
 
     <div class="sidebar-bottom">
@@ -10502,7 +10589,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <button class="btn btn-primary hidden" id="jcf_continueBtn" onclick="startWizard()">Continue</button>
-      <button class="btn btn-primary hidden" id="jcf_startPoaBtn" onclick="showHub('poa')">Start a Places of Amusement Application</button>
+      <!-- Fix: .btn's site-wide white-space:nowrap let this unusually long
+           label push past the right edge of the viewport on the three most
+           common phone widths (360/375/390px), forcing a horizontal
+           scrollbar on this JCF landing page. Every other button's label is
+           short enough to never need this, so it's overridden only here
+           rather than loosening .btn itself for the whole app. -->
+      <button class="btn btn-primary hidden" id="jcf_startPoaBtn" onclick="showHub('poa')" style="white-space:normal; max-width:100%;">Start a Places of Amusement Application</button>
     </div>
   </section>
 
@@ -11609,6 +11702,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="acct-sidebar-sub">Applicant Portal</div>
 
+        <div class="acct-sidebar-scroll">
         <div class="acct-nav-section-label">Overview</div>
         <div class="acct-nav-item active" data-view="dashboard" onclick="acct_goView('dashboard')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -11635,6 +11729,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="acct-nav-item" data-view="settings" onclick="acct_goView('settings')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
           Settings
+        </div>
         </div>
 
         <div class="acct-sidebar-bottom">
@@ -11767,6 +11862,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
       <div class="sidebar-muni-name" id="jcfd_sidebarBranch">—</div>
 
+      <div class="sidebar-scroll">
       <div class="nav-section-label">Overview</div>
       <div class="nav-item active" data-page="dashboard" onclick="jcfd_goPage('dashboard')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -11819,6 +11915,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="nav-item hidden" data-page="archive" id="jcfd_navArchive" onclick="jcfd_goPage('archive')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
         Archive
+      </div>
       </div>
 
       <div class="sidebar-bottom">
