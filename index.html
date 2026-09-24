@@ -11514,7 +11514,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <div class="suite-back-bar">
     <button type="button" onclick="showHub()">&larr; Back to public site</button>
     <span class="suite-back-label">My Account</span>
-    <div class="notif-bell-wrap" id="acct_notifBellWrap" style="margin-left:auto;">
+    <div class="notif-bell-wrap hidden" id="acct_notifBellWrap" style="margin-left:auto;">
       <span class="notif-bell" id="acct_notifBellIcon" onclick="acct_toggleNotifPanel(event)" title="Notifications">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span class="notif-badge hidden" id="acct_notifBadge">0</span>
@@ -12891,6 +12891,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     acct_currentUser = null;
     document.getElementById('acct_authView').classList.remove('hidden');
     document.getElementById('acct_appView').classList.add('hidden');
+    document.getElementById('acct_notifBellWrap').classList.add('hidden');
+    // Logging out also closes the notification panel itself, if it happened
+    // to be open — otherwise the next person to reach this same tab's login
+    // screen could still find it expanded once they log back in, before
+    // acct_loadNotifications() below has even run for their own account.
+    document.getElementById('acct_notifPanel').classList.add('hidden');
+    acctNotifPanelOpen = false;
     document.getElementById('acct_loginEmail').value = '';
     document.getElementById('acct_loginPassword').value = '';
     // A signed-in applicant who opened an application (acct_viewApplication
@@ -12960,6 +12967,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function acct_showLoggedInUI(){
     document.getElementById('acct_authView').classList.add('hidden');
     document.getElementById('acct_appView').classList.remove('hidden');
+    // Fix: the notification bell lives in the back-bar above BOTH
+    // acct_authView (login/signup) and acct_appView (the real dashboard) --
+    // it used to always render, even on the login screen, before any
+    // account was signed in. It's only ever meaningful once there's a
+    // signed-in applicant whose notifications it could show, so it toggles
+    // in lockstep with the same two views right here.
+    document.getElementById('acct_notifBellWrap').classList.remove('hidden');
     document.getElementById('acct_sidebarName').textContent = acct_currentUser.name;
     document.getElementById('acct_sidebarEmail').textContent = acct_currentUser.email;
     acct_applySidebarAvatar();
