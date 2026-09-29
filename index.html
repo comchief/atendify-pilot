@@ -2330,21 +2330,22 @@
   .sc-trend.trend-bad{ color: var(--red); }
   .sc-trend.trend-neutral{ color: var(--text-muted); }
   .sc-trend-note{ font-size:11.5px; color:var(--text-muted); margin-top:4px; }
-  /* Top row: Event Map / Upcoming Events & Risk / Event Types — three equal
-     columns, grid's default align-items:stretch makes all three panels
-     exactly as tall as the tallest one (no fixed pixel height to fight
-     with real data). Each panel is a flex column with its own body area
-     set to flex:1 (via .dash-card-fill) so that shared height gets used
-     rather than leaving dead space only at the bottom of the tallest card,
-     and a capped, scrollable content area (table/legend) so a card with
-     a lot of rows stretches the row once, predictably, instead of growing
-     without bound. */
-  .dash-row-top{ display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; align-items:stretch; margin-bottom:24px; }
+  /* Event Map now runs full-width in its own row (see .dash-map-illustration
+     below) so the illustration has real room. What used to share that row
+     with it — Upcoming Events & Risk / Event Types — now forms its own
+     two-column row via .dash-row-top; grid's default align-items:stretch
+     still makes both panels exactly as tall as the taller one (no fixed
+     pixel height to fight with real data). Each panel is a flex column
+     with its own body area set to flex:1 (via .dash-card-fill) so that
+     shared height gets used rather than leaving dead space only at the
+     bottom of the taller card, and a capped, scrollable content area
+     (table/legend) so a card with a lot of rows stretches the row once,
+     predictably, instead of growing without bound. */
+  .dash-row-top{ display:grid; grid-template-columns: repeat(2, 1fr); gap:20px; align-items:stretch; margin-bottom:24px; }
   .dash-row-top > .panel{ margin-bottom:0; display:flex; flex-direction:column; }
   .dash-row-top .dash-card-fill{ flex:1; display:flex; flex-direction:column; }
   .dash-row-top .dash-card-scroll{ flex:1; min-height:0; max-height:300px; overflow-y:auto; }
   .dash-row-top .pie-card-body{ flex:1; align-items:center; justify-content:center; }
-  @media (max-width: 1150px){ .dash-row-top{ grid-template-columns: 1fr 1fr; } }
   @media (max-width: 760px){ .dash-row-top{ grid-template-columns: 1fr; } }
 
   /* Bottom row: Permit Revenue Snapshot / CEO Action Required (Premium
@@ -2391,13 +2392,47 @@
   .ki-tile-icon svg{ width:16px; height:16px; }
   .ki-tile-text{ font-size:13px; color:var(--text); line-height:1.4; overflow-wrap:break-word; }
 
-  .dash-map-placeholder{
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; gap:10px; padding: 44px 20px; color: var(--text-muted);
-    border: 1.5px dashed var(--border); border-radius: var(--radius); min-height: 280px; flex: 1;
+  /* Event Map: a built-out placeholder illustration (a stylized street
+     grid + waterfront, not a real map — no venue coordinates are collected
+     yet) filling the full width of its own row. The SVG is purely
+     decorative (aria-hidden) and painted entirely from theme tokens so it
+     reads correctly in both light and dark mode; the "Coming soon" copy
+     sits in a floating card on top of it, same idea as the old dashed-box
+     placeholder, just given real visual weight now that the card owns a
+     whole row instead of a 1-of-3 column. */
+  .dash-map-illustration{
+    /* aspect-ratio matches the SVG's own viewBox (960x360) exactly, so the
+       browser scales it to fit both dimensions with nothing to crop or
+       letterbox — a fixed pixel height here would force the SVG's
+       preserveAspectRatio="slice" to crop the illustration's top/bottom
+       (or left/right) by whatever amount the container's actual aspect
+       ratio drifted from the artwork's, cutting into the city blocks and
+       pins nearest the edges. */
+    position:relative; aspect-ratio: 960 / 360; max-height: 460px; border-radius: var(--radius);
+    overflow:hidden; border:1px solid var(--border); background: var(--surface, var(--bg));
   }
-  .dash-map-placeholder svg{ width:34px; height:34px; opacity:0.6; }
-  .dash-map-placeholder .dmp-title{ font-weight:700; color: var(--text); font-size:14px; }
+  .dash-map-svg{ display:block; width:100%; height:100%; }
+  .dash-map-overlay{
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center;
+    padding: 18px 28px; max-width: 400px; width: calc(100% - 40px);
+    background: var(--bg); border:1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 10px 28px rgba(20,22,28,0.14);
+  }
+  .dmp-badge{
+    display:inline-flex; align-items:center; gap:6px; padding:4px 11px; border-radius:999px;
+    background: var(--blue-tint, var(--info-bg)); color: var(--blue); font-size:11.5px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.04em;
+  }
+  .dmp-copy{ font-size:12.5px; color: var(--text-muted); line-height:1.55; }
+
+  /* Event Types card only: stand the donut above its legend instead of the
+     shared .pie-card-body's default side-by-side layout (that default is
+     still used as-is by Permit Revenue Snapshot and other donut cards, so
+     this is an additive modifier class, never a change to .pie-card-body
+     itself). */
+  .pie-card-body.dash-pie-stacked{ flex-direction: column; gap: 14px; }
+  .pie-card-body.dash-pie-stacked .pie-legend{ width: 100%; align-items: center; }
   .dash-risk-tabs{ display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
   .dash-risk-tab{
     padding:6px 12px; border-radius:999px; border:1px solid var(--border); background:var(--bg);
@@ -7842,19 +7877,80 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="ki-grid" id="muni_keyInsightsGrid"></div>
         </div>
 
-        <!-- Row 1: Event Map / Upcoming Events & Risk / Event Types — kept
-             to exactly three peer panels so the grid can stretch them to a
-             single shared height. Row 2 (below): the two Premium-only
-             panels, on their own row so they never distort row 1's height. -->
-        <div class="dash-row-top">
-          <div class="panel">
-            <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
-            <div class="dash-map-placeholder dash-card-fill">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
-              <div class="dmp-title">Coming soon</div>
-              <div>Plotting venues on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
+        <!-- Event Map: its own full-width row so the illustration gets
+             real room, instead of squeezed into a 1-of-3 column. -->
+        <div class="panel">
+          <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
+          <div class="dash-map-illustration">
+            <svg class="dash-map-svg" viewBox="0 0 960 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+              <defs>
+                <path id="dashMapPinShape" d="M0 0C0 0 -11 -17 -11 -27A11 11 0 1 1 11 -27C11 -17 0 0 0 0Z"/>
+              </defs>
+              <rect x="0" y="0" width="960" height="360" style="fill:var(--bg);"/>
+              <path d="M0,300 C120,258 250,326 410,296 C560,268 630,326 780,302 C860,290 920,312 960,300 L960,360 L0,360 Z" style="fill:var(--blue-tint,var(--info-bg));"/>
+              <g style="stroke:var(--border);stroke-width:3;">
+                <line x1="0" y1="70" x2="960" y2="70"/>
+                <line x1="0" y1="150" x2="960" y2="150"/>
+                <line x1="0" y1="230" x2="820" y2="230"/>
+                <line x1="120" y1="0" x2="120" y2="360"/>
+                <line x1="260" y1="0" x2="260" y2="360"/>
+                <line x1="400" y1="0" x2="400" y2="360"/>
+                <line x1="540" y1="0" x2="540" y2="290"/>
+                <line x1="680" y1="0" x2="680" y2="290"/>
+                <line x1="820" y1="0" x2="820" y2="250"/>
+              </g>
+              <g style="stroke:var(--text-muted);stroke-width:6;stroke-opacity:0.22;">
+                <line x1="0" y1="150" x2="960" y2="150"/>
+                <line x1="400" y1="0" x2="400" y2="360"/>
+              </g>
+              <g style="fill:var(--track);stroke:var(--border);stroke-width:1;">
+                <rect x="16" y="16" width="88" height="40" rx="6"/>
+                <rect x="136" y="16" width="108" height="40" rx="6"/>
+                <rect x="416" y="16" width="108" height="40" rx="6"/>
+                <rect x="556" y="16" width="108" height="40" rx="6"/>
+                <rect x="696" y="16" width="108" height="40" rx="6"/>
+                <rect x="836" y="16" width="108" height="40" rx="6"/>
+                <rect x="16" y="96" width="88" height="38" rx="6"/>
+                <rect x="696" y="96" width="108" height="38" rx="6"/>
+                <rect x="836" y="96" width="108" height="38" rx="6"/>
+                <rect x="16" y="176" width="88" height="38" rx="6"/>
+                <rect x="136" y="176" width="108" height="38" rx="6"/>
+                <rect x="696" y="176" width="108" height="38" rx="6"/>
+                <rect x="16" y="254" width="88" height="30" rx="6"/>
+                <rect x="136" y="254" width="108" height="30" rx="6"/>
+              </g>
+              <g>
+                <rect x="276" y="96" width="108" height="76" rx="12" style="fill:var(--green-tint);stroke:var(--green);stroke-opacity:0.4;"/>
+                <circle cx="305" cy="125" r="7" style="fill:var(--green);fill-opacity:0.55;"/>
+                <circle cx="335" cy="145" r="9" style="fill:var(--green);fill-opacity:0.45;"/>
+                <circle cx="360" cy="118" r="6" style="fill:var(--green);fill-opacity:0.5;"/>
+              </g>
+              <!-- Illustrative venue pins only — decorative, not plotted from
+                   real data (see the "Coming soon" note: no venue holds
+                   coordinates yet). -->
+              <g>
+                <use href="#dashMapPinShape" x="180" y="60" style="fill:var(--dvz-1);"/>
+                <circle cx="180" cy="33" r="4" style="fill:var(--bg);"/>
+                <use href="#dashMapPinShape" x="740" y="55" style="fill:var(--dvz-2);"/>
+                <circle cx="740" cy="28" r="4" style="fill:var(--bg);"/>
+                <use href="#dashMapPinShape" x="80" y="255" style="fill:var(--dvz-3);"/>
+                <circle cx="80" cy="228" r="4" style="fill:var(--bg);"/>
+                <use href="#dashMapPinShape" x="880" y="205" style="fill:var(--dvz-4);"/>
+                <circle cx="880" cy="178" r="4" style="fill:var(--bg);"/>
+                <use href="#dashMapPinShape" x="470" y="45" style="fill:var(--dvz-5);"/>
+                <circle cx="470" cy="18" r="4" style="fill:var(--bg);"/>
+              </g>
+            </svg>
+            <div class="dash-map-overlay">
+              <span class="dmp-badge">Coming soon</span>
+              <div class="dmp-copy">Plotting venues on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
             </div>
           </div>
+        </div>
+
+        <!-- Below the map: Upcoming Events & Risk / Event Types, two peer
+             panels so the grid can stretch them to a single shared height. -->
+        <div class="dash-row-top">
           <div class="panel">
             <div class="panel-head">
               <h2>Upcoming Events &amp; Risk</h2>
@@ -7879,7 +7975,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <h2>Event Types</h2>
               <button class="btn btn-sm" onclick="muni_goPage('applications')">View All</button>
             </div>
-            <div class="pie-card-body">
+            <div class="pie-card-body dash-pie-stacked">
               <div class="pie-chart-wrap">
                 <div class="pie-chart" id="muni_eventTypesChart"></div>
                 <div class="pie-chart-hole"><div class="pcc-value" id="muni_eventTypesChartTotal">0</div><div class="pcc-label">Total</div></div>
