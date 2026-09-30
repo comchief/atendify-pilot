@@ -2392,6 +2392,26 @@
   .ki-tile-icon svg{ width:16px; height:16px; }
   .ki-tile-text{ font-size:13px; color:var(--text); line-height:1.4; overflow-wrap:break-word; }
 
+  /* Manual (walk-in) application intake callout — shown at the top of the
+     Applications page, Supervisor-only (Municipal: role 'Supervisor'; JCF:
+     role 'Police Supervisor' — see muni_renderApplications()/jcfd_renderApplications()).
+     Shared between the Municipal and JCF portals since both pages sit in the
+     same stylesheet. */
+  .dash-manual-cta{
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    background: linear-gradient(135deg, var(--purple-tint,var(--blue-tint)), var(--bg) 70%);
+    border: 1px solid var(--purple-tint,var(--blue-tint)); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 20px;
+  }
+  .dmc-title{ font-weight:800; font-size:14.5px; color:var(--text); }
+  .dmc-sub{ font-size:12.5px; color:var(--text-muted); margin-top:2px; max-width:520px; }
+  .badge-manual-entry{
+    display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:999px;
+    background: var(--purple-tint,var(--blue-tint)); color: var(--purple,var(--blue)); font-size:11px; font-weight:700;
+    text-transform:uppercase; letter-spacing:0.03em; margin-left:8px; vertical-align:middle;
+  }
+  .manual-doc-upload-input{ display:none; }
+
   /* Event Map: a built-out placeholder illustration (a stylized street
      grid + waterfront, not a real map — no venue coordinates are collected
      yet) filling the full width of its own row. The SVG is purely
@@ -7662,6 +7682,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
       Applications
     </div>
+    <div class="nav-item hidden" data-page="payments" id="navPayments" onclick="muni_goPage('payments')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5a2.5 2.5 0 012.5-2.5h1A2.5 2.5 0 0115 9.5a2.5 2.5 0 01-2.5 2.5h-1A2.5 2.5 0 009 14.5a2.5 2.5 0 002.5 2.5h1a2.5 2.5 0 002.5-2.5"/></svg>
+      Payments
+    </div>
     <div class="nav-item hidden" data-page="ads" id="navAds" onclick="muni_goPage('ads')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a2 2 0 11-3.2 2.4"/></svg>
       Advertisements
@@ -7855,7 +7879,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="sc-label">SLA Breaches</div>
             <div class="sc-trend-note">Right now</div>
           </div>
-          <div class="stat-card">
+          <div class="stat-card" id="dashKpiRevenueCard">
             <div class="sc-top"><div class="sc-icon" style="background:var(--green-tint); color:var(--green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5a2.5 2.5 0 012.5-2.5h1A2.5 2.5 0 0115 9.5a2.5 2.5 0 01-2.5 2.5h-1A2.5 2.5 0 009 14.5a2.5 2.5 0 002.5 2.5h1a2.5 2.5 0 002.5-2.5"/></svg></div></div>
             <div class="sc-value" id="dashKpiRevenue">J$0<span class="sc-trend" id="dashKpiRevenueTrend"></span></div>
             <div class="sc-label">Revenue Collected</div>
@@ -7866,8 +7890,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <!-- Key Insights: a full-width strip of short, real, computed
              callouts sitting between the KPI row and the card grid below.
              Standard+Premium (same gate as the rest of this dashboard) —
-             see muni_renderKeyInsights(). -->
-        <div class="panel key-insights-card">
+             see muni_renderKeyInsights(). Also role-gated (see
+             muni_renderDashboardMode()): Accountant/Supervisor don't see it. -->
+        <div class="panel key-insights-card" id="muni_keyInsightsPanel">
           <div class="ki-head">
             <span class="ki-head-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.5.4.8 1 .8 1.6v.7h6.4v-.7c0-.6.3-1.2.8-1.6A7 7 0 0012 2z"/></svg>
@@ -7878,8 +7903,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
 
         <!-- Event Map: its own full-width row so the illustration gets
-             real room, instead of squeezed into a 1-of-3 column. -->
-        <div class="panel">
+             real room, instead of squeezed into a 1-of-3 column. Role-gated
+             (see muni_renderDashboardMode()): Accountant doesn't see it. -->
+        <div class="panel" id="muni_eventMapPanel">
           <div class="panel-head"><h2>Event Map — <span id="dashMapMuniName">This Municipality</span></h2></div>
           <div class="dash-map-illustration">
             <svg class="dash-map-svg" viewBox="0 0 960 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
@@ -7949,8 +7975,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
 
         <!-- Below the map: Upcoming Events & Risk / Event Types, two peer
-             panels so the grid can stretch them to a single shared height. -->
-        <div class="dash-row-top">
+             panels so the grid can stretch them to a single shared height.
+             Role-gated (see muni_renderDashboardMode()): Accountant doesn't
+             see this row. -->
+        <div class="dash-row-top" id="muni_dashRowTop">
           <div class="panel">
             <div class="panel-head">
               <h2>Upcoming Events &amp; Risk</h2>
@@ -8031,10 +8059,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </table>
         </div>
       </div>
+
     </div>
 
     <!-- ===== APPLICATIONS PAGE ===== -->
     <div class="page hidden" id="muni_page-applications">
+
+      <!-- Manual (walk-in) application intake — Supervisor-only, see
+           muni_renderApplications()'s role gate and muni_openManualAppModal().
+           Independent of subscription tier (a front-desk task, not a Premium
+           analytics feature), so it's toggled up here rather than inside any
+           tier-gated section. Lives on the Applications page (not the
+           Dashboard) since creating an application is itself an applications
+           task. -->
+      <div class="dash-manual-cta hidden" id="muniManualAppCta">
+        <div>
+          <div class="dmc-title">Walk-in customer at your counter?</div>
+          <div class="dmc-sub">Create their Special Event application on their behalf. You can upload Photo ID, the event flyer, and proof of ownership afterward, once you have them.</div>
+        </div>
+        <button class="btn btn-primary" onclick="muni_openManualAppModal()">+ New Manual Application</button>
+      </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>All applications</h2>
@@ -8069,7 +8114,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
            already done for the JCF Officer Portal's Applications page. The
            search box, status filter, and category tabs above stay shared:
            both tables are filtered from the same underlying list. -->
-      <div class="panel">
+      <div class="panel" id="muni_specialAppsPanel">
         <div class="panel-head"><h3 style="font-size:15px; margin:0;">Special Event Applications</h3></div>
         <div style="overflow-x:auto;">
           <table>
@@ -8079,12 +8124,81 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="muni_annualAppsPanel">
         <div class="panel-head"><h3 style="font-size:15px; margin:0;">Annual Applications</h3></div>
         <div style="overflow-x:auto;">
           <table>
             <thead><tr><th>Application #</th><th>Tracking Code</th><th>Applicant</th><th>Premises</th><th>Business Type</th><th>Submitted</th><th>Status</th><th></th></tr></thead>
             <tbody id="muni_applicationsBodyAnnual"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAYMENTS PAGE ===== Accountant/CEO only (see
+         setupSidebarForUser()/muni_goPage()'s role gate) — a finance/audit
+         view, not a role permission toggle, matching the Atendify Remittance
+         panel below which lived on the Dashboard before this page existed. -->
+    <div class="page hidden" id="muni_page-payments">
+
+      <!-- Atendify Remittance — moved here from the Dashboard (see
+           muni_renderAtendifyRemittance()). Manual (walk-in) applications
+           collect Atendify's application fee as part of ONE combined payment
+           at the counter (see the Payment Verification card's
+           isManualCombinedPayment branch in renderAppDetail()); this shows
+           how much of that money is still owed to Atendify, pending National
+           Admin confirming receipt of this municipality's bulk transfer
+           (admin_settleMuniRemittance on the National Admin dashboard —
+           settlement happens from that side only, so this panel is
+           read-only). -->
+      <div class="panel hidden" id="muni_atendifyRemittancePanel">
+        <div class="panel-head">
+          <h2>Atendify Remittance</h2>
+        </div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Atendify's application-fee portion, collected by this Municipal Corporation as part of a manual (walk-in) applicant's combined payment. This amount is owed to Atendify until National Admin confirms receipt of a bulk transfer.</p>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="sc-value" id="muni_remitOwed">J$0</div>
+            <div class="sc-label">Currently owed to Atendify</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-value" id="muni_remitCount">0</div>
+            <div class="sc-label">Manual application(s) pending remittance</div>
+          </div>
+          <div class="stat-card">
+            <div class="sc-value" id="muni_remitPaid">J$0</div>
+            <div class="sc-label">Remitted to date</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Confirmed Payments — every payment this Municipal Corporation has
+           itself verified as received (see muni_getConfirmedPayments()):
+           the license fee (or, for a manual entry, the whole combined
+           counter payment) plus any additional payment an Accountant has
+           documented. Filter and search both drive the CSV export too, so
+           "Export CSV" always matches what's currently on screen. -->
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Confirmed Payments</h2>
+          <div class="panel-tools">
+            <input type="text" id="muni_paymentsSearch" placeholder="Search by application #" aria-label="Search by application number" oninput="muni_renderPaymentsTable()">
+            <button class="btn btn-sm" onclick="muni_exportPaymentsCsv()">⬇ Export CSV</button>
+          </div>
+        </div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Every payment this Municipal Corporation has confirmed as received — the license fee (and, for a manual walk-in entry, the Atendify application fee collected alongside it) plus any additional payments your Accountant has documented.</p>
+        <div class="dash-risk-tabs" id="muni_paymentsPeriodTabs">
+          <button class="dash-risk-tab active" data-period="all" onclick="muni_setPaymentsPeriod('all')">All Time</button>
+          <button class="dash-risk-tab" data-period="day" onclick="muni_setPaymentsPeriod('day')">Today</button>
+          <button class="dash-risk-tab" data-period="week" onclick="muni_setPaymentsPeriod('week')">This Week</button>
+          <button class="dash-risk-tab" data-period="month" onclick="muni_setPaymentsPeriod('month')">This Month</button>
+          <button class="dash-risk-tab" data-period="year" onclick="muni_setPaymentsPeriod('year')">This Year</button>
+        </div>
+        <div class="readback-row" style="margin:4px 0 14px;" id="muni_paymentsSummary">Total: J$0.00 across 0 records</div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Date</th><th>Application #</th><th>Applicant</th><th>Type</th><th>License Type</th><th>Amount</th><th>Receipt #</th><th>Notes</th></tr></thead>
+            <tbody id="muni_paymentsBody"></tbody>
           </table>
         </div>
       </div>
@@ -9343,6 +9457,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permApproveCapped"> Approve or reject applications with 500 or fewer expected patrons</label>
       <label class="checkbox-row"><input type="checkbox" id="permManageUsers"> Create users & assign roles</label>
       <label class="checkbox-row"><input type="checkbox" id="permManageVenues"> Manage venue database (accept/reject applicant-suggested venues)</label>
+      <label class="checkbox-row"><input type="checkbox" id="permSpecialEvent"> View/review Special Event Applications</label>
+      <label class="checkbox-row"><input type="checkbox" id="permAnnual"> View/review Annual Applications</label>
     </div>
 
     <div class="field-group">
@@ -9356,6 +9472,143 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="modal-actions">
       <button class="btn" onclick="closeUserModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveUser()">Save user</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Manual (walk-in) application intake — Supervisor only ===== -->
+<!-- See muni_openManualAppModal()/muni_createManualApplication(). Special
+     Event only (Annual stays online-wizard-only) — a condensed version of
+     the public wizard's Steps 1/2/4, filled in by the Supervisor instead of
+     the applicant. Documents are deliberately NOT collected here (see
+     muniManualAppCta's own copy): the application is created first, then
+     the Supervisor uploads Photo ID/Event Flyer/Proof of Ownership from the
+     application's own detail page (see muni_renderFixedDocRow's manual-entry
+     branch) once they're on hand. -->
+<div class="modal-overlay hidden" id="muniManualAppModal">
+  <div class="modal-box modal-wide">
+    <h3>New Manual Application (Walk-in)</h3>
+    <p class="modal-sub">Create a Special Event application on behalf of a walk-in customer. This is tagged as a manual entry — you'll upload the required documents from the application's own page afterward.</p>
+
+    <div class="field-group">
+      <label>Applicant type</label>
+      <div style="display:flex; gap:20px; margin-top:4px;">
+        <label class="checkbox-row"><input type="radio" name="manualApplicantType" value="Individual" checked onchange="muni_manualAppApplicantTypeChanged()"> Individual</label>
+        <label class="checkbox-row"><input type="radio" name="manualApplicantType" value="Company" onchange="muni_manualAppApplicantTypeChanged()"> Company</label>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field-group" id="manualAppNameGroupIndividual">
+        <label for="manualAppFullName">Full name</label>
+        <input type="text" id="manualAppFullName" placeholder="Full name">
+      </div>
+      <div class="field-group hidden" id="manualAppNameGroupCompany">
+        <label for="manualAppCompanyName">Company name</label>
+        <input type="text" id="manualAppCompanyName" placeholder="Company name">
+      </div>
+      <div class="field-group">
+        <label for="manualAppTrn">TRN</label>
+        <input type="text" id="manualAppTrn" placeholder="TRN">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label for="manualAppPhone">Phone</label>
+        <input type="text" id="manualAppPhone" placeholder="Phone number">
+      </div>
+      <div class="field-group">
+        <label for="manualAppEmail">Email (optional)</label>
+        <input type="email" id="manualAppEmail" placeholder="name@example.com">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label for="manualAppAddr1">Address line 1</label>
+        <input type="text" id="manualAppAddr1" placeholder="Street number/name">
+      </div>
+      <div class="field-group">
+        <label for="manualAppAddr2">Address line 2 (optional)</label>
+        <input type="text" id="manualAppAddr2" placeholder="Optional">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label for="manualAppDistrict">District</label>
+        <input type="text" id="manualAppDistrict" placeholder="District">
+      </div>
+      <div class="field-group">
+        <label for="manualAppParish">Parish</label>
+        <select id="manualAppParish"><option value="">Select parish</option></select>
+      </div>
+    </div>
+
+    <div class="field-group" style="margin:10px 0 2px;">
+      <label style="font-weight:800; font-size:13px; color:var(--text);">Event information</label>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label for="manualAppEventName">Event name</label>
+        <input type="text" id="manualAppEventName" placeholder="Event name">
+      </div>
+      <div class="field-group">
+        <label for="manualAppEventDate">Event date</label>
+        <input type="date" id="manualAppEventDate">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label for="manualAppEventType">Event type</label>
+        <select id="manualAppEventType"><option value="">Select event type</option></select>
+      </div>
+      <div class="field-group">
+        <label for="manualAppPatrons">Expected patrons</label>
+        <input type="number" id="manualAppPatrons" min="1" placeholder="e.g. 150">
+      </div>
+    </div>
+
+    <div class="field-group" style="margin:10px 0 2px;">
+      <label style="font-weight:800; font-size:13px; color:var(--text);">Venue</label>
+    </div>
+    <div class="field-group">
+      <label for="manualAppVenueSelect">Pick a registered venue, or enter one manually</label>
+      <select id="manualAppVenueSelect" onchange="muni_manualAppVenueChanged()">
+        <option value="">+ Enter venue manually</option>
+      </select>
+    </div>
+    <div id="manualAppVenueManualFields">
+      <div class="field-row">
+        <div class="field-group">
+          <label for="manualAppVenueName">Venue name</label>
+          <input type="text" id="manualAppVenueName" placeholder="Venue name">
+        </div>
+        <div class="field-group">
+          <label for="manualAppVenueCapacity">Max capacity</label>
+          <input type="number" id="manualAppVenueCapacity" min="1" placeholder="e.g. 500">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="manualAppVenueAddr1">Venue address</label>
+          <input type="text" id="manualAppVenueAddr1" placeholder="Street number/name">
+        </div>
+        <div class="field-group">
+          <label for="manualAppVenueDistrict">Venue district</label>
+          <input type="text" id="manualAppVenueDistrict" placeholder="District">
+        </div>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label for="manualAppNote">Internal note (optional)</label>
+      <textarea id="manualAppNote" rows="2" placeholder="Anything useful for your records — not shown to the applicant."></textarea>
+    </div>
+
+    <div id="manualAppError" class="info-banner warn hidden"></div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="muni_closeManualAppModal()">Cancel</button>
+      <button class="btn btn-primary" id="muniManualAppSubmitBtn" onclick="muni_createManualApplication()">Create application</button>
     </div>
   </div>
 </div>
@@ -9628,11 +9881,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div class="panel">
         <div class="panel-head"><h2>Application Fee — collected by Atendify</h2></div>
-        <p class="field-hint" style="margin:-6px 0 14px;">This is the fee Atendify itself charges per application — it isn't part of the municipality's own revenue above. A waiver an admin records against an application reduces the municipality's share only; it does not reduce what's owed here, since a municipality can't unilaterally waive Atendify's own fee.</p>
+        <p class="field-hint" style="margin:-6px 0 14px;">This is the fee Atendify itself charges per application — it isn't part of the municipality's own revenue above. A waiver an admin records against an application reduces the municipality's share only; it does not reduce what's owed here, since a municipality can't unilaterally waive Atendify's own fee. "Pending remittance" is Atendify's fee-portion of a manual (walk-in) application's combined payment — already collected by the municipality at the counter, but not yet transferred to Atendify; use "Mark remitted" once that transfer has actually happened.</p>
         <div class="stat-grid" id="admin_ovwAtendifyRevenueStats"></div>
         <div style="overflow-x:auto; margin-top:14px;">
           <table>
-            <thead><tr><th>Municipality</th><th>Applications</th><th>Billed</th><th>Collected</th></tr></thead>
+            <thead><tr><th>Municipality</th><th>Applications</th><th>Billed</th><th>Collected</th><th>Pending remittance</th><th>Action</th></tr></thead>
             <tbody id="admin_ovwAtendifyRevenueByMuniBody"></tbody>
           </table>
         </div>
@@ -12064,6 +12317,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <h2>Dashboard</h2>
           <button class="btn btn-sm" id="jcfd_dashboardRefreshBtn" onclick="jcfd_renderDashboard()">↻ Refresh</button>
         </div>
+
         <div id="jcfd_dashboardNotices"></div>
         <div class="stat-grid" id="jcfd_statGrid"></div>
         <div class="panel" style="margin-top:20px;">
@@ -12103,6 +12357,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <!-- ===== APPLICATIONS PAGE ===== -->
       <div class="page hidden" id="jcfd_page-applications">
+
+        <!-- Manual (walk-in) application intake — Police Supervisor only,
+             see jcfd_renderApplications()'s role gate and
+             jcfd_openManualAppModal(). Requires an existing POA application
+             number to link to, mirroring how a JCF filing normally derives
+             from a POA record (see openJcfForm() in the applicant scope).
+             Lives on the Applications page (not the Dashboard) since
+             creating an application is itself an applications task. -->
+        <div class="dash-manual-cta hidden" id="jcfdManualAppCta">
+          <div>
+            <div class="dmc-title">Walk-in promoter at your desk?</div>
+            <div class="dmc-sub">File their JCF Noise Abatement application on their behalf, using their existing Places of Amusement application number. You can upload Photo ID, the event flyer, and proof of ownership afterward.</div>
+          </div>
+          <button class="btn btn-primary" onclick="jcfd_openManualAppModal()">+ New Manual Application</button>
+        </div>
+
         <div class="panel">
           <div class="panel-head">
             <h2 id="jcfd_appsHeading">Applications</h2>
@@ -12633,6 +12903,110 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
      application detail view renders, toggled visible only during printing
      (mirrors the Municipal Officer's permitPrintArea/printing-permit pipeline). -->
 <div id="jcfdPermitPrintArea" class="print-only"></div>
+
+<!-- ===== Manual (walk-in) application intake — Police Supervisor only ===== -->
+<!-- See jcfd_openManualAppModal()/jcfd_createManualApplication(). A JCF
+     filing always derives from an existing POA (Places of Amusement)
+     application — this modal requires that number up front, looks it up,
+     and carries over the applicant/venue/municipality details exactly like
+     openJcfForm() does for a normal online filing. Documents (Photo ID,
+     Event Flyer, Proof of Ownership) are deliberately NOT collected here —
+     the filing is created first, then the Supervisor uploads them from the
+     application's own detail page (see jcfd_detailRowDoc's manual-entry
+     branch) once they're on hand. -->
+<div class="modal-overlay hidden" id="jcfdManualAppModal">
+  <div class="modal-box modal-wide">
+    <h3>New Manual Application (Walk-in)</h3>
+    <p class="modal-sub">File a JCF Noise Abatement application on behalf of a walk-in promoter. This is tagged as a manual entry — you'll upload the required documents from the application's own page afterward.</p>
+
+    <div class="field-row">
+      <div class="field-group">
+        <label for="jcfdManualPoaNumber">Places of Amusement (POA) application number</label>
+        <input type="text" id="jcfdManualPoaNumber" placeholder="e.g. POA-042026-01" onblur="jcfd_lookupPoaForManualApp()">
+      </div>
+      <div class="field-group">
+        <button class="btn" type="button" style="margin-top:22px;" onclick="jcfd_lookupPoaForManualApp()">Look up</button>
+      </div>
+    </div>
+    <div id="jcfdManualPoaLookupResult"></div>
+
+    <div id="jcfdManualAppFields" class="hidden">
+      <div class="field-group" style="margin:10px 0 2px;">
+        <label style="font-weight:800; font-size:13px; color:var(--text);">Promoter information</label>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="jcfdManualPromoterName">Promoter name</label>
+          <input type="text" id="jcfdManualPromoterName" placeholder="Full name">
+        </div>
+        <div class="field-group">
+          <label for="jcfdManualPromoterTrn">TRN</label>
+          <input type="text" id="jcfdManualPromoterTrn" placeholder="TRN">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="jcfdManualPromoterPhone">Phone</label>
+          <input type="text" id="jcfdManualPromoterPhone" placeholder="Phone number">
+        </div>
+        <div class="field-group">
+          <label for="jcfdManualPatrons">Expected patrons</label>
+          <input type="number" id="jcfdManualPatrons" min="1" placeholder="e.g. 150">
+        </div>
+      </div>
+
+      <div class="field-group" style="margin:10px 0 2px;">
+        <label style="font-weight:800; font-size:13px; color:var(--text);">Event information</label>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="jcfdManualEventName">Event name</label>
+          <input type="text" id="jcfdManualEventName" placeholder="Event name">
+        </div>
+        <div class="field-group">
+          <label for="jcfdManualEventDate">Event date</label>
+          <input type="date" id="jcfdManualEventDate">
+        </div>
+      </div>
+
+      <div class="field-group" style="margin:10px 0 2px;">
+        <label style="font-weight:800; font-size:13px; color:var(--text);">Venue information</label>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="jcfdManualVenueName">Venue name</label>
+          <input type="text" id="jcfdManualVenueName" placeholder="Venue name">
+        </div>
+        <div class="field-group">
+          <label for="jcfdManualVenueAddress">Venue address</label>
+          <input type="text" id="jcfdManualVenueAddress" placeholder="Street/district">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="jcfdManualVenueOwner">Venue owner</label>
+          <input type="text" id="jcfdManualVenueOwner" placeholder="Owner name">
+        </div>
+        <div class="field-group">
+          <label for="jcfdManualOwnerContact">Owner contact</label>
+          <input type="text" id="jcfdManualOwnerContact" placeholder="Phone number">
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label for="jcfdManualNote">Internal note (optional)</label>
+        <textarea id="jcfdManualNote" rows="2" placeholder="Anything useful for your records — not shown to the applicant."></textarea>
+      </div>
+    </div>
+
+    <div id="jcfdManualAppError" class="info-banner warn hidden"></div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeManualAppModal()">Cancel</button>
+      <button class="btn btn-primary hidden" id="jcfdManualAppSubmitBtn" onclick="jcfd_createManualApplication()">Create application</button>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="jcfd_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
@@ -15610,6 +15984,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
 
   async function jcfd_renderApplications(){
+    // Manual (walk-in) application intake — Police Supervisor only. Lives on
+    // this Applications page (see the CTA's own HTML comment above
+    // jcfdManualAppCta for why) rather than the Dashboard, but the gate
+    // itself is unchanged from when it lived there.
+    const manualCtaEl = document.getElementById('jcfdManualAppCta');
+    if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !(jcfdCurrentUser && jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR));
+
     const specialBody = document.getElementById('jcfd_applicationsBodySpecial');
     const annualBody = document.getElementById('jcfd_applicationsBodyAnnual');
     if(!specialBody || !annualBody) return;
@@ -15682,6 +16063,328 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_renderApplications();
     }
   }, 5 * 60 * 1000);
+
+  // ==================== Manual (walk-in) application intake ====================
+  // Police Supervisor only (see jcfdManualAppCta's role gate in
+  // jcfd_renderApplications() above). Unlike the Municipal Officer's manual
+  // intake — which builds a brand-new Places of Amusement application from
+  // scratch — every JCF filing is inherently tied to an existing POA
+  // application, so this flow requires and validates that POA application
+  // number FIRST and only then reveals the rest of the form, prefilled from
+  // that record exactly like a normal online filing already carries its
+  // applicant/venue/municipality details over (see openJcfForm()'s own
+  // payload-building). Documents (Photo ID, Event Flyer, Proof of
+  // Ownership) are deliberately not collected here — "create first, upload
+  // after" (see the user's confirmed scope decision) — the Supervisor
+  // uploads them afterward from the created application's own detail page
+  // (see jcfd_detailRowDoc/jcfd_detailRowAction's isManual branch and
+  // jcfd_uploadManualDoc() below).
+  let jcfdManualPoaRecord = null;
+
+  function jcfd_openManualAppModal(){
+    if(!jcfdCurrentUser || jcfdCurrentUser.role !== JCFD_ROLE_SUPERVISOR){
+      jcfd_showToast('Only a Police Supervisor account can create a manual application.');
+      return;
+    }
+    jcfdManualPoaRecord = null;
+    document.getElementById('jcfdManualPoaNumber').value = '';
+    document.getElementById('jcfdManualPoaLookupResult').innerHTML = '';
+    document.getElementById('jcfdManualAppFields').classList.add('hidden');
+    document.getElementById('jcfdManualAppSubmitBtn').classList.add('hidden');
+    document.getElementById('jcfdManualAppError').classList.add('hidden');
+    ['jcfdManualPromoterName','jcfdManualPromoterTrn','jcfdManualPromoterPhone','jcfdManualPatrons',
+     'jcfdManualEventName','jcfdManualEventDate','jcfdManualVenueName','jcfdManualVenueAddress',
+     'jcfdManualVenueOwner','jcfdManualOwnerContact','jcfdManualNote'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.value = '';
+    });
+    document.getElementById('jcfdManualAppModal').classList.remove('hidden');
+  }
+  window.jcfd_openManualAppModal = jcfd_openManualAppModal;
+
+  function jcfd_closeManualAppModal(){
+    document.getElementById('jcfdManualAppModal').classList.add('hidden');
+    jcfdManualPoaRecord = null;
+  }
+  window.jcfd_closeManualAppModal = jcfd_closeManualAppModal;
+
+  async function jcfd_lookupPoaForManualApp(){
+    const resultEl = document.getElementById('jcfdManualPoaLookupResult');
+    const fieldsEl = document.getElementById('jcfdManualAppFields');
+    const submitBtn = document.getElementById('jcfdManualAppSubmitBtn');
+    const errEl = document.getElementById('jcfdManualAppError');
+    errEl.classList.add('hidden');
+    const poaNumber = (document.getElementById('jcfdManualPoaNumber').value || '').trim().toUpperCase();
+    jcfdManualPoaRecord = null;
+    fieldsEl.classList.add('hidden');
+    submitBtn.classList.add('hidden');
+    if(!poaNumber){
+      resultEl.innerHTML = '';
+      return;
+    }
+    resultEl.innerHTML = '<p class="col-desc">' + window.atdLoadingHtml('Looking up application…', 14) + '</p>';
+    let poaRec = null;
+    try{
+      if(window.storage){
+        const r = await window.storage.get(`application:${poaNumber}`, true);
+        poaRec = (r && r.value) ? JSON.parse(r.value) : null;
+      }
+    } catch(e){ poaRec = null; }
+    if(!poaRec){
+      resultEl.innerHTML = `<div class="info-banner warn">No Places of Amusement application found with number "${acctEscapeHtml(poaNumber)}". Double-check the number and try again.</div>`;
+      return;
+    }
+    // The storage key jcfApplication:<poaNumber> is 1:1 with the POA record
+    // (same as a normal online filing — see jcf_ingestPayload()'s own
+    // jcfAppNumber = poaAppNumber assignment), so don't let a second JCF
+    // filing be created on top of one that already exists.
+    let existingJcf = null;
+    try{
+      if(window.storage){
+        const r = await window.storage.get(`jcfApplication:${poaNumber}`, true);
+        existingJcf = (r && r.value) ? JSON.parse(r.value) : null;
+      }
+    } catch(e){ existingJcf = null; }
+    if(existingJcf){
+      resultEl.innerHTML = `<div class="info-banner warn">A JCF Noise Abatement application already exists for ${acctEscapeHtml(poaNumber)} (status: ${acctEscapeHtml(existingJcf.status || 'Submitted')}). Open it from the Applications list instead of creating a new one.</div>`;
+      return;
+    }
+    jcfdManualPoaRecord = poaRec;
+    const applicant = poaRec.applicant || {};
+    const amusement = poaRec.amusement || {};
+    const venue = poaRec.venue || {};
+    resultEl.innerHTML = `<div class="info-banner" style="background:var(--green-tint,var(--blue-tint)); border-color:var(--green-tint,var(--blue-tint));">Found: ${acctEscapeHtml(poaRec.municipalityName || 'Places of Amusement application')} — ${acctEscapeHtml(applicant.name || 'Unknown applicant')}. Fields below have been pre-filled from this application; adjust as needed.</div>`;
+
+    document.getElementById('jcfdManualPromoterName').value = applicant.name || '';
+    document.getElementById('jcfdManualPromoterTrn').value = applicant.trn || '';
+    document.getElementById('jcfdManualPromoterPhone').value = applicant.phone || '';
+    document.getElementById('jcfdManualPatrons').value = amusement.patrons || '';
+    document.getElementById('jcfdManualEventName').value = amusement.eventName || '';
+    document.getElementById('jcfdManualEventDate').value = amusement.eventDate || '';
+    document.getElementById('jcfdManualVenueName').value = venue.name || '';
+    document.getElementById('jcfdManualVenueAddress').value = [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ');
+    document.getElementById('jcfdManualVenueOwner').value = venue.ownerName || '';
+    document.getElementById('jcfdManualOwnerContact').value = venue.ownerPhone || '';
+
+    fieldsEl.classList.remove('hidden');
+    submitBtn.classList.remove('hidden');
+  }
+  window.jcfd_lookupPoaForManualApp = jcfd_lookupPoaForManualApp;
+
+  async function jcfd_createManualApplication(){
+    if(!jcfdCurrentUser || jcfdCurrentUser.role !== JCFD_ROLE_SUPERVISOR){
+      jcfd_showToast('Only a Police Supervisor account can create a manual application.');
+      return;
+    }
+    const errEl = document.getElementById('jcfdManualAppError');
+    errEl.classList.add('hidden');
+    const poaRec = jcfdManualPoaRecord;
+    if(!poaRec){
+      errEl.textContent = 'Please look up a valid Places of Amusement application number first.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    const val = id => (document.getElementById(id).value || '').trim();
+    const promoterName = val('jcfdManualPromoterName');
+    const promoterPhone = val('jcfdManualPromoterPhone');
+    const eventName = val('jcfdManualEventName');
+    const eventDate = val('jcfdManualEventDate');
+    const patrons = val('jcfdManualPatrons');
+    const venueName = val('jcfdManualVenueName');
+    if(!promoterName || !promoterPhone || !eventName || !eventDate || !patrons || !venueName){
+      errEl.textContent = 'Please complete promoter name, phone, event name, event date, expected patrons, and venue name before creating this application.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const submitBtn = document.getElementById('jcfdManualAppSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = window.atdLoadingHtml('Creating…', 14);
+
+    try{
+      const promoterTrn = val('jcfdManualPromoterTrn');
+      // Mandatory watch list check — same rule submitJcfApp() enforces for
+      // every online filing; a walk-in promoter is no less subject to it
+      // just because an officer is keying the record in by hand.
+      let watchlistHit = null;
+      if(promoterTrn && window.atdCheckWatchlistFlag){
+        const flag = await window.atdCheckWatchlistFlag(promoterTrn);
+        if(flag) watchlistHit = { role: 'Applicant', flag };
+      }
+      const watchlistRejectionMessage = watchlistHit
+        ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
+
+      const applicant = poaRec.applicant || {};
+      const number = poaRec.appNumber; // 1:1 linkage, same as a normal online filing
+
+      const record = {
+        jcfAppNumber: number,
+        poaAppNumber: poaRec.appNumber,
+        linkedTrackingCode: poaRec.trackingCode || null,
+        ownerEmail: poaRec.ownerEmail || null,
+        muniId: poaRec.muniId != null ? poaRec.muniId : null,
+        municipalityName: poaRec.municipalityName || '',
+        submittedDate: new Date().toISOString().slice(0,10),
+        submittedAt: new Date().toISOString(),
+        status: watchlistHit ? 'Rejected' : 'Submitted',
+        assignedOfficerId: null,
+        assignedOfficerName: '',
+        comments: [],
+        recommendation: '',
+        recommendationNotes: '',
+        recommendedBy: watchlistHit ? 'Auto-rejected: watch list match' : '',
+        finalDecision: watchlistRejectionMessage,
+        permitGenerated: false,
+        permit: null,
+        // Additive fields only — nothing else in the app reads these,
+        // mirrors the Municipal Officer's own manual-entry tagging
+        // (entrySource/enteredBy/enteredAt/manualNote).
+        entrySource: 'manual',
+        enteredBy: { id: jcfdCurrentUser.id, name: jcfdCurrentUser.name, email: jcfdCurrentUser.email, role: jcfdCurrentUser.role },
+        enteredAt: new Date().toISOString(),
+        manualNote: val('jcfdManualNote'),
+        eventOverview: {
+          eventType: 'Special Event',
+          dateOfApplication: new Date().toISOString().slice(0,10),
+          dateOfEvent: eventDate,
+          eventName: eventName,
+          promoterName: promoterName,
+          aliases: '',
+          dateOfBirth: applicant.dob || '',
+          ageOfPromoter: applicant.age || '',
+          phoneNumber: promoterPhone,
+          trn: promoterTrn,
+          addr1: applicant.addr1 || '', addr2: applicant.addr2 || '', district: applicant.district || '', parish: applicant.parish || '',
+          patronsExpected: patrons,
+          promoterBreachedNoiseAct: '',
+          promoterBreachReason: '',
+          // No Photo ID collected yet — "create first, upload after" (see
+          // the user's confirmed scope decision). Stays Not Uploaded until
+          // the Supervisor uploads it from this application's own detail
+          // page (see jcfd_uploadManualDoc()).
+          photoIdFileName: '', photoIdStatus: 'Not Uploaded', photoIdOfficerNote: ''
+        },
+        venueInfo: {
+          venueName: venueName,
+          venueAddress: val('jcfdManualVenueAddress'),
+          venueOwner: val('jcfdManualVenueOwner'),
+          ownerContact: val('jcfdManualOwnerContact'),
+          ownerAddress: '',
+          ownerBreachedNoiseAct: '',
+          ownerBreachReason: '',
+          businessType: '',
+          validSpiritLicense: '',
+          communityArrangements: '',
+          parkingArrangements: '',
+          securityArrangements: '',
+          securityCompaniesFromPoa: (poaRec.amusement && poaRec.amusement.securityRecords) || [],
+          permissionLetterFileName: '', permissionLetterStatus: 'Not Uploaded', permissionLetterOfficerNote: ''
+        },
+        djs: [],
+        soundSystems: [],
+        briefings: {
+          noiseAbatementWatched: false,
+          loudSpeakersWatched: false,
+          chargesWatched: false,
+          eventFlyerFileName: ''
+        },
+        carriedJcfDocuments: { jamsFileName: '', jcapFileName: '' },
+        signature: null
+      };
+
+      if(window.storage){
+        await window.storage.set(`jcfApplication:${number}`, JSON.stringify(record), true);
+      }
+
+      if(window.atdLogAudit){
+        await window.atdLogAudit({
+          portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+          action: 'application.manualCreate',
+          details: `Created manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}), linked to Places of Amusement application ${poaRec.appNumber}.`,
+          muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+        });
+      }
+
+      if(watchlistHit && record.ownerEmail){
+        window.atdSendEmail('application_watchlist_rejected', record.ownerEmail, {
+          appNumber: number, applicantName: promoterName, role: watchlistHit.role,
+          flaggedName: watchlistHit.flag.fullName, agencyName: watchlistHit.flag.agencyName
+        });
+        window.atdNotifyApplicant(record.ownerEmail, 'application_watchlist_rejected', watchlistRejectionMessage, number);
+      }
+
+      jcfd_closeManualAppModal();
+      jcfd_showToast(watchlistHit ? 'Application created — auto-rejected on watch list match.' : 'Manual JCF application created.');
+      await jcfd_renderDashboard();
+      await jcfd_openApplication(`jcfApplication:${number}`);
+    } catch(err){
+      console.error('jcfd_createManualApplication() failed:', err);
+      errEl.textContent = 'We could not create this application. Please try again. (Details: ' + ((err && err.message) || String(err)) + ')';
+      errEl.classList.remove('hidden');
+    } finally{
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create application';
+    }
+  }
+  window.jcfd_createManualApplication = jcfd_createManualApplication;
+
+  // Mirrors the Municipal Officer's muni_uploadFixedDoc() — an officer
+  // uploading a document on behalf of a manual-entry filing, from the
+  // application's own detail page, rather than an applicant uploading it
+  // themselves through the online wizard.
+  async function jcfd_uploadManualDoc(kind, inputEl){
+    const file = inputEl.files && inputEl.files[0];
+    if(!file) return;
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    const label = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer' : kind === 'permissionLetter' ? 'Proof of Ownership/Authorization' : kind;
+    const reader = new FileReader();
+    reader.onload = async function(){
+      const dataUrl = reader.result;
+      try{
+        if(window.storage){
+          let files = {};
+          try{
+            const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+            files = (r && r.value) ? JSON.parse(r.value) : {};
+          } catch(e){ files = {}; }
+          if(kind === 'photoId') files.photoIdFileData = dataUrl;
+          else if(kind === 'flyer') files.flyerFileData = dataUrl;
+          else if(kind === 'permissionLetter') files.permissionLetterFileData = dataUrl;
+          await window.storage.set(`jcfApplicationFiles:${rec.jcfAppNumber}`, JSON.stringify(files), true);
+        }
+      } catch(err){
+        jcfd_showToast('Could not upload this file. Please try again.');
+        return;
+      }
+      if(kind === 'photoId'){
+        rec.eventOverview = rec.eventOverview || {};
+        rec.eventOverview.photoIdFileName = file.name;
+        rec.eventOverview.photoIdStatus = 'Submitted';
+      } else if(kind === 'flyer'){
+        rec.briefings = rec.briefings || {};
+        rec.briefings.eventFlyerFileName = file.name;
+      } else if(kind === 'permissionLetter'){
+        rec.venueInfo = rec.venueInfo || {};
+        rec.venueInfo.permissionLetterFileName = file.name;
+        rec.venueInfo.permissionLetterStatus = 'Submitted';
+      }
+      await jcfd_saveActiveApp(rec);
+      if(window.atdLogAudit && jcfdCurrentUser){
+        await window.atdLogAudit({
+          portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+          action: 'document.manualUpload',
+          details: `Uploaded ${label} for manual JCF application ${rec.jcfAppNumber}.`,
+          muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+        });
+      }
+      jcfd_showToast(`${label} uploaded.`);
+      await jcfd_renderApplicationDetail();
+    };
+    reader.onerror = function(){ jcfd_showToast('Could not read this file. Please try again.'); };
+    reader.readAsDataURL(file);
+  }
+  window.jcfd_uploadManualDoc = jcfd_uploadManualDoc;
 
   async function jcfd_openApplication(key){
     jcfdActiveAppKey = key;
@@ -15893,7 +16596,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     html += `<div class="panel"><div class="detail-section-title">Briefing &amp; Documents</div>`;
     html += jcfd_detailRow('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
-    html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName);
+    const isManualEntry = rec.entrySource === 'manual';
+    html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName, isManualEntry);
     // Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP
     // Approval are all now officer-reviewable (approve/reject) documents —
     // show their live status badge here rather than just a filename, and
@@ -15905,8 +16609,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // rec.carriedJcfDocuments snapshot, which only ever reflected the
     // filenames on file at the moment this JCF filing was first submitted.
     const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
-    html += jcfd_detailRowDoc('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId');
-    html += jcfd_detailRowDoc("Proof of Ownership/Authorization", vi.permissionLetterFileName, vi.permissionLetterStatus, 'permissionLetter');
+    html += jcfd_detailRowDoc('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId', isManualEntry);
+    html += jcfd_detailRowDoc("Proof of Ownership/Authorization", vi.permissionLetterFileName, vi.permissionLetterStatus, 'permissionLetter', isManualEntry);
     html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
     html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
@@ -15921,12 +16625,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // filing uploaded before officer document review existed and never
   // explicitly given a status) instead of a bare filename, and labels the
   // action button "Review" rather than "View" to match.
-  function jcfd_detailRowDoc(label, fileName, status, kind){
+  function jcfd_detailRowDoc(label, fileName, status, kind, isManual){
     const hasFile = !!fileName;
     const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
     const badge = hasFile ? ` <span class="badge ${jcfd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
     const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">Review</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
+    // Manual (walk-in) filings ("create first, upload after") let a
+    // Supervisor upload this document straight from here once it's on
+    // hand, instead of it only ever arriving through the applicant's own
+    // online wizard. Never shown for jams/jcap — those are only ever
+    // sourced from the linked POA application's own Main Menu.
+    const uploadCtl = (!hasFile && isManual && jcfd_hasPerm('checklist')) ? `
+      <input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" onchange="jcfd_uploadManualDoc('${kind}', this)">
+      <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">Upload</button>` : '';
+    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}${uploadCtl}</div></div>`;
   }
 
   // Like jcfd_detailRowDoc above, but for a document the MUNICIPALITY (not
@@ -16099,9 +16811,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
   // Same as jcfd_detailRow() but with a "View" button in the value cell that
   // opens jcfd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
-  function jcfd_detailRowAction(label, valueText, kind, hasFile){
+  function jcfd_detailRowAction(label, valueText, kind, hasFile, isManual){
     const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}${btn}</div></div>`;
+    // Only the Event Flyer is a manually-uploadable file among the kinds
+    // this renderer covers (the other caller is Signature on File, which
+    // isn't something a Supervisor can upload on a promoter's behalf).
+    const uploadCtl = (!hasFile && isManual && kind === 'flyer' && jcfd_hasPerm('checklist')) ? `
+      <input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" onchange="jcfd_uploadManualDoc('${kind}', this)">
+      <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">Upload</button>` : '';
+    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}${btn}${uploadCtl}</div></div>`;
   }
 
   // Live status of the 4 reviewable documents on a Special Event filing —
@@ -16289,7 +17007,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const autoChecklist = isAnnualFiling ? await jcfd_computeAnnualChecklistAutoFields(rec) : await jcfd_computeChecklistAutoFields(rec);
 
     // Header — same layout/style as the Municipal Officer's app-detail header.
-    document.getElementById('jcfd_detailAppNumber').textContent = rec.jcfAppNumber || '—';
+    const jcfdIsManualEntry = rec.entrySource === 'manual';
+    document.getElementById('jcfd_detailAppNumber').innerHTML = acctEscapeHtml(rec.jcfAppNumber || '—') + (jcfdIsManualEntry ? ' <span class="badge-manual-entry" title="Created by a Police Supervisor on behalf of a walk-in promoter">Manual Entry</span>' : '');
     document.getElementById('jcfd_detailAppSub').textContent = `${eo.promoterName || 'N/A'} · Submitted ${rec.submittedDate || 'N/A'} · Tracking Code: ${rec.linkedTrackingCode || '—'}`;
     document.getElementById('jcfd_detailStatusBadge').innerHTML = jcfd_statusBadge(rec);
     jcfd_renderStatusStepper(rec);
@@ -24693,10 +25412,20 @@ const DEMO_PASSWORD = 'Password@123';
 // make them start unchecked. Existing staff accounts saved before this
 // permission existed are normalized the same way at login/session-restore
 // time — see muni_enterShellAsUser() below.
+// specialEvent/annual (added so the CEO can scope a staff member to only
+// one of the two application types the Applications page splits into — see
+// myApplications()'s own filter and renderAppDetail()'s defensive re-check)
+// both default to true for every role: nobody was ever restricted by
+// license type before this pair of permissions existed, so leaving both
+// checked preserves every existing account's access exactly as it was —
+// a CEO opts a specific staffer OUT of one type deliberately, the same
+// "default preserves current behavior" reasoning as manageVenues above.
+// Existing staff accounts are normalized the same way at login/session-
+// restore time — see muni_enterShellAsUser() below.
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false },
-  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true, specialEvent: true, annual: true },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false, specialEvent: true, annual: true },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true, specialEvent: true, annual: true }
 };
 
 // ---------------- Subscription tiers (Municipal Corporation only, to
@@ -25098,6 +25827,16 @@ function muni_enterShellAsUser(user){
   if(user && user.permissions && user.permissions.manageVenues === undefined){
     user.permissions.manageVenues = !!user.permissions.review;
   }
+  // specialEvent/annual — same "backfill missing keys on existing accounts"
+  // reasoning as manageVenues above, but default to true (not tied to
+  // `review`) since every account already had unrestricted access to both
+  // application types before this pair of permissions existed.
+  if(user && user.permissions && user.permissions.specialEvent === undefined){
+    user.permissions.specialEvent = true;
+  }
+  if(user && user.permissions && user.permissions.annual === undefined){
+    user.permissions.annual = true;
+  }
   currentUser = user;
   // MUNICIPALITIES only lists Active Municipal Corporations (see
   // muni_initRegistryData), so a lookup miss here would only happen for a
@@ -25358,6 +26097,14 @@ function setupSidebarForUser(){
   // or reviewing applications.
   document.getElementById('navBilling').classList.toggle('hidden', currentUser.role !== 'CEO');
 
+  // Payments is the Accountant/CEO finance ledger (Confirmed Payments +
+  // Atendify Remittance) — gated on role directly, the same way Billing is
+  // above and the same way muni_renderAtendifyRemittance() already gates its
+  // own panel, rather than a manageUsers/review/approve permission checkbox:
+  // this is who's financially responsible for the municipality's books, not
+  // a delegable operational task.
+  document.getElementById('navPayments').classList.toggle('hidden', !(currentUser.role === 'CEO' || currentUser.role === 'Accountant'));
+
   // Subscription tier: a nav item a user has role-permission to see, but
   // whose module isn't included in the municipality's current tier, stays
   // VISIBLE (so officers know the feature exists) but is marked locked
@@ -25393,6 +26140,10 @@ function muni_goPage(page, keepAppsActive){
     muni_showToast("You don't have permission to view this.");
     page = 'dashboard';
   }
+  if(page === 'payments' && !(currentUser.role === 'CEO' || currentUser.role === 'Accountant')){
+    muni_showToast("You don't have permission to view this.");
+    page = 'dashboard';
+  }
   // Subscription tier gate -- runs after the permission checks above, so it
   // only ever fires for a user who already has the underlying role
   // permission (someone lacking it was already redirected to 'dashboard',
@@ -25406,7 +26157,7 @@ function muni_goPage(page, keepAppsActive){
   (document.getElementById('muni_page-' + page) || document.getElementById('page-' + page)).classList.remove('hidden');
   const navKey = keepAppsActive ? 'applications' : page;
   document.querySelectorAll('#shell-muni .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === navKey));
-  const titles = { dashboard: 'Dashboard', applications: 'Applications', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar', billing: 'Subscription & Billing' };
+  const titles = { dashboard: 'Dashboard', applications: 'Applications', payments: 'Payments', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar', billing: 'Subscription & Billing' };
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
@@ -25423,6 +26174,7 @@ function muni_goPage(page, keepAppsActive){
   if(page === 'promotions') renderPromotions();
   if(page === 'eventsCalendar') goEventsCalendarPage();
   if(page === 'billing') renderMuniBilling();
+  if(page === 'payments') muni_renderPayments();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -28753,7 +29505,20 @@ function muni_showToast(message){
 
 // ==================== Helpers ====================
 function myApplications(){
-  return applications.filter(a => a.muniId === currentUser.muniId);
+  // specialEvent/annual gate which application TYPE a staff member may see
+  // at all (see ROLE_DEFAULTS's own comment, and renderAppDetail()'s
+  // matching defensive re-check for someone who reaches a record's detail
+  // page some other way). This is the single funnel nearly everything else
+  // in this portal reads applications through — dashboard stats, the Event
+  // Map, Upcoming Events & Risk, Event Types, recent applications, the
+  // Applications page tables, reports, revenue — so filtering here is what
+  // makes the restriction a real "full gate" rather than just hiding one
+  // list.
+  return applications.filter(a => {
+    if(a.muniId !== currentUser.muniId) return false;
+    const isAnnualApp = a.licenseType === 'Annual';
+    return isAnnualApp ? hasPerm('annual') : hasPerm('specialEvent');
+  });
 }
 function myUsers(){
   return municipalUsers.filter(u => u.muniId === currentUser.muniId);
@@ -28782,6 +29547,7 @@ function muni_escapeHtml(s){
 async function muni_renderAll(){
   muni_renderStats();
   muni_renderRecentApps();
+  muni_renderAtendifyRemittance();
   // Fire-and-forget, same contract as muni_renderAll() itself has always
   // had for every caller — it awaits its own async work (the SLA policy
   // lookup) internally rather than making every render pass wait on it.
@@ -28804,6 +29570,215 @@ function muni_renderStats(){
   document.getElementById('statPendingApproval').textContent = list.filter(a => a.status === 'Pending Approval').length;
   document.getElementById('statApproved').textContent = list.filter(a => a.status === 'Approved').length;
 }
+
+// Accountant/CEO-only panel (#muni_atendifyRemittancePanel — see its own HTML
+// comment) — deliberately scoped to currentUser.role rather than a
+// specialEvent/annual/hasPerm() check: manual entries are always
+// licenseType:'Special' (see muni_createManualApplication()), and a
+// Supervisor without the 'specialEvent' permission (or a CEO who revoked
+// their own Accountant's 'annual' view) should still not be the audience for
+// a finance-reconciliation figure — this is a role-scoped view, like the
+// existing Municipal Credit approval flow, not a togglable permission.
+// Reads directly off the shared `applications` array (not myApplications())
+// so a staff member's own specialEvent/annual permission scope never hides
+// part of what the municipality genuinely owes Atendify.
+function muni_renderAtendifyRemittance(){
+  const panel = document.getElementById('muni_atendifyRemittancePanel');
+  if(!panel) return;
+  const canSee = !!(currentUser && (currentUser.role === 'CEO' || currentUser.role === 'Accountant'));
+  panel.classList.toggle('hidden', !canSee);
+  if(!canSee) return;
+  const manualApps = applications.filter(a => a.muniId === currentUser.muniId && a.raw && a.raw.entrySource === 'manual');
+  const owedApps = manualApps.filter(a => a.applicationFeeCollectedByMuni && !a.applicationFeeRemitted);
+  const remittedApps = manualApps.filter(a => a.applicationFeeRemitted);
+  const feeOf = a => (a.raw && a.raw.costs && a.raw.costs.applicationFee) || 0;
+  const owed = owedApps.reduce((sum, a) => sum + feeOf(a), 0);
+  const remitted = remittedApps.reduce((sum, a) => sum + feeOf(a), 0);
+  const owedEl = document.getElementById('muni_remitOwed');
+  const countEl = document.getElementById('muni_remitCount');
+  const paidEl = document.getElementById('muni_remitPaid');
+  if(owedEl) owedEl.textContent = muni_formatCurrency(owed);
+  if(countEl) countEl.textContent = String(owedApps.length);
+  if(paidEl) paidEl.textContent = muni_formatCurrency(remitted);
+}
+
+// ==================== Payments page (Accountant/CEO only) ====================
+// A confirmed-payments ledger for this Municipal Corporation, plus the
+// Atendify Remittance panel above (moved here from the Dashboard). Lives on
+// its own MANAGE-section page — see muni_page-payments's own HTML comment —
+// rather than as another Dashboard card, since it needs room for a
+// day/week/month/year filter, an application-number search, and CSV export.
+let muniPaymentsPeriod = 'all';
+
+// Calendar-anchored bounds for the period tabs (Monday-start week, like the
+// rest of this app's date handling) — 'all' returns null, meaning "no bound".
+function muni_paymentsPeriodBounds(period){
+  const now = new Date();
+  if(period === 'day'){
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return { start, end: new Date(start.getTime() + 24*60*60*1000) };
+  }
+  if(period === 'week'){
+    const dayOfWeek = (now.getDay() + 6) % 7; // 0=Mon .. 6=Sun
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek);
+    return { start, end: new Date(start.getTime() + 7*24*60*60*1000) };
+  }
+  if(period === 'month'){
+    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
+  }
+  if(period === 'year'){
+    return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear() + 1, 0, 1) };
+  }
+  return null;
+}
+
+// One flat row per confirmed payment EVENT, not per application — a single
+// application can contribute up to two rows: its main license-fee (or, for
+// a manual walk-in entry, the whole combined counter payment — see
+// verifyPayment()'s isManualEntryForFee branch) plus one row for every
+// additional payment request an Accountant has documented
+// (documentAdditionalPayment). Deliberately reads the shared `applications`
+// array filtered only by muniId — NOT myApplications() — for the same reason
+// muni_renderAtendifyRemittance() above does: this is a finance/audit ledger
+// of every confirmed dollar the municipality has taken in, and shouldn't go
+// quiet just because the viewing Accountant's own specialEvent/annual
+// permission happens not to cover a given application's license type.
+function muni_getConfirmedPayments(){
+  const rows = [];
+  applications.filter(a => a.muniId === currentUser.muniId).forEach(a => {
+    if(a.paymentVerified){
+      const isManualEntry = !!(a.raw && a.raw.entrySource === 'manual');
+      const costs = (a.raw && a.raw.costs) || { total: a.paymentAmount || 0, applicationFee: 0 };
+      // A manual entry's single Accountant verification confirms the WHOLE
+      // counter payment (municipal share + Atendify's fee, collected on its
+      // behalf) — see the Payment Verification card's isManualCombinedPayment
+      // branch — so the ledger counts the full total for those rather than
+      // just the municipal share the way an online application's verified
+      // license fee does.
+      const amount = isManualEntry ? (costs.total || 0) : ((costs.total || 0) - (costs.applicationFee || 0));
+      rows.push({
+        date: a.paymentVerifiedAt || a.submitted || '',
+        appNumber: a.appNumber,
+        applicant: a.applicant,
+        licenseType: a.licenseType,
+        type: isManualEntry ? 'Combined Payment (Manual)' : 'License Fee',
+        amount,
+        receiptNumber: a.paymentReceiptNumber || '',
+        notes: a.paymentNotes || ''
+      });
+    }
+    (a.additionalPaymentRequests || []).forEach(req => {
+      if(req.status !== 'Documented') return;
+      rows.push({
+        date: req.documentedDate || '',
+        appNumber: a.appNumber,
+        applicant: a.applicant,
+        licenseType: a.licenseType,
+        type: 'Additional Payment',
+        amount: req.amount || 0,
+        receiptNumber: req.receiptNumber || '',
+        notes: req.reason || ''
+      });
+    });
+  });
+  rows.sort((x, y) => String(y.date).localeCompare(String(x.date)));
+  return rows;
+}
+
+// Applies the period tabs + the application-number search box together —
+// this is the single source both the on-screen table and the CSV export
+// read from, so "Export CSV" always matches exactly what's currently shown.
+function muni_getFilteredPayments(){
+  const bounds = muni_paymentsPeriodBounds(muniPaymentsPeriod);
+  const searchInput = document.getElementById('muni_paymentsSearch');
+  const search = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  return muni_getConfirmedPayments().filter(r => {
+    if(bounds){
+      const t = new Date(r.date).getTime();
+      if(isNaN(t) || t < bounds.start.getTime() || t >= bounds.end.getTime()) return false;
+    }
+    if(search && !String(r.appNumber || '').toLowerCase().includes(search)) return false;
+    return true;
+  });
+}
+
+// Normalizes either a full ISO timestamp (paymentVerifiedAt) or a plain
+// YYYY-MM-DD string (documentedDate/submitted) to a plain display date.
+function muni_formatPaymentDate(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? String(iso).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
+function muni_setPaymentsPeriod(period){
+  muniPaymentsPeriod = period;
+  const tabsEl = document.getElementById('muni_paymentsPeriodTabs');
+  // Scoped to THIS page's own tab row, not the global '.dash-risk-tab' class
+  // (shared, by coincidence of styling, with the Dashboard's Upcoming
+  // Events window tabs) — querying globally here would also re-highlight
+  // that unrelated control.
+  if(tabsEl) tabsEl.querySelectorAll('.dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.period === period));
+  muni_renderPaymentsTable();
+}
+window.muni_setPaymentsPeriod = muni_setPaymentsPeriod;
+
+function muni_renderPaymentsTable(){
+  const body = document.getElementById('muni_paymentsBody');
+  if(!body) return;
+  const rows = muni_getFilteredPayments();
+  const summaryEl = document.getElementById('muni_paymentsSummary');
+  const total = rows.reduce((sum, r) => sum + (r.amount || 0), 0);
+  if(summaryEl) summaryEl.textContent = `Total: ${muni_formatCurrency(total)} across ${rows.length} record${rows.length === 1 ? '' : 's'}`;
+  if(!rows.length){
+    body.innerHTML = `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(r => `
+    <tr>
+      <td>${muni_escapeHtml(muni_formatPaymentDate(r.date))}</td>
+      <td class="cell-primary">${muni_escapeHtml(r.appNumber)}</td>
+      <td>${muni_escapeHtml(r.applicant)}</td>
+      <td>${muni_escapeHtml(r.type)}</td>
+      <td>${muni_escapeHtml(r.licenseType)}</td>
+      <td>${muni_formatCurrency(r.amount)}</td>
+      <td>${muni_escapeHtml(r.receiptNumber || '—')}</td>
+      <td>${muni_escapeHtml(r.notes || '—')}</td>
+    </tr>
+  `).join('');
+}
+window.muni_renderPaymentsTable = muni_renderPaymentsTable;
+
+// Entry point called from muni_goPage('payments') — resets the filter row to
+// a known state ("All Time", empty search) on every fresh visit to the page,
+// the same "start clean" convention muni_renderApplications() follows for
+// its own search box isn't used here since that one persists intentionally;
+// a finance ledger is safer defaulting back open each time so a filtered
+// view from a previous visit doesn't quietly hide totals from a returning
+// Accountant.
+function muni_renderPayments(){
+  muni_renderAtendifyRemittance();
+  const searchInput = document.getElementById('muni_paymentsSearch');
+  if(searchInput) searchInput.value = '';
+  muniPaymentsPeriod = 'all';
+  const tabsEl = document.getElementById('muni_paymentsPeriodTabs');
+  if(tabsEl) tabsEl.querySelectorAll('.dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.period === 'all'));
+  muni_renderPaymentsTable();
+}
+
+function muni_exportPaymentsCsv(){
+  const rows = muni_getFilteredPayments();
+  if(!rows.length){
+    muni_showToast('Nothing to export for the current filter.');
+    return;
+  }
+  const headers = ['Date', 'Application #', 'Applicant', 'Type', 'License Type', 'Amount (J$)', 'Receipt #', 'Notes'];
+  const data = rows.map(r => [muni_formatPaymentDate(r.date), r.appNumber, r.applicant, r.type, r.licenseType, (r.amount || 0).toFixed(2), r.receiptNumber || '', r.notes || '']);
+  const periodLabel = muniPaymentsPeriod === 'all' ? 'all-time' : muniPaymentsPeriod;
+  const muniSlug = myMunicipalityName().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const filename = `payments-${muniSlug}-${periodLabel}-${new Date().toISOString().slice(0,10)}.csv`;
+  muni_downloadCsv(filename, headers, data);
+}
+window.muni_exportPaymentsCsv = muni_exportPaymentsCsv;
 
 function muni_renderRecentApps(){
   const body = document.getElementById('muni_recentAppsBody');
@@ -28876,8 +29851,35 @@ async function muni_renderDashboardMode(){
   const nameEl = document.getElementById('dashMapMuniName');
   if(nameEl) nameEl.textContent = myMunicipalityName();
 
-  const showRevenue = !atdMuniModuleLocked('dashboardRevenueSnapshot');
-  const showCeoActions = !atdMuniModuleLocked('dashboardCeoActions');
+  // Role-based visibility, layered on top of (never instead of) the tier
+  // locks below: a municipality's subscription tier decides which cards
+  // exist at all for the whole account, but within an unlocked tier, not
+  // every staff role should see every card. CEO is unrestricted. Supervisor
+  // doesn't get financial/executive-oversight cards (Revenue Collected,
+  // Permit Revenue Snapshot, Key Insights, CEO Action Required) but keeps
+  // the operational cards (the rest of the KPI row, Event Map, Upcoming
+  // Events & Risk, Event Types). Accountant is the narrowest: only the KPI
+  // row (all 6, revenue included — that's their job) plus Permit Revenue
+  // Snapshot and Recent Applications; nothing else in the enhanced
+  // dashboard is relevant to that role.
+  const role = currentUser && currentUser.role;
+  const isAccountant = role === 'Accountant';
+  const isSupervisor = role === 'Supervisor';
+
+  const showRevenueKpiCard = !isSupervisor;
+  const showKeyInsightsForRole = !isAccountant && !isSupervisor;
+  const showEventMapForRole = !isAccountant;
+  const showUpcomingEventTypesForRole = !isAccountant;
+  const showCeoActionsForRole = !isAccountant && !isSupervisor;
+  const showRevenueSnapshotForRole = !isSupervisor;
+
+  document.getElementById('dashKpiRevenueCard').classList.toggle('hidden', !showRevenueKpiCard);
+  document.getElementById('muni_keyInsightsPanel').classList.toggle('hidden', !showKeyInsightsForRole);
+  document.getElementById('muni_eventMapPanel').classList.toggle('hidden', !showEventMapForRole);
+  document.getElementById('muni_dashRowTop').classList.toggle('hidden', !showUpcomingEventTypesForRole);
+
+  const showRevenue = !atdMuniModuleLocked('dashboardRevenueSnapshot') && showRevenueSnapshotForRole;
+  const showCeoActions = !atdMuniModuleLocked('dashboardCeoActions') && showCeoActionsForRole;
   document.getElementById('muni_dashboardRevenuePanel').classList.toggle('hidden', !showRevenue);
   document.getElementById('muni_dashboardCeoActionsPanel').classList.toggle('hidden', !showCeoActions);
 
@@ -28894,9 +29896,11 @@ async function muni_renderDashboardMode(){
   muniDashSlaResult = computeSlaBreaches(rules);
 
   muni_renderDashboardKpis();
-  muni_renderKeyInsights();
-  muni_renderUpcomingEvents();
-  muni_renderEventTypesChart();
+  if(showKeyInsightsForRole) muni_renderKeyInsights();
+  if(showUpcomingEventTypesForRole){
+    muni_renderUpcomingEvents();
+    muni_renderEventTypesChart();
+  }
   if(showRevenue) muni_renderRevenueSnapshot();
   if(showCeoActions) muni_renderCeoActions();
 }
@@ -29292,9 +30296,26 @@ function setAppCategory(category){
 }
 
 function muni_renderApplications(){
+  // Manual (walk-in) application intake — Supervisor-only, and independent
+  // of subscription tier. Lives on this Applications page (see the CTA's
+  // own HTML comment above muniManualAppCta for why) rather than the
+  // Dashboard, but the gate itself is unchanged from when it lived there.
+  const manualCtaEl = document.getElementById('muniManualAppCta');
+  if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !(currentUser && currentUser.role === 'Supervisor'));
+
   const specialBody = document.getElementById('muni_applicationsBodySpecial');
   const annualBody = document.getElementById('muni_applicationsBodyAnnual');
   if(!specialBody || !annualBody) return;
+
+  // A staff member with neither permission for a whole type shouldn't even
+  // see that section's heading/table implying data exists — hide the panel
+  // entirely rather than just showing an empty table (see the
+  // specialEvent/annual permissions and myApplications()'s own gate).
+  const specialPanel = document.getElementById('muni_specialAppsPanel');
+  const annualPanel = document.getElementById('muni_annualAppsPanel');
+  if(specialPanel) specialPanel.classList.toggle('hidden', !hasPerm('specialEvent'));
+  if(annualPanel) annualPanel.classList.toggle('hidden', !hasPerm('annual'));
+
   const search = document.getElementById('muni_appSearch').value.trim().toLowerCase();
   const statusFilter = document.getElementById('muni_appStatusFilter').value;
   const all = myApplications();
@@ -29386,7 +30407,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database', specialEvent: 'Special Event apps', annual: 'Annual apps' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -29429,6 +30450,8 @@ function applyRoleDefaults(){
   document.getElementById('permApproveCapped').checked = !!defaults.approveCapped;
   document.getElementById('permManageUsers').checked = defaults.manageUsers;
   document.getElementById('permManageVenues').checked = !!defaults.manageVenues;
+  document.getElementById('permSpecialEvent').checked = !!defaults.specialEvent;
+  document.getElementById('permAnnual').checked = !!defaults.annual;
 }
 
 function generateUserPassword(){
@@ -29470,6 +30493,12 @@ function openUserModal(id){
     document.getElementById('permApproveCapped').checked = !!u.permissions.approveCapped;
     document.getElementById('permManageUsers').checked = !!u.permissions.manageUsers;
     document.getElementById('permManageVenues').checked = !!u.permissions.manageVenues;
+    // Existing accounts saved before these two permissions existed had
+    // unrestricted access to both application types — default the checkbox
+    // to checked (not unchecked) when the key is genuinely absent, matching
+    // muni_enterShellAsUser()'s own backfill for the same reason.
+    document.getElementById('permSpecialEvent').checked = u.permissions.specialEvent === undefined ? true : !!u.permissions.specialEvent;
+    document.getElementById('permAnnual').checked = u.permissions.annual === undefined ? true : !!u.permissions.annual;
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
   } else {
@@ -29502,7 +30531,9 @@ async function saveUser(){
     approve: document.getElementById('permApprove').checked,
     approveCapped: document.getElementById('permApproveCapped').checked,
     manageUsers: document.getElementById('permManageUsers').checked,
-    manageVenues: document.getElementById('permManageVenues').checked
+    manageVenues: document.getElementById('permManageVenues').checked,
+    specialEvent: document.getElementById('permSpecialEvent').checked,
+    annual: document.getElementById('permAnnual').checked
   };
 
   if(!name || !email){
@@ -29585,6 +30616,319 @@ async function deleteUser(id){
   muni_showToast('User removed.');
   renderUsers();
 }
+
+// ==================== Manual (walk-in) application intake — Supervisor only ====================
+// See muniManualAppCta/muniManualAppModal in the Applications page HTML, and
+// muni_renderApplications()'s role gate. Special Event only (Annual stays
+// online-wizard-only) — a condensed version of the public wizard's own
+// Steps 1/2/4, filled in by the Supervisor for a walk-in customer instead
+// of the customer using the online wizard themselves. Documents are
+// deliberately left unuploaded at creation time — the application is
+// tagged entrySource:'manual' and the Supervisor attaches Photo ID/Event
+// Flyer/Proof of Ownership from the application's own detail page
+// afterward (see muni_renderFixedDocRow's manual-entry branch below),
+// once they're actually on hand.
+const MUNI_MANUAL_PARISHES = ['Kingston','St. Andrew','St. Thomas','Portland','St. Mary','St. Ann','Trelawny','St. James','Hanover','Westmoreland','St. Elizabeth','Manchester','Clarendon','St. Catherine','Portmore'];
+
+async function muni_openManualAppModal(){
+  if(!currentUser || currentUser.role !== 'Supervisor'){
+    muni_showToast("Only a Supervisor account can create a manual application.");
+    return;
+  }
+  document.getElementById('manualAppFullName').value = '';
+  document.getElementById('manualAppCompanyName').value = '';
+  const individualRadio = document.querySelector('input[name="manualApplicantType"][value="Individual"]');
+  if(individualRadio) individualRadio.checked = true;
+  document.getElementById('manualAppNameGroupIndividual').classList.remove('hidden');
+  document.getElementById('manualAppNameGroupCompany').classList.add('hidden');
+  document.getElementById('manualAppTrn').value = '';
+  document.getElementById('manualAppPhone').value = '';
+  document.getElementById('manualAppEmail').value = '';
+  document.getElementById('manualAppAddr1').value = '';
+  document.getElementById('manualAppAddr2').value = '';
+  document.getElementById('manualAppDistrict').value = '';
+  document.getElementById('manualAppEventName').value = '';
+  document.getElementById('manualAppEventDate').value = '';
+  document.getElementById('manualAppPatrons').value = '';
+  document.getElementById('manualAppVenueName').value = '';
+  document.getElementById('manualAppVenueCapacity').value = '';
+  document.getElementById('manualAppVenueAddr1').value = '';
+  document.getElementById('manualAppVenueDistrict').value = '';
+  document.getElementById('manualAppNote').value = '';
+  document.getElementById('manualAppError').classList.add('hidden');
+
+  const parishSelect = document.getElementById('manualAppParish');
+  parishSelect.innerHTML = '<option value="">Select parish</option>' + MUNI_MANUAL_PARISHES.map(p => `<option value="${p}">${p}</option>`).join('');
+
+  if(!formElementsConfig) await loadFormElementsConfig();
+  const eventTypeSelect = document.getElementById('manualAppEventType');
+  const eventTypes = (formElementsConfig && formElementsConfig.eventTypes) || [];
+  eventTypeSelect.innerHTML = '<option value="">Select event type</option>' + eventTypes.map(t => `<option value="${muni_escapeHtml(t.name)}">${muni_escapeHtml(t.name)}</option>`).join('');
+
+  const venueSelect = document.getElementById('manualAppVenueSelect');
+  const list = myVenues().filter(v => !v.pendingApproval && v.active !== false).sort((a,b)=>a.name.localeCompare(b.name));
+  venueSelect.value = '';
+  venueSelect.innerHTML = '<option value="">+ Enter venue manually</option>' + list.map(v => `<option value="${v.id}">${muni_escapeHtml(v.name)}</option>`).join('');
+  document.getElementById('manualAppVenueManualFields').classList.remove('hidden');
+
+  document.getElementById('muniManualAppModal').classList.remove('hidden');
+}
+window.muni_openManualAppModal = muni_openManualAppModal;
+
+function muni_closeManualAppModal(){
+  document.getElementById('muniManualAppModal').classList.add('hidden');
+}
+window.muni_closeManualAppModal = muni_closeManualAppModal;
+
+function muni_manualAppApplicantTypeChanged(){
+  const checked = document.querySelector('input[name="manualApplicantType"]:checked');
+  const isCompany = checked && checked.value === 'Company';
+  document.getElementById('manualAppNameGroupIndividual').classList.toggle('hidden', isCompany);
+  document.getElementById('manualAppNameGroupCompany').classList.toggle('hidden', !isCompany);
+}
+window.muni_manualAppApplicantTypeChanged = muni_manualAppApplicantTypeChanged;
+
+function muni_manualAppVenueChanged(){
+  const picked = document.getElementById('manualAppVenueSelect').value;
+  document.getElementById('manualAppVenueManualFields').classList.toggle('hidden', !!picked);
+}
+window.muni_manualAppVenueChanged = muni_manualAppVenueChanged;
+
+// Mirrors the public wizard's own generateAppNumber() (a separate script
+// scope, so that function can't be called directly) — same format/prefix/
+// sequence source (window.ATDBackend.nextAppSeq), so a manually-created
+// application lands in the exact same number space as a real applicant
+// submission rather than a visibly different one.
+async function muni_generateManualAppNumber(){
+  const year = new Date().getFullYear();
+  const muniIdPadded = String(currentUser.muniId).padStart(2, '0');
+  const prefix = `POA-${muniIdPadded}${year}`;
+  let seq = 1;
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    try{ seq = await window.ATDBackend.nextAppSeq(prefix); } catch(err){ seq = 1; }
+  }
+  const seqPadded = String(seq % 100).padStart(2, '0');
+  return `${prefix}-${seqPadded}`;
+}
+
+function muni_manualAppTrackingCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz0123456789';
+  let code = '';
+  for(let i=0;i<9;i++) code += chars.charAt(Math.floor(Math.random()*chars.length));
+  return code;
+}
+
+async function muni_createManualApplication(){
+  const errorBox = document.getElementById('manualAppError');
+  errorBox.classList.add('hidden');
+
+  const checkedType = document.querySelector('input[name="manualApplicantType"]:checked');
+  const isCompany = checkedType && checkedType.value === 'Company';
+  const name = (isCompany ? document.getElementById('manualAppCompanyName').value : document.getElementById('manualAppFullName').value).trim();
+  const trn = document.getElementById('manualAppTrn').value.trim();
+  const phone = document.getElementById('manualAppPhone').value.trim();
+  const email = document.getElementById('manualAppEmail').value.trim();
+  const addr1 = document.getElementById('manualAppAddr1').value.trim();
+  const addr2 = document.getElementById('manualAppAddr2').value.trim();
+  const district = document.getElementById('manualAppDistrict').value.trim();
+  const parish = document.getElementById('manualAppParish').value;
+  const eventName = document.getElementById('manualAppEventName').value.trim();
+  const eventDate = document.getElementById('manualAppEventDate').value;
+  const eventType = document.getElementById('manualAppEventType').value;
+  const patrons = document.getElementById('manualAppPatrons').value;
+  const note = document.getElementById('manualAppNote').value.trim();
+
+  if(!name || !phone || !addr1 || !district || !parish || !eventName || !eventDate || !eventType || !patrons){
+    errorBox.textContent = 'Please complete every required field (name, phone, address, district, parish, event name, event date, event type, and expected patrons).';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  const pickedVenueId = document.getElementById('manualAppVenueSelect').value;
+  const pickedVenue = pickedVenueId ? venues.find(v => String(v.id) === pickedVenueId) : null;
+  let venueName, venueAddr1, venueDistrict, venueMaxCap, venueIsNew = false, venueRegistryVenueId = '';
+  if(pickedVenue){
+    venueName = pickedVenue.name;
+    venueAddr1 = [pickedVenue.streetNumber, pickedVenue.streetName].filter(Boolean).join(' ');
+    venueDistrict = pickedVenue.district || '';
+    venueMaxCap = pickedVenue.maxCap || '';
+  } else {
+    venueName = document.getElementById('manualAppVenueName').value.trim();
+    venueAddr1 = document.getElementById('manualAppVenueAddr1').value.trim();
+    venueDistrict = document.getElementById('manualAppVenueDistrict').value.trim();
+    venueMaxCap = document.getElementById('manualAppVenueCapacity').value;
+    if(!venueName){
+      errorBox.textContent = 'Please pick a registered venue or enter a venue name.';
+      errorBox.classList.remove('hidden');
+      return;
+    }
+    venueIsNew = true;
+    venueRegistryVenueId = atdGenerateVenueId(new Set(venues.map(v=>v.id)));
+  }
+
+  if(!window.storage){
+    errorBox.textContent = "This environment doesn't support saving applications right now.";
+    errorBox.classList.remove('hidden');
+    return;
+  }
+
+  const submitBtn = document.getElementById('muniManualAppSubmitBtn');
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = window.atdLoadingHtml ? window.atdLoadingHtml('Creating…', 16) : 'Creating…';
+
+  try{
+    // Same mandatory watch-list check the online wizard performs at
+    // submission — a manual entry doesn't get a pass on this just because
+    // staff typed it in instead of the applicant.
+    let watchlistHit = null;
+    const normalizedTrn = String(trn || '').replace(/\D/g, '');
+    if(normalizedTrn && window.atdCheckWatchlistFlag){
+      const flag = await window.atdCheckWatchlistFlag(normalizedTrn);
+      if(flag) watchlistHit = { role: isCompany ? 'Company' : 'Applicant', flag };
+    }
+
+    const appNumber = await muni_generateManualAppNumber();
+    const muniMeta = MUNICIPALITIES.find(m => m.id === currentUser.muniId);
+    const applicationFee = (muniMeta && muniMeta.appFeeSpecial != null) ? muniMeta.appFeeSpecial : 2500;
+
+    const eventTypeMatch = ((formElementsConfig && formElementsConfig.eventTypes) || []).find(t => t.name === eventType);
+    const regulatoryDocList = eventTypeMatch ? eventTypeMatch.requiredDocuments.slice() : [];
+    const regulatoryDocuments = {};
+    regulatoryDocList.forEach(docName => {
+      regulatoryDocuments[docName] = { uploaded: false, fileName: '', fileData: null, uploadedDate: '', status: 'Not Uploaded', officerNote: '' };
+    });
+
+    const record = {
+      appNumber,
+      trackingCode: muni_manualAppTrackingCode(),
+      ownerEmail: email || null,
+      muniId: currentUser.muniId,
+      municipalityName: myMunicipalityName(),
+      parish,
+      status: watchlistHit ? 'Rejected' : 'Submitted',
+      submittedDate: new Date().toISOString().slice(0,10),
+      paymentAmount: applicationFee,
+      applicationFeePaid: false,
+      applicationFeePayment: { method: '', referenceNumber: '', fileName: '', uploadedDate: '' },
+      applicationFeeVerified: false,
+      applicationFeeVerifiedBy: '',
+      applicationFeeVerifiedDate: '',
+      // Manual-entry combined payment: the customer pays this Municipal
+      // Corporation ONE payment covering both its own fee and Atendify's
+      // application fee (rather than the two independently-verified payment
+      // streams an online application goes through). The Accountant's single
+      // "Verify Payment" action below sets applicationFeeCollectedByMuni
+      // instead of applicationFeePaid/applicationFeeVerified — the applicant
+      // never submits an online payment here, and National Admin never
+      // independently verifies this fee, so the normal fields stay false/
+      // untouched. National Admin later confirms receipt of this
+      // municipality's bulk remittance (admin_settleMuniRemittance), which is
+      // when applicationFeeVerified/applicationFeeRemitted finally flip true.
+      applicationFeeCollectedByMuni: false,
+      applicationFeeCollectedByMuniDate: '',
+      applicationFeeRemitted: false,
+      applicationFeeRemittedBy: '',
+      applicationFeeRemittedDate: '',
+      paymentVerified: false,
+      paymentReceiptNumber: '',
+      paymentNotes: '',
+      paymentReceipt: { method: '', referenceNumber: '', fileName: '', uploadedDate: '' },
+      recommendation: watchlistHit ? 'Recommend Reject' : '',
+      recommendedBy: watchlistHit ? `Auto-rejected: watch list match (${watchlistHit.role} ${watchlistHit.flag.fullName}).` : '',
+      finalDecision: watchlistHit && window.atdWatchlistRejectionMessage ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '',
+      documents: { photoId: isCompany ? null : false, logo: isCompany ? false : null, flier: false, ownership: false },
+      requiredDocumentsSubmitted: regulatoryDocList.length === 0,
+      regulatoryDocList,
+      regulatoryDocuments,
+      venueApproved: false,
+      permitGenerated: false,
+      permit: null,
+      applicant: {
+        type: isCompany ? 'Company' : 'Individual',
+        name, phone, home: '', email, trn,
+        age: '', dob: '', gender: '',
+        addr1, addr2, district, parish,
+        photoIdFileName: '', logoFileName: '',
+        directors: []
+      },
+      amusement: {
+        licenseType: 'Special',
+        businessType: '',
+        eventName, eventDate, eventType,
+        patrons,
+        applicationDate: new Date().toISOString().slice(0,10),
+        privateSecurity: '',
+        securityRecords: [],
+        flierFileName: '',
+        bizRegFileName: ''
+      },
+      advertisement: { hasAds: false, items: [] },
+      venue: {
+        name: venueName, addr1: venueAddr1, addr2: '', district: venueDistrict,
+        maxCap: venueMaxCap, maxParking: '', totalBuildingCap: '', numBuildings: '',
+        useOfVenue: '', additionalParking: [],
+        ownerName: pickedVenue ? (pickedVenue.ownerName || '') : '',
+        ownerAddress: pickedVenue ? (pickedVenue.ownerAddress || '') : '',
+        ownerPhone: pickedVenue ? (pickedVenue.ownerPhone || '') : '',
+        ownershipFileName: ''
+      },
+      costs: {
+        applicationFee, venueCost: 0, venueLabel: venueName, venueIsNew,
+        adTotal: 0, total: applicationFee,
+        promoApplied: false, promoCode: '', promoName: '', promoAppliesTo: '', promoDiscount: 0, promotionId: null
+      },
+      venueRegistryStatus: venueIsNew ? 'pending' : '',
+      venueRegistryVenueId: venueIsNew ? venueRegistryVenueId : '',
+      venueRegistryRejectReason: '',
+      paymentSubmittedAt: '', paymentVerifiedAt: '', venueApprovedAt: '', recommendationMadeAt: '',
+      // Manual-entry tagging — new fields, read by muni_renderFixedDocRow
+      // (to show upload controls instead of a disabled "View" button) and
+      // the Applications list/detail header (to show the "Manual Entry"
+      // badge). Purely additive to the normal record shape above — nothing
+      // else in the app depends on these.
+      entrySource: 'manual',
+      enteredBy: { id: currentUser.id, name: currentUser.name, email: currentUser.email, role: currentUser.role },
+      enteredAt: new Date().toISOString(),
+      manualNote: note
+    };
+
+    await window.storage.set(`application:${appNumber}`, JSON.stringify(record), true);
+
+    if(venueIsNew){
+      // Same best-effort pending-venue pre-load the online wizard does for a
+      // manually-entered venue — see buildApplicationRecord's own comment.
+      try{
+        await window.storage.set(`venue:${venueRegistryVenueId}`, JSON.stringify({
+          id: venueRegistryVenueId, muniId: currentUser.muniId, name: venueName,
+          streetNumber: '', streetName: venueAddr1, district: venueDistrict,
+          maxCap: venueMaxCap || 0, cost: 0, active: false, pendingApproval: true,
+          sourceAppNumber: appNumber
+        }), true);
+      } catch(venueErr){ /* best-effort only */ }
+    }
+
+    if(window.atdLogAudit){
+      await window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'application.manualCreate',
+        details: `Created manual application ${appNumber} for walk-in customer ${name} (${eventName}).`,
+        muniId: currentUser.muniId
+      });
+    }
+
+    muni_closeManualAppModal();
+    muni_showToast(`Manual application ${appNumber} created. Upload documents from its detail page when ready.`);
+    await loadSubmittedApplications(true);
+    muni_openAppModal(appNumber);
+  } catch(err){
+    errorBox.textContent = 'Could not create this application. Please check your connection and try again.';
+    errorBox.classList.remove('hidden');
+  } finally{
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Create application';
+  }
+}
+window.muni_createManualApplication = muni_createManualApplication;
 
 // ==================== Application detail page ====================
 function muni_openAppModal(id){
@@ -29856,6 +31200,17 @@ function renderSubmissionColumn(a){
     const d = muni_fixedDoc(r, key);
     const fileName = meta.fileNameOf(r) || fileNameFallback;
     const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
+    // Manual entries have no applicant wizard to have uploaded this in the
+    // first place — a Supervisor uploads it right here instead, from the
+    // application's own detail page (see muni_uploadFixedDoc()). A normal
+    // applicant-submitted application never shows this control: its
+    // documents can only ever have come from the applicant themself, so an
+    // unset one just stays "Not yet uploaded" with a disabled View, exactly
+    // as before this feature existed.
+    const canUploadManually = !d.uploaded && r.entrySource === 'manual' && hasPerm('review');
+    const uploadCtl = canUploadManually ? `
+          <input type="file" id="manualDocUpload_${key}" class="manual-doc-upload-input" onchange="muni_uploadFixedDoc('${key}', this)">
+          <button class="btn btn-sm btn-primary" onclick="document.getElementById('manualDocUpload_${key}').click()">Upload</button>` : '';
     return `
       <div class="doc-review-row">
         <div>
@@ -29864,7 +31219,7 @@ function renderSubmissionColumn(a){
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
           <span class="badge ${statusClass}">${d.status}</span>
-          <button class="btn btn-sm" ${d.uploaded ? '' : 'disabled'} onclick="openFixedDocModal('${key}')">View</button>
+          <button class="btn btn-sm" ${d.uploaded ? '' : 'disabled'} onclick="openFixedDocModal('${key}')">View</button>${uploadCtl}
         </div>
       </div>`;
   }
@@ -29947,7 +31302,16 @@ function renderSubmissionColumn(a){
   // real submissions; legacy/demo records that predate the field fall back
   // to inferring it from status (anything past "Submitted" implies it was
   // already paid, since payment gates progressing past that stage).
-  const appFeePaid = r.applicationFeePaid !== undefined ? !!r.applicationFeePaid : (a.status !== 'Submitted');
+  // Manual (walk-in) entries never set applicationFeePaid — that field is
+  // reserved for the applicant-pays-Atendify-directly flow. Their Atendify
+  // fee is paid instead as part of the single combined payment the
+  // Accountant verifies at the counter (see verifyPayment()'s
+  // isManualEntryForFee branch), which sets applicationFeeCollectedByMuni —
+  // use that instead so this summary doesn't keep showing "Unpaid" for an
+  // application whose Official Use column already reads "Payment verified".
+  const appFeePaid = r.entrySource === 'manual'
+    ? !!r.applicationFeeCollectedByMuni
+    : (r.applicationFeePaid !== undefined ? !!r.applicationFeePaid : (a.status !== 'Submitted'));
   const appFeeTag = appFeePaid
     ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>'
     : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>';
@@ -30094,7 +31458,26 @@ async function renderAppDetail(){
   const a = applications.find(a => a.id === activeAppId);
   if(!a) return;
 
-  document.getElementById('detailAppNumber').textContent = a.appNumber;
+  // Defensive re-check: a staff member without the Special Event/Annual
+  // permission for THIS record's license type shouldn't see its contents
+  // even if they reached this page some other way than the (already
+  // type-filtered, via myApplications()) Applications list — mirrors the
+  // JCF Officer Portal's own "this application has not been assigned to
+  // you" defensive check in jcfd_renderApplicationDetail().
+  const isAnnualApp = a.licenseType === 'Annual';
+  if(isAnnualApp ? !hasPerm('annual') : !hasPerm('specialEvent')){
+    document.getElementById('detailAppNumber').textContent = a.appNumber;
+    document.getElementById('detailAppSub').textContent = '';
+    document.getElementById('detailStatusBadge').innerHTML = '';
+    document.getElementById('statusStepper').innerHTML = '';
+    document.getElementById('submissionColumn').innerHTML =
+      `<div class="panel"><div class="info-banner warn">You don't have permission to view ${isAnnualApp ? 'Annual' : 'Special Event'} applications.</div></div>`;
+    document.getElementById('officialUseCards').innerHTML = '';
+    return;
+  }
+
+  const isManualEntry = !!(a.raw && a.raw.entrySource === 'manual');
+  document.getElementById('detailAppNumber').innerHTML = muni_escapeHtml(a.appNumber) + (isManualEntry ? ' <span class="badge-manual-entry" title="Created by a Supervisor on behalf of a walk-in customer">Manual Entry</span>' : '');
   document.getElementById('detailAppSub').textContent = `${a.applicant} · Submitted ${a.submitted} · Tracking Code: ${a.trackingCode || '—'}`;
   document.getElementById('detailStatusBadge').innerHTML = muni_statusBadge(a.status);
   // Keep the reference number visible in the sticky topbar too, so it
@@ -30304,8 +31687,19 @@ async function renderAppDetail(){
   const licenseFeeReceipt = a.raw && a.raw.paymentReceipt;
   const pvCosts = (a.raw && a.raw.costs) || { total: 0, applicationFee: 0 };
   const municipalAmountDue = pvCosts.total - pvCosts.applicationFee;
+  const isManualCombinedPayment = !!(a.raw && a.raw.entrySource === 'manual');
   cardsHtml += `<div class="official-card"><h4>Payment Verification</h4>`;
-  cardsHtml += `<div class="readback-row" style="margin-bottom:10px;">Amount to verify: <strong>${muni_formatCurrency(municipalAmountDue)}</strong> — payable to ${muni_escapeHtml(myMunicipalityName())} <span style="color:var(--text-muted);">(excludes the ${muni_formatCurrency(pvCosts.applicationFee)} Atendify application fee)</span></div>`;
+  if(isManualCombinedPayment){
+    // A walk-in customer pays this Municipal Corporation ONE combined
+    // payment at the counter — there's no separate applicant-facing payment
+    // step for Atendify's own fee to independently verify later, so the
+    // Accountant's single "Verify Payment" action below covers the whole
+    // amount and simultaneously flags the Atendify-fee portion as collected
+    // on Atendify's behalf (see verifyPayment()'s isManualEntryForFee branch).
+    cardsHtml += `<div class="readback-row" style="margin-bottom:10px;">Amount to verify: <strong>${muni_formatCurrency(pvCosts.total)}</strong> — one combined payment collected by ${muni_escapeHtml(myMunicipalityName())} at the counter, covering both its own fee and Atendify's ${muni_formatCurrency(pvCosts.applicationFee)} application fee. <span style="color:var(--text-muted);">No separate Atendify verification is needed for a manual entry.</span></div>`;
+  } else {
+    cardsHtml += `<div class="readback-row" style="margin-bottom:10px;">Amount to verify: <strong>${muni_formatCurrency(municipalAmountDue)}</strong> — payable to ${muni_escapeHtml(myMunicipalityName())} <span style="color:var(--text-muted);">(excludes the ${muni_formatCurrency(pvCosts.applicationFee)} Atendify application fee)</span></div>`;
+  }
   if(licenseFeeReceipt && licenseFeeReceipt.fileName){
     // A Municipal Credit payment (see payLicenseFeeByMunicipalCredit()) has
     // no uploaded receipt file behind it at all — it's a same-system wallet
@@ -30322,8 +31716,15 @@ async function renderAppDetail(){
     if(a.paymentNotes){
       cardsHtml += `<div class="readback-row">Notes: ${muni_escapeHtml(a.paymentNotes)}</div>`;
     }
+    if(isManualCombinedPayment){
+      cardsHtml += `<div class="readback-row">Includes ${muni_formatCurrency(pvCosts.applicationFee)} collected on Atendify's behalf — ${a.applicationFeeRemitted
+        ? `remitted to Atendify${a.applicationFeeRemittedDate ? ' on ' + muni_escapeHtml(String(a.applicationFeeRemittedDate).slice(0,10)) : ''}.`
+        : 'pending remittance to Atendify (see "Atendify Remittance" on the Payments page).'}</div>`;
+    }
     if(a.permitGenerated){
       cardsHtml += `<p class="no-permission-note" style="margin-top:10px;">Payment can no longer be unverified — the CEO has already approved this application and generated its permit.</p>`;
+    } else if(isManualCombinedPayment && a.applicationFeeRemitted){
+      cardsHtml += `<p class="no-permission-note" style="margin-top:10px;">Payment can no longer be unverified — Atendify has already confirmed receipt of the application-fee portion.</p>`;
     } else if(hasPerm('payment')){
       cardsHtml += `<div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-sm" onclick="unverifyPayment()">Unverify payment</button></div>`;
     }
@@ -31229,6 +32630,66 @@ async function saveFixedDocNote(){
   return updateFixedDocStatus(d.status, 'Note saved.');
 }
 
+// Lets a Supervisor attach a required document directly from a manual
+// (walk-in) application's own detail page — see muni_renderFixedDocRow's
+// manual-entry branch above, which is the only place this control renders.
+// A normal applicant-submitted application never calls this: its documents
+// can only ever come from the applicant's own wizard upload.
+async function muni_uploadFixedDoc(key, inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a || !a.raw) return;
+  const meta = MUNI_FIXED_DOC_META[key];
+  if(!meta) return;
+
+  const reader = new FileReader();
+  reader.onload = async function(){
+    const dataUrl = reader.result;
+    const r = a.raw;
+    try{
+      if(window.storage) await window.storage.set(meta.storageKey(a), JSON.stringify({ fileData: dataUrl }), true);
+    } catch(err){
+      muni_showToast('Could not upload this file. Please try again.');
+      return;
+    }
+    // Record the filename on whichever sub-object this document's filename
+    // normally lives on (see MUNI_FIXED_DOC_META.fileNameOf) — the same
+    // fields the applicant wizard itself would have set.
+    if(key === 'photoId'){ r.applicant = r.applicant || {}; r.applicant.photoIdFileName = file.name; }
+    else if(key === 'logo'){ r.applicant = r.applicant || {}; r.applicant.logoFileName = file.name; }
+    else if(key === 'bizRegistration'){ r.amusement = r.amusement || {}; r.amusement.bizRegFileName = file.name; }
+    else if(key === 'flier'){ r.amusement = r.amusement || {}; r.amusement.flierFileName = file.name; }
+    else if(key === 'ownership'){ r.venue = r.venue || {}; r.venue.ownershipFileName = file.name; }
+
+    r.documents = r.documents || {};
+    r.documents[key] = { uploaded: true, status: 'Submitted', officerNote: '' };
+
+    const computed = muni_computeRequiredDocumentsSubmitted(a);
+    r.requiredDocumentsSubmitted = computed;
+    a.requiredDocumentsSubmitted = computed;
+
+    const ok = await persistIfFromStorage(a);
+    if(!ok) return;
+
+    if(window.atdLogAudit && currentUser){
+      await window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'document.manualUpload',
+        details: `Uploaded ${meta.label} for manual application ${a.appNumber}.`,
+        muniId: currentUser.muniId
+      });
+    }
+
+    muni_showToast(`${meta.label} uploaded.`);
+    renderAppDetail();
+    muni_renderAll();
+  };
+  reader.onerror = function(){ muni_showToast('Could not read this file. Please try again.'); };
+  reader.readAsDataURL(file);
+}
+window.muni_uploadFixedDoc = muni_uploadFixedDoc;
+
 // Returns true only if the write to backend storage actually succeeded
 // (or there was nothing to persist). Most callers historically ignored the
 // return value — safe, since it used to be undefined either way — but
@@ -31243,6 +32704,13 @@ async function persistIfFromStorage(a){
     a.raw.paymentVerified = a.paymentVerified;
     a.raw.paymentReceiptNumber = a.paymentReceiptNumber || '';
     a.raw.paymentNotes = a.paymentNotes || '';
+    // Manual-entry combined payment — the only two of the
+    // applicationFeeCollectedByMuni/applicationFeeRemitted* fields this
+    // portal itself ever writes (remittance fields are Admin-only; leaving
+    // them off this whitelist is safe since they're never mutated on `a`
+    // from this scope, so a.raw already carries whatever Admin last wrote).
+    a.raw.applicationFeeCollectedByMuni = !!a.applicationFeeCollectedByMuni;
+    a.raw.applicationFeeCollectedByMuniDate = a.applicationFeeCollectedByMuniDate || '';
     a.raw.recommendation = a.recommendation;
     a.raw.recommendedBy = a.recommendedBy;
     a.raw.recommendationWithdrawalRequested = !!a.recommendationWithdrawalRequested;
@@ -31290,7 +32758,7 @@ async function verifyPayment(){
   // instead of leaving this screen showing "Payment verified" while nothing
   // was actually saved for anyone else — Supervisor, CEO, the applicant — to
   // see. See persistIfFromStorage()'s own note above.
-  const prev = { paymentVerified: a.paymentVerified, paymentReceiptNumber: a.paymentReceiptNumber, paymentNotes: a.paymentNotes, status: a.status, paymentVerifiedAt: a.paymentVerifiedAt };
+  const prev = { paymentVerified: a.paymentVerified, paymentReceiptNumber: a.paymentReceiptNumber, paymentNotes: a.paymentNotes, status: a.status, paymentVerifiedAt: a.paymentVerifiedAt, applicationFeeCollectedByMuni: a.applicationFeeCollectedByMuni, applicationFeeCollectedByMuniDate: a.applicationFeeCollectedByMuniDate };
   a.paymentVerified = true;
   a.paymentReceiptNumber = receiptNumber;
   a.paymentNotes = notesInput ? notesInput.value.trim() : '';
@@ -31299,9 +32767,23 @@ async function verifyPayment(){
   // clocks (see computeSlaBreaches) — only stamped the first time payment is
   // verified, so a later unverify-then-reverify doesn't reset it.
   if(!a.paymentVerifiedAt) a.paymentVerifiedAt = new Date().toISOString();
+  // Manual (walk-in) entries collect Atendify's application fee as part of
+  // this SAME combined payment — one Accountant action covers both, so there
+  // is no separate online payment for National Admin to independently
+  // verify. This flags the Atendify-fee portion as collected by the
+  // municipality (owed to Atendify until admin_settleMuniRemittance runs),
+  // rather than touching applicationFeePaid/applicationFeeVerified, which
+  // stay reserved for the applicant-pays-directly / Admin-verifies-directly
+  // flow used by online applications.
+  const isManualEntryForFee = !!(a.raw && a.raw.entrySource === 'manual');
+  if(isManualEntryForFee){
+    a.applicationFeeCollectedByMuni = true;
+    a.applicationFeeCollectedByMuniDate = new Date().toISOString();
+  }
   const ok = await persistIfFromStorage(a);
   if(!ok){
     a.paymentVerified = prev.paymentVerified; a.paymentReceiptNumber = prev.paymentReceiptNumber; a.paymentNotes = prev.paymentNotes; a.status = prev.status; a.paymentVerifiedAt = prev.paymentVerifiedAt;
+    a.applicationFeeCollectedByMuni = prev.applicationFeeCollectedByMuni; a.applicationFeeCollectedByMuniDate = prev.applicationFeeCollectedByMuniDate;
     renderAppDetail();
     return;
   }
@@ -31327,13 +32809,29 @@ async function unverifyPayment(){
     renderAppDetail();
     return;
   }
-  const prevU = { paymentVerified: a.paymentVerified, paymentVerifiedAt: a.paymentVerifiedAt, status: a.status };
+  const isManualEntryForFee = !!(a.raw && a.raw.entrySource === 'manual');
+  if(isManualEntryForFee && a.applicationFeeRemitted){
+    // Defensive re-check mirroring the permitGenerated guard above: once
+    // National Admin has confirmed receipt of this municipality's bulk
+    // remittance (admin_settleMuniRemittance), the button that would call
+    // this is hidden — undoing verification after Atendify already has the
+    // money in hand would desync the two portals' books.
+    muni_showToast(`Payment can no longer be unverified — Atendify has already confirmed receipt of the application-fee portion from ${myMunicipalityName()}.`);
+    renderAppDetail();
+    return;
+  }
+  const prevU = { paymentVerified: a.paymentVerified, paymentVerifiedAt: a.paymentVerifiedAt, status: a.status, applicationFeeCollectedByMuni: a.applicationFeeCollectedByMuni, applicationFeeCollectedByMuniDate: a.applicationFeeCollectedByMuniDate };
   a.paymentVerified = false;
   a.paymentVerifiedAt = '';
   if(a.status === 'Payment Received') a.status = 'Submitted';
+  if(isManualEntryForFee){
+    a.applicationFeeCollectedByMuni = false;
+    a.applicationFeeCollectedByMuniDate = '';
+  }
   const okU = await persistIfFromStorage(a);
   if(!okU){
     a.paymentVerified = prevU.paymentVerified; a.paymentVerifiedAt = prevU.paymentVerifiedAt; a.status = prevU.status;
+    a.applicationFeeCollectedByMuni = prevU.applicationFeeCollectedByMuni; a.applicationFeeCollectedByMuniDate = prevU.applicationFeeCollectedByMuniDate;
     renderAppDetail();
     return;
   }
@@ -32057,6 +33555,15 @@ async function loadSubmittedApplications(silent, btnId){
         // setFinalStatus()'s approval gate can block on it too.
         applicationFeePaid: !!rec.applicationFeePaid,
         applicationFeeVerified: !!rec.applicationFeeVerified,
+        // Manual-entry combined-payment tracking — see the comment above
+        // applicationFeeCollectedByMuni on muni_createManualApplication()'s
+        // record shape. applicationFeeRemitted flips true once National
+        // Admin has confirmed receipt of this municipality's bulk transfer
+        // (admin_settleMuniRemittance), at which point it's no longer part
+        // of what's owed on muni_renderAtendifyRemittance().
+        applicationFeeCollectedByMuni: !!rec.applicationFeeCollectedByMuni,
+        applicationFeeCollectedByMuniDate: rec.applicationFeeCollectedByMuniDate || '',
+        applicationFeeRemitted: !!rec.applicationFeeRemitted,
         recommendation: rec.recommendation || '',
         recommendedBy: rec.recommendedBy || '',
         recommendationWithdrawalRequested: !!rec.recommendationWithdrawalRequested,
@@ -32627,6 +34134,25 @@ async function admin_loadApplications(){
           applicationFeeVerified: !!rec.applicationFeeVerified,
           applicationFeeVerifiedBy: rec.applicationFeeVerifiedBy || '',
           applicationFeeVerifiedDate: rec.applicationFeeVerifiedDate || '',
+          // Manual (walk-in) entries only — see muni_createManualApplication()
+          // and verifyPayment()'s isManualEntryForFee branch in the Municipal
+          // officer portal. entrySource lets this Admin scope tell a manual
+          // application apart from an online one (the latter never sets
+          // applicationFeeCollectedByMuni). applicationFeeCollectedByMuni
+          // means the Municipal Accountant has verified the combined payment
+          // at the counter — Atendify's fee is physically in the
+          // municipality's hands but not yet this Admin portal's; it becomes
+          // "collected"/applicationFeeVerified only once
+          // admin_settleMuniRemittance confirms the bulk transfer, which is
+          // also when applicationFeeRemitted flips true (a narrower flag than
+          // applicationFeeVerified, distinguishing "verified because remitted
+          // by a municipality" from "verified because the applicant paid
+          // Atendify directly and Admin checked it").
+          entrySource: rec.entrySource || '',
+          applicationFeeCollectedByMuni: !!rec.applicationFeeCollectedByMuni,
+          applicationFeeRemitted: !!rec.applicationFeeRemitted,
+          applicationFeeRemittedBy: rec.applicationFeeRemittedBy || '',
+          applicationFeeRemittedDate: rec.applicationFeeRemittedDate || '',
           permitGenerated: !!rec.permitGenerated,
           waiverAmount: rec.waiverAmount || 0,
           discountAmount: rec.discountAmount || 0,
@@ -33487,6 +35013,17 @@ async function admin_renderNationalOverview(){
   }
 
   // ---- Revenue: Application Fee — collected by Atendify ----
+  // A manual (walk-in) application collects Atendify's fee as part of ONE
+  // combined payment the Municipal Accountant verifies at the counter (see
+  // verifyPayment()'s isManualEntryForFee branch) — applicationFeeCollectedByMuni
+  // marks that money as physically in the municipality's hands, but it isn't
+  // "collected" from Atendify's own point of view (applicationFeeVerified)
+  // until admin_settleMuniRemittance below confirms the bulk transfer. Until
+  // then it's a third bucket — "pending remittance" — that sits inside
+  // Outstanding (Atendify genuinely doesn't have the money yet) but is worth
+  // calling out on its own, since unlike a true non-payer, the municipality
+  // already has it earmarked.
+  const admin_isPendingMuniRemittance = a => a.entrySource === 'manual' && !!a.applicationFeeCollectedByMuni && !a.applicationFeeVerified;
   const atendifyStatsEl = document.getElementById('admin_ovwAtendifyRevenueStats');
   if(atendifyStatsEl){
     const atdBilled = applications.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
@@ -33494,12 +35031,17 @@ async function admin_renderNationalOverview(){
     // Verification card), not paymentVerified (the municipality's license
     // fee, verified by a Municipal officer instead) — these two fees are
     // collected by different parties and verified independently.
+    // applicationFeeVerified also flips true for a settled manual-entry
+    // remittance (see admin_settleMuniRemittance), so this figure already
+    // includes those once National Admin has confirmed receipt.
     const atdCollected = applications.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
     const atdOutstanding = applications.reduce((sum, a) => sum + admin_amountOwed(a, a.applicationFee, false, 'applicationFeeVerified'), 0);
+    const atdPendingRemittance = applications.reduce((sum, a) => sum + (admin_isPendingMuniRemittance(a) ? (a.applicationFee || 0) : 0), 0);
     atendifyStatsEl.innerHTML = [
       ['Application fees billed', admin_formatCurrency(atdBilled)],
       ['Application fees collected', admin_formatCurrency(atdCollected)],
-      ['Application fees outstanding', admin_formatCurrency(atdOutstanding)]
+      ['Application fees outstanding', admin_formatCurrency(atdOutstanding)],
+      ['Pending remittance from municipalities', admin_formatCurrency(atdPendingRemittance)]
     ].map(row => admin_ovwStatCard(row[0], row[1])).join('');
   }
   const atendifyByMuniBody = document.getElementById('admin_ovwAtendifyRevenueByMuniBody');
@@ -33508,13 +35050,17 @@ async function admin_renderNationalOverview(){
       const apps = applications.filter(a => a.muniId === m.muniNumber);
       const billed = apps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
       const collected = apps.reduce((sum, a) => sum + (a.applicationFeeVerified ? (a.applicationFee || 0) : 0), 0);
+      const pendingApps = apps.filter(admin_isPendingMuniRemittance);
+      const pending = pendingApps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
       return `<tr>
         <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
         <td>${apps.length}</td>
         <td>${admin_formatCurrency(billed)}</td>
         <td>${admin_formatCurrency(collected)}</td>
+        <td>${admin_formatCurrency(pending)}</td>
+        <td>${pendingApps.length ? `<button class="btn btn-sm" onclick="admin_settleMuniRemittance(${JSON.stringify(m.muniNumber)})">Mark remitted</button>` : '—'}</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="4" class="table-empty">No municipalities yet.</td></tr>`;
+    }).join('') || `<tr><td colspan="6" class="table-empty">No municipalities yet.</td></tr>`;
   }
 
   // ---- System ----
@@ -34324,6 +35870,35 @@ function admin_renderPaymentVerificationCard(a){
 
   let html = `<label>Payment Verification</label>`;
 
+  // Manual (walk-in) entries never go through the applicant-pays-Atendify-
+  // directly flow below — applicationFeePaid stays false forever for these
+  // (see muni_createManualApplication()) since the customer instead pays a
+  // single combined amount to the Municipal Corporation, verified by its own
+  // Accountant (see the Municipal officer portal's Payment Verification card,
+  // isManualCombinedPayment branch). This branch has to come before the
+  // `!a.applicationFeePaid` early-return below, or a settled manual entry
+  // (applicationFeeVerified true via admin_settleMuniRemittance) would still
+  // incorrectly show "nothing to verify yet" here.
+  if(a.entrySource === 'manual'){
+    if(!a.applicationFeeCollectedByMuni){
+      html += `<div class="status-banner warn">This is a manual (walk-in) application — the Municipal Corporation's own Accountant hasn't verified its combined payment yet, so there's nothing to settle here.</div>`;
+    } else if(a.applicationFeeVerified){
+      html += `<div class="readback-row">Amount: <strong>${amount}</strong></div>`;
+      html += `<div class="status-banner good" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Remitted by the municipality${a.applicationFeeRemittedDate ? ' on ' + admin_escapeHtml(a.applicationFeeRemittedDate) : ''} and confirmed${a.applicationFeeVerifiedBy ? ' by ' + admin_escapeHtml(a.applicationFeeVerifiedBy) : ''}.</div>`;
+      if(a.permitGenerated){
+        html += `<div class="field-hint">Payment can no longer be unverified — this application has already been approved and its permit generated.</div>`;
+      } else {
+        html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="admin_unverifyApplicationFeePayment()">Unverify payment</button></div>`;
+      }
+    } else {
+      html += `<div class="readback-row">Amount: <strong>${amount}</strong></div>`;
+      html += `<div class="status-banner bad" style="margin-top:10px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Collected by ${admin_escapeHtml((a.raw && a.raw.municipalityName) || 'the Municipal Corporation')} as part of a combined payment — pending remittance to Atendify.</div>`;
+      html += `<div class="field-hint" style="margin-top:8px;">Individual applications aren't settled from here — go to Overview &rarr; "Application Fee — collected by Atendify" and use "Mark remitted" to confirm the municipality's whole outstanding balance has been transferred.</div>`;
+    }
+    container.innerHTML = html;
+    return;
+  }
+
   if(!a.applicationFeePaid){
     html += `<div class="status-banner warn">The applicant has not yet submitted the Atendify application fee payment — nothing to verify yet.</div>`;
     container.innerHTML = html;
@@ -34455,10 +36030,19 @@ window.admin_openApplicationFeeReceiptModal = admin_openApplicationFeeReceiptMod
 // to see.
 async function admin_persistPaymentVerification(a){
   if(!a.raw || !a._storageKey || !window.storage) return false;
-  const prevRaw = { verified: a.raw.applicationFeeVerified, by: a.raw.applicationFeeVerifiedBy, date: a.raw.applicationFeeVerifiedDate };
+  const prevRaw = {
+    verified: a.raw.applicationFeeVerified, by: a.raw.applicationFeeVerifiedBy, date: a.raw.applicationFeeVerifiedDate,
+    // Also carried here (rather than a separate persist helper) since
+    // admin_settleMuniRemittance below flips both this verification flag AND
+    // the remittance ones together, in the same single write.
+    remitted: a.raw.applicationFeeRemitted, remittedBy: a.raw.applicationFeeRemittedBy, remittedDate: a.raw.applicationFeeRemittedDate
+  };
   a.raw.applicationFeeVerified = a.applicationFeeVerified;
   a.raw.applicationFeeVerifiedBy = a.applicationFeeVerifiedBy || '';
   a.raw.applicationFeeVerifiedDate = a.applicationFeeVerifiedDate || '';
+  a.raw.applicationFeeRemitted = !!a.applicationFeeRemitted;
+  a.raw.applicationFeeRemittedBy = a.applicationFeeRemittedBy || '';
+  a.raw.applicationFeeRemittedDate = a.applicationFeeRemittedDate || '';
   try{
     await window.storage.set(a._storageKey, JSON.stringify(a.raw), true);
     return true;
@@ -34466,6 +36050,9 @@ async function admin_persistPaymentVerification(a){
     a.raw.applicationFeeVerified = prevRaw.verified;
     a.raw.applicationFeeVerifiedBy = prevRaw.by;
     a.raw.applicationFeeVerifiedDate = prevRaw.date;
+    a.raw.applicationFeeRemitted = prevRaw.remitted;
+    a.raw.applicationFeeRemittedBy = prevRaw.remittedBy;
+    a.raw.applicationFeeRemittedDate = prevRaw.remittedDate;
     const isSessionIssue = e && (e.code === '42501' || /row-level security/i.test(e.message || ''));
     admin_showToast(isSessionIssue
       ? 'Could not save — your session may have expired. Please log out and back in, then try again.'
@@ -34510,21 +36097,86 @@ async function admin_unverifyApplicationFeePayment(){
     return;
   }
   const prevVerified = a.applicationFeeVerified, prevBy = a.applicationFeeVerifiedBy, prevDate = a.applicationFeeVerifiedDate;
+  // Also undoes a manual-entry remittance settlement (admin_settleMuniRemittance),
+  // not just the direct-applicant-payment verification above — applicationFeeVerified
+  // is the single flag both flows share, so unverifying one has to clear
+  // applicationFeeRemitted too or this application would be left in an
+  // inconsistent "not verified, but still marked remitted" state that would
+  // silently disappear from both the Outstanding and Pending Remittance totals.
+  const wasRemitted = a.applicationFeeRemitted, prevRemittedBy = a.applicationFeeRemittedBy, prevRemittedDate = a.applicationFeeRemittedDate;
   a.applicationFeeVerified = false;
   a.applicationFeeVerifiedBy = '';
   a.applicationFeeVerifiedDate = '';
+  a.applicationFeeRemitted = false;
+  a.applicationFeeRemittedBy = '';
+  a.applicationFeeRemittedDate = '';
   const ok = await admin_persistPaymentVerification(a);
   if(!ok){
     a.applicationFeeVerified = prevVerified; a.applicationFeeVerifiedBy = prevBy; a.applicationFeeVerifiedDate = prevDate;
+    a.applicationFeeRemitted = wasRemitted; a.applicationFeeRemittedBy = prevRemittedBy; a.applicationFeeRemittedDate = prevRemittedDate;
     admin_renderPaymentVerificationCard(a);
     return;
   }
-  admin_showToast(`Application fee payment unverified for ${a.appNumber}.`);
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeUnverified', details: `${a.appNumber}: Atendify application fee unverified.`, muniId: a.muniId });
+  admin_showToast(wasRemitted
+    ? `Remittance unverified for ${a.appNumber} — this application's Atendify fee is once again pending remittance from ${(a.raw && a.raw.municipalityName) || 'the municipality'}.`
+    : `Application fee payment unverified for ${a.appNumber}.`);
+  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'application.applicationFeeUnverified', details: `${a.appNumber}: Atendify application fee unverified${wasRemitted ? ' (was a municipal remittance settlement)' : ''}.`, muniId: a.muniId });
   admin_renderPaymentVerificationCard(a);
   admin_renderAll();
 }
 window.admin_unverifyApplicationFeePayment = admin_unverifyApplicationFeePayment;
+
+// Batch-settles a municipality's ENTIRE outstanding manual-entry Atendify-fee
+// balance in one confirmed action, per the "per-municipality batch" design —
+// this is deliberately the only way to clear applicationFeeCollectedByMuni
+// apps into applicationFeeVerified/applicationFeeRemitted (see
+// admin_isPendingMuniRemittance in admin_renderOverview), rather than a
+// per-application action, since a municipality realistically remits Atendify
+// its share periodically in bulk rather than one transfer per application.
+async function admin_settleMuniRemittance(muniId){
+  const muni = agencies.find(m => m.muniNumber === muniId);
+  const muniName = muni ? muni.name : 'this municipality';
+  const pendingApps = applications.filter(a => a.muniId === muniId && a.entrySource === 'manual' && a.applicationFeeCollectedByMuni && !a.applicationFeeVerified);
+  if(!pendingApps.length){
+    admin_showToast(`Nothing pending remittance for ${muniName}.`);
+    return;
+  }
+  const total = pendingApps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
+  const confirmed = await window.atdConfirm(`Confirm Atendify has received ${admin_formatCurrency(total)} from ${muniName}, covering ${pendingApps.length} manually-collected application fee${pendingApps.length === 1 ? '' : 's'} (${pendingApps.map(a => a.appNumber).join(', ')}).\n\nThis will mark all of them as settled.`);
+  if(!confirmed) return;
+
+  const settledDate = admin_todayIso();
+  const settledApps = [];
+  for(const a of pendingApps){
+    const prev = {
+      verified: a.applicationFeeVerified, verifiedBy: a.applicationFeeVerifiedBy, verifiedDate: a.applicationFeeVerifiedDate,
+      remitted: a.applicationFeeRemitted, remittedBy: a.applicationFeeRemittedBy, remittedDate: a.applicationFeeRemittedDate
+    };
+    a.applicationFeeVerified = true;
+    a.applicationFeeVerifiedBy = adminActorEmail;
+    a.applicationFeeVerifiedDate = settledDate;
+    a.applicationFeeRemitted = true;
+    a.applicationFeeRemittedBy = adminActorEmail;
+    a.applicationFeeRemittedDate = settledDate;
+    const ok = await admin_persistPaymentVerification(a);
+    if(ok){
+      settledApps.push(a);
+    } else {
+      a.applicationFeeVerified = prev.verified; a.applicationFeeVerifiedBy = prev.verifiedBy; a.applicationFeeVerifiedDate = prev.verifiedDate;
+      a.applicationFeeRemitted = prev.remitted; a.applicationFeeRemittedBy = prev.remittedBy; a.applicationFeeRemittedDate = prev.remittedDate;
+    }
+  }
+  if(settledApps.length){
+    const settledTotal = settledApps.reduce((sum, a) => sum + (a.applicationFee || 0), 0);
+    admin_showToast(`Marked ${admin_formatCurrency(settledTotal)} across ${settledApps.length} application(s) as remitted by ${muniName}.`);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'remittance.settled', details: `${muniName}: settled ${admin_formatCurrency(settledTotal)} across ${settledApps.length} manual application(s) (${settledApps.map(a => a.appNumber).join(', ')}).`, muniId });
+  }
+  if(settledApps.length < pendingApps.length){
+    admin_showToast('Some applications could not be updated — please try again.');
+  }
+  admin_renderAll();
+}
+window.admin_settleMuniRemittance = admin_settleMuniRemittance;
 
 // A small red indicator next to an application's number anywhere it's
 // listed in the National Admin portal (Applications table, Recent
