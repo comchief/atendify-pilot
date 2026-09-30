@@ -31067,6 +31067,18 @@ async function muni_createManualApplication(){
     venueRegistryVenueId = atdGenerateVenueId(new Set(venues.map(v=>v.id)));
   }
 
+  // Venue Inspection Fee — same pricing rule computeCosts() applies in the
+  // online wizard: a venue picked from this municipality's own registered
+  // database already has an assessed, venue-specific fee on file (set by
+  // the CEO when it was accepted, see submitAcceptPendingVenue()'s v.cost),
+  // so no new inspection is charged; a brand-new, manually-typed venue gets
+  // the flat, municipality-wide fee the CEO configured under Manage > Form
+  // Elements (formElementsConfig.venueInspectionFee), falling back to the
+  // platform default if the CEO hasn't set one.
+  const venueCost = pickedVenue
+    ? (pickedVenue.cost || 0)
+    : ((formElementsConfig && typeof formElementsConfig.venueInspectionFee === 'number') ? formElementsConfig.venueInspectionFee : DEFAULT_VENUE_INSPECTION_FEE);
+
   if(!window.storage){
     errorBox.textContent = "This environment doesn't support saving applications right now.";
     errorBox.classList.remove('hidden');
@@ -31108,7 +31120,7 @@ async function muni_createManualApplication(){
       parish,
       status: watchlistHit ? 'Rejected' : 'Submitted',
       submittedDate: new Date().toISOString().slice(0,10),
-      paymentAmount: applicationFee,
+      paymentAmount: applicationFee + venueCost,
       applicationFeePaid: false,
       applicationFeePayment: { method: '', referenceNumber: '', fileName: '', uploadedDate: '' },
       applicationFeeVerified: false,
@@ -31183,8 +31195,8 @@ async function muni_createManualApplication(){
         ownershipFileName: ''
       },
       costs: {
-        applicationFee, venueCost: 0, venueLabel: venueName, venueIsNew,
-        adTotal: 0, total: applicationFee,
+        applicationFee, venueCost, venueLabel: venueName, venueIsNew,
+        adTotal: 0, total: applicationFee + venueCost,
         promoApplied: false, promoCode: '', promoName: '', promoAppliesTo: '', promoDiscount: 0, promotionId: null
       },
       venueRegistryStatus: venueIsNew ? 'pending' : '',
@@ -31207,13 +31219,29 @@ async function muni_createManualApplication(){
     if(venueIsNew){
       // Same best-effort pending-venue pre-load the online wizard does for a
       // manually-entered venue — see buildApplicationRecord's own comment.
+      // Field shape matches the online wizard's own storage fallback write
+      // (see submitApp()'s pendingVenueDetail) so this venue looks the same
+      // wherever it's later displayed (Manage > Venues' main list included,
+      // once accepted), not just to the Pending Review panel.
+      const pendingVenueRecord = {
+        id: venueRegistryVenueId, muniId: currentUser.muniId, name: venueName,
+        streetNumber: '', streetName: [venueAddr1, venueAddr2].filter(Boolean).join(', '), district: venueDistrict,
+        maxCap: venueMaxCap || 0, maxParking: venueMaxParking || 0, cost: 0,
+        ownerName: '', ownerAddress: '', ownerPhone: '',
+        active: false, flagged: false, flagReason: '', pendingApproval: true, rejected: false,
+        sourceAppNumber: appNumber,
+        createdBy: `${currentUser.name} (manual entry, via ${appNumber})`,
+        created: new Date().toISOString().slice(0,10)
+      };
       try{
-        await window.storage.set(`venue:${venueRegistryVenueId}`, JSON.stringify({
-          id: venueRegistryVenueId, muniId: currentUser.muniId, name: venueName,
-          streetNumber: '', streetName: [venueAddr1, venueAddr2].filter(Boolean).join(', '), district: venueDistrict,
-          maxCap: venueMaxCap || 0, maxParking: venueMaxParking || 0, cost: 0, active: false, pendingApproval: true,
-          sourceAppNumber: appNumber
-        }), true);
+        await window.storage.set(`venue:${venueRegistryVenueId}`, JSON.stringify(pendingVenueRecord), true);
+        // loadVenues() only ever runs at login — without this, the pending
+        // venue is saved correctly but stays invisible on Venues > Pending
+        // Review for the rest of THIS session (it only appears after the
+        // officer next logs in and venues is reloaded from storage). Push
+        // it into the in-memory array now so it shows up immediately,
+        // mirroring what saveVenue() already does for a directly-added venue.
+        venues.push(pendingVenueRecord);
       } catch(venueErr){ /* best-effort only */ }
     }
 
