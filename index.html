@@ -9522,6 +9522,37 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <input type="email" id="manualAppEmail" placeholder="name@example.com">
       </div>
     </div>
+    <!-- Individual-only fields — mirrors the online wizard's own
+         individualPersonalFields (Step 1), hidden for a Company applicant.
+         Age is calculated automatically from Date of Birth, same as
+         poa_recalcAge() does online. -->
+    <div class="field-row" id="manualAppIndividualFields" style="grid-template-columns: 1fr 1fr 1fr;">
+      <div class="field-group">
+        <label for="manualAppHome">Home phone (optional)</label>
+        <input type="text" id="manualAppHome" placeholder="Home phone number">
+      </div>
+      <div class="field-group">
+        <label for="manualAppDob">Date of Birth</label>
+        <input type="date" id="manualAppDob" onchange="document.getElementById('manualAppAge').value = muni_calcAgeFromDob(this.value)">
+      </div>
+      <div class="field-group">
+        <label for="manualAppAge">Age</label>
+        <input type="number" id="manualAppAge" min="0" max="120" readonly title="Calculated automatically from Date of Birth">
+      </div>
+    </div>
+    <div class="field-row" id="manualAppGenderRow">
+      <div class="field-group">
+        <label for="manualAppGender">Gender</label>
+        <select id="manualAppGender">
+          <option value="">Select an option</option>
+          <option>Male</option>
+          <option>Female</option>
+          <option>Other</option>
+          <option>Prefer not to say</option>
+        </select>
+      </div>
+      <div></div>
+    </div>
     <div class="field-row">
       <div class="field-group">
         <label for="manualAppAddr1">Address line 1</label>
@@ -9541,6 +9572,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <label for="manualAppParish">Parish</label>
         <select id="manualAppParish"><option value="">Select parish</option></select>
       </div>
+    </div>
+
+    <!-- Company-only — mirrors the online wizard's companyDirectorsSection.
+         At least one director is required for a Company applicant, same
+         validation rule as the online wizard. -->
+    <div id="manualAppCompanyDirectorsSection" class="hidden" style="margin-top:20px;">
+      <div class="section-header-row">
+        <div class="section-title">Company Directors</div>
+        <button class="btn" type="button" onclick="muni_openManualDirectorModal()">Add new</button>
+      </div>
+      <div class="record-list" id="manualAppDirectorList"></div>
     </div>
 
     <div class="field-group" style="margin:10px 0 2px;">
@@ -9565,6 +9607,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <label for="manualAppPatrons">Expected patrons</label>
         <input type="number" id="manualAppPatrons" min="1" placeholder="e.g. 150">
       </div>
+    </div>
+
+    <!-- Private security — mirrors the online wizard's own
+         privateSecuritySection (Step 2, Special Event path only). -->
+    <div class="field-group" style="margin:10px 0 2px;">
+      <label style="font-weight:800; font-size:13px; color:var(--text);">Private security</label>
+    </div>
+    <div class="yesno" style="margin-bottom:12px;">
+      <label><input type="radio" name="manualPrivateSecurity" value="Yes" id="manualSecYes" onchange="muni_manualSecurityChanged()"> Yes</label>
+      <label><input type="radio" name="manualPrivateSecurity" value="No" id="manualSecNo" onchange="muni_manualSecurityChanged()"> No</label>
+    </div>
+    <div id="manualAppSecuritySection" class="hidden" style="margin-bottom:20px;">
+      <div class="section-header-row">
+        <div class="col-desc" style="margin:0;">Manage security records below</div>
+        <button class="btn" type="button" onclick="muni_openManualSecurityModal()">Add new</button>
+      </div>
+      <div class="record-list" id="manualAppSecurityList"></div>
     </div>
 
     <div class="field-group" style="margin:10px 0 2px;">
@@ -9597,6 +9656,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="text" id="manualAppVenueDistrict" placeholder="District">
         </div>
       </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="manualAppVenueAddr2">Venue address line 2 (optional)</label>
+          <input type="text" id="manualAppVenueAddr2" placeholder="Optional">
+        </div>
+        <div class="field-group">
+          <label for="manualAppVenueMaxParking">Max parking capacity (optional)</label>
+          <input type="number" id="manualAppVenueMaxParking" min="0" placeholder="e.g. 100">
+        </div>
+      </div>
     </div>
 
     <div class="field-group">
@@ -9609,6 +9678,63 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="modal-actions">
       <button class="btn" onclick="muni_closeManualAppModal()">Cancel</button>
       <button class="btn btn-primary" id="muniManualAppSubmitBtn" onclick="muni_createManualApplication()">Create application</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual application — new director modal. Own IDs throughout (prefixed
+     manualDirector*), separate from the online wizard's own directorModal/
+     directorName/etc, since both this modal and that one exist in the same
+     page DOM at once. -->
+<div class="modal-overlay hidden" id="manualDirectorModal">
+  <div class="modal-box">
+    <h3>New director</h3>
+    <p class="modal-sub">Type in the name of the director and click create</p>
+    <div class="field-group">
+      <label for="manualDirectorName">Name</label>
+      <input type="text" id="manualDirectorName" placeholder="Director name">
+    </div>
+    <div class="field-group">
+      <label for="manualDirectorTitle">Job title</label>
+      <input type="text" id="manualDirectorTitle" placeholder="Director's job title/position">
+    </div>
+    <div class="field-group">
+      <label for="manualDirectorPhone">Phone</label>
+      <input type="tel" id="manualDirectorPhone" placeholder="Director's phone number">
+    </div>
+    <div class="field-group">
+      <label for="manualDirectorTrn">Taxpayer Registration Number (TRN)</label>
+      <input type="text" id="manualDirectorTrn" placeholder="Director's TRN">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="muni_closeManualDirectorModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="muni_createManualDirector()">Create director</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual application — new security company modal. Same reasoning as the
+     director modal above: own IDs (manualSecurity*), separate from the
+     online wizard's securityModal/securityCompany/etc. -->
+<div class="modal-overlay hidden" id="manualSecurityModal">
+  <div class="modal-box">
+    <h3>New security</h3>
+    <p class="modal-sub">Enter the details below</p>
+    <div class="field-group">
+      <label for="manualSecurityCompany">Company name</label>
+      <input type="text" id="manualSecurityCompany" placeholder="Company name">
+    </div>
+    <div class="field-group">
+      <label for="manualSecurityGuardCount">Guard count</label>
+      <input type="number" id="manualSecurityGuardCount" min="0" placeholder="Number of guards">
+    </div>
+    <div class="field-group">
+      <label for="manualSecurityPhone">Phone</label>
+      <input type="tel" id="manualSecurityPhone" placeholder="Company's phone number">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="muni_closeManualSecurityModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="muni_createManualSecurityRecord()">Create company</button>
     </div>
   </div>
 </div>
@@ -30630,6 +30756,34 @@ async function deleteUser(id){
 // once they're actually on hand.
 const MUNI_MANUAL_PARISHES = ['Kingston','St. Andrew','St. Thomas','Portland','St. Mary','St. Ann','Trelawny','St. James','Hanover','Westmoreland','St. Elizabeth','Manchester','Clarendon','St. Catherine','Portmore'];
 
+// Field-parity additions (Company Directors / Private Security records) —
+// this modal's own module-level lists, separate from the online wizard's
+// companyDirectors/securityRecords globals, since both exist in the same
+// page at once. Same record shape as the online wizard (createDirector/
+// createSecurity) so a manually-entered record looks identical wherever
+// it's later displayed (renderAppDetail's Company Directors/Private
+// Security readback rows read applicant.directors/amusement.securityRecords
+// without caring which flow created them).
+let muniManualDirectors = [];
+let muniManualSecurityRecords = [];
+
+// Same date math as the online wizard's own poa_calcAge() (that function
+// lives inside the applicant wizard's own script IIFE and isn't exposed on
+// window, so it can't be called directly from here) — kept separate rather
+// than exporting that one, so this modal doesn't take on a cross-scope
+// dependency for one small calculation.
+function muni_calcAgeFromDob(dobStr){
+  if(!dobStr) return '';
+  const dob = new Date(dobStr + 'T00:00:00');
+  if(isNaN(dob.getTime())) return '';
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if(m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+  return age >= 0 ? age : '';
+}
+window.muni_calcAgeFromDob = muni_calcAgeFromDob;
+
 async function muni_openManualAppModal(){
   if(!currentUser || currentUser.role !== 'Supervisor'){
     muni_showToast("Only a Supervisor account can create a manual application.");
@@ -30644,16 +30798,31 @@ async function muni_openManualAppModal(){
   document.getElementById('manualAppTrn').value = '';
   document.getElementById('manualAppPhone').value = '';
   document.getElementById('manualAppEmail').value = '';
+  document.getElementById('manualAppHome').value = '';
+  document.getElementById('manualAppDob').value = '';
+  document.getElementById('manualAppAge').value = '';
+  document.getElementById('manualAppGender').value = '';
   document.getElementById('manualAppAddr1').value = '';
   document.getElementById('manualAppAddr2').value = '';
   document.getElementById('manualAppDistrict').value = '';
+  muniManualDirectors = [];
+  muni_renderManualDirectors();
+  document.getElementById('manualAppIndividualFields').classList.remove('hidden');
+  document.getElementById('manualAppGenderRow').classList.remove('hidden');
+  document.getElementById('manualAppCompanyDirectorsSection').classList.add('hidden');
   document.getElementById('manualAppEventName').value = '';
   document.getElementById('manualAppEventDate').value = '';
   document.getElementById('manualAppPatrons').value = '';
+  document.querySelectorAll('input[name="manualPrivateSecurity"]').forEach(el => el.checked = false);
+  muniManualSecurityRecords = [];
+  muni_renderManualSecurityRecords();
+  document.getElementById('manualAppSecuritySection').classList.add('hidden');
   document.getElementById('manualAppVenueName').value = '';
   document.getElementById('manualAppVenueCapacity').value = '';
   document.getElementById('manualAppVenueAddr1').value = '';
   document.getElementById('manualAppVenueDistrict').value = '';
+  document.getElementById('manualAppVenueAddr2').value = '';
+  document.getElementById('manualAppVenueMaxParking').value = '';
   document.getElementById('manualAppNote').value = '';
   document.getElementById('manualAppError').classList.add('hidden');
 
@@ -30685,6 +30854,9 @@ function muni_manualAppApplicantTypeChanged(){
   const isCompany = checked && checked.value === 'Company';
   document.getElementById('manualAppNameGroupIndividual').classList.toggle('hidden', isCompany);
   document.getElementById('manualAppNameGroupCompany').classList.toggle('hidden', !isCompany);
+  document.getElementById('manualAppIndividualFields').classList.toggle('hidden', isCompany);
+  document.getElementById('manualAppGenderRow').classList.toggle('hidden', isCompany);
+  document.getElementById('manualAppCompanyDirectorsSection').classList.toggle('hidden', !isCompany);
 }
 window.muni_manualAppApplicantTypeChanged = muni_manualAppApplicantTypeChanged;
 
@@ -30693,6 +30865,115 @@ function muni_manualAppVenueChanged(){
   document.getElementById('manualAppVenueManualFields').classList.toggle('hidden', !!picked);
 }
 window.muni_manualAppVenueChanged = muni_manualAppVenueChanged;
+
+// ---- Company Directors (manual entry) — mirrors the online wizard's own
+// openDirectorModal/createDirector/removeDirector/renderDirectors, against
+// this modal's own muniManualDirectors list instead of the wizard's global
+// companyDirectors. ----
+function muni_openManualDirectorModal(){
+  document.getElementById('manualDirectorName').value = '';
+  document.getElementById('manualDirectorTitle').value = '';
+  document.getElementById('manualDirectorPhone').value = '';
+  document.getElementById('manualDirectorTrn').value = '';
+  document.getElementById('manualDirectorModal').classList.remove('hidden');
+}
+window.muni_openManualDirectorModal = muni_openManualDirectorModal;
+
+function muni_closeManualDirectorModal(){
+  document.getElementById('manualDirectorModal').classList.add('hidden');
+}
+window.muni_closeManualDirectorModal = muni_closeManualDirectorModal;
+
+function muni_createManualDirector(){
+  const name = document.getElementById('manualDirectorName').value.trim();
+  if(!name) return;
+  muniManualDirectors.push({
+    name,
+    title: document.getElementById('manualDirectorTitle').value.trim(),
+    phone: document.getElementById('manualDirectorPhone').value.trim(),
+    trn: document.getElementById('manualDirectorTrn').value.trim()
+  });
+  muni_renderManualDirectors();
+  muni_closeManualDirectorModal();
+}
+window.muni_createManualDirector = muni_createManualDirector;
+
+function muni_removeManualDirector(i){
+  muniManualDirectors.splice(i,1);
+  muni_renderManualDirectors();
+}
+window.muni_removeManualDirector = muni_removeManualDirector;
+
+function muni_renderManualDirectors(){
+  const list = document.getElementById('manualAppDirectorList');
+  if(!list) return;
+  if(!muniManualDirectors.length){ list.innerHTML = ''; return; }
+  list.innerHTML = muniManualDirectors.map((d,i)=>`
+    <div class="record-row">
+      <div>
+        <div class="record-main">${muni_escapeHtml(d.name)}</div>
+        <div class="record-sub">${muni_escapeHtml(d.title || 'N/A')}${d.phone ? ' · ' + muni_escapeHtml(d.phone) : ''}${d.trn ? ' · TRN ' + muni_escapeHtml(d.trn) : ''}</div>
+      </div>
+      <button class="record-remove" onclick="muni_removeManualDirector(${i})">Remove</button>
+    </div>
+  `).join('');
+}
+
+// ---- Private Security (manual entry) — mirrors the online wizard's own
+// secYes/secNo toggle + openSecurityModal/createSecurity/removeSecurity/
+// renderSecurity, against this modal's own muniManualSecurityRecords list. ----
+function muni_manualSecurityChanged(){
+  const checked = document.querySelector('input[name="manualPrivateSecurity"]:checked');
+  document.getElementById('manualAppSecuritySection').classList.toggle('hidden', !checked || checked.value !== 'Yes');
+}
+window.muni_manualSecurityChanged = muni_manualSecurityChanged;
+
+function muni_openManualSecurityModal(){
+  document.getElementById('manualSecurityCompany').value = '';
+  document.getElementById('manualSecurityGuardCount').value = '';
+  document.getElementById('manualSecurityPhone').value = '';
+  document.getElementById('manualSecurityModal').classList.remove('hidden');
+}
+window.muni_openManualSecurityModal = muni_openManualSecurityModal;
+
+function muni_closeManualSecurityModal(){
+  document.getElementById('manualSecurityModal').classList.add('hidden');
+}
+window.muni_closeManualSecurityModal = muni_closeManualSecurityModal;
+
+function muni_createManualSecurityRecord(){
+  const company = document.getElementById('manualSecurityCompany').value.trim();
+  if(!company) return;
+  muniManualSecurityRecords.push({
+    company,
+    guards: document.getElementById('manualSecurityGuardCount').value.trim(),
+    phone: document.getElementById('manualSecurityPhone').value.trim()
+  });
+  muni_renderManualSecurityRecords();
+  muni_closeManualSecurityModal();
+}
+window.muni_createManualSecurityRecord = muni_createManualSecurityRecord;
+
+function muni_removeManualSecurityRecord(i){
+  muniManualSecurityRecords.splice(i,1);
+  muni_renderManualSecurityRecords();
+}
+window.muni_removeManualSecurityRecord = muni_removeManualSecurityRecord;
+
+function muni_renderManualSecurityRecords(){
+  const list = document.getElementById('manualAppSecurityList');
+  if(!list) return;
+  if(!muniManualSecurityRecords.length){ list.innerHTML = ''; return; }
+  list.innerHTML = muniManualSecurityRecords.map((s,i)=>`
+    <div class="record-row">
+      <div>
+        <div class="record-main">${muni_escapeHtml(s.company)}</div>
+        <div class="record-sub">${muni_escapeHtml(s.guards || '0')} guard(s)${s.phone ? ' · ' + muni_escapeHtml(s.phone) : ''}</div>
+      </div>
+      <button class="record-remove" onclick="muni_removeManualSecurityRecord(${i})">Remove</button>
+    </div>
+  `).join('');
+}
 
 // Mirrors the public wizard's own generateAppNumber() (a separate script
 // scope, so that function can't be called directly) — same format/prefix/
@@ -30728,6 +31009,10 @@ async function muni_createManualApplication(){
   const trn = document.getElementById('manualAppTrn').value.trim();
   const phone = document.getElementById('manualAppPhone').value.trim();
   const email = document.getElementById('manualAppEmail').value.trim();
+  const home = isCompany ? '' : document.getElementById('manualAppHome').value.trim();
+  const dob = isCompany ? '' : document.getElementById('manualAppDob').value;
+  const age = isCompany ? '' : document.getElementById('manualAppAge').value;
+  const gender = isCompany ? '' : document.getElementById('manualAppGender').value;
   const addr1 = document.getElementById('manualAppAddr1').value.trim();
   const addr2 = document.getElementById('manualAppAddr2').value.trim();
   const district = document.getElementById('manualAppDistrict').value.trim();
@@ -30736,6 +31021,8 @@ async function muni_createManualApplication(){
   const eventDate = document.getElementById('manualAppEventDate').value;
   const eventType = document.getElementById('manualAppEventType').value;
   const patrons = document.getElementById('manualAppPatrons').value;
+  const privSecChecked = document.querySelector('input[name="manualPrivateSecurity"]:checked');
+  const privateSecurity = privSecChecked ? privSecChecked.value : '';
   const note = document.getElementById('manualAppNote').value.trim();
 
   if(!name || !phone || !addr1 || !district || !parish || !eventName || !eventDate || !eventType || !patrons){
@@ -30743,20 +31030,34 @@ async function muni_createManualApplication(){
     errorBox.classList.remove('hidden');
     return;
   }
+  if(isCompany && muniManualDirectors.length === 0){
+    errorBox.textContent = 'Please add at least one Company Director.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(privateSecurity === 'Yes' && muniManualSecurityRecords.length === 0){
+    errorBox.textContent = 'Please add at least one private security record, or select "No" if none was engaged.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
 
   const pickedVenueId = document.getElementById('manualAppVenueSelect').value;
   const pickedVenue = pickedVenueId ? venues.find(v => String(v.id) === pickedVenueId) : null;
-  let venueName, venueAddr1, venueDistrict, venueMaxCap, venueIsNew = false, venueRegistryVenueId = '';
+  let venueName, venueAddr1, venueAddr2, venueDistrict, venueMaxCap, venueMaxParking, venueIsNew = false, venueRegistryVenueId = '';
   if(pickedVenue){
     venueName = pickedVenue.name;
     venueAddr1 = [pickedVenue.streetNumber, pickedVenue.streetName].filter(Boolean).join(' ');
+    venueAddr2 = '';
     venueDistrict = pickedVenue.district || '';
     venueMaxCap = pickedVenue.maxCap || '';
+    venueMaxParking = pickedVenue.maxParking || '';
   } else {
     venueName = document.getElementById('manualAppVenueName').value.trim();
     venueAddr1 = document.getElementById('manualAppVenueAddr1').value.trim();
+    venueAddr2 = document.getElementById('manualAppVenueAddr2').value.trim();
     venueDistrict = document.getElementById('manualAppVenueDistrict').value.trim();
     venueMaxCap = document.getElementById('manualAppVenueCapacity').value;
+    venueMaxParking = document.getElementById('manualAppVenueMaxParking').value;
     if(!venueName){
       errorBox.textContent = 'Please pick a registered venue or enter a venue name.';
       errorBox.classList.remove('hidden');
@@ -30840,16 +31141,25 @@ async function muni_createManualApplication(){
       requiredDocumentsSubmitted: regulatoryDocList.length === 0,
       regulatoryDocList,
       regulatoryDocuments,
+      // JCF Required Documents (JAMMS/JCAP Approval) — same fixed pair and
+      // "Not Uploaded" placeholder shape buildApplicationRecord() gives an
+      // online application, so a manual entry's JCF checklist (see
+      // jcfd_renderApplications/openJcfForm) starts in the same state
+      // instead of relying on every read site's own defensive fallback.
+      jcfDocuments: (window.JCF_REQUIRED_DOC_LIST || []).reduce((acc, docName) => {
+        acc[docName] = { uploaded: false, fileName: '', fileData: null, uploadedDate: '', status: 'Not Uploaded', officerNote: '' };
+        return acc;
+      }, {}),
       venueApproved: false,
       permitGenerated: false,
       permit: null,
       applicant: {
         type: isCompany ? 'Company' : 'Individual',
-        name, phone, home: '', email, trn,
-        age: '', dob: '', gender: '',
+        name, phone, home, email, trn,
+        age, dob, gender,
         addr1, addr2, district, parish,
         photoIdFileName: '', logoFileName: '',
-        directors: []
+        directors: isCompany ? muniManualDirectors.slice() : []
       },
       amusement: {
         licenseType: 'Special',
@@ -30857,15 +31167,15 @@ async function muni_createManualApplication(){
         eventName, eventDate, eventType,
         patrons,
         applicationDate: new Date().toISOString().slice(0,10),
-        privateSecurity: '',
-        securityRecords: [],
+        privateSecurity,
+        securityRecords: privateSecurity === 'Yes' ? muniManualSecurityRecords.slice() : [],
         flierFileName: '',
         bizRegFileName: ''
       },
       advertisement: { hasAds: false, items: [] },
       venue: {
-        name: venueName, addr1: venueAddr1, addr2: '', district: venueDistrict,
-        maxCap: venueMaxCap, maxParking: '', totalBuildingCap: '', numBuildings: '',
+        name: venueName, addr1: venueAddr1, addr2: venueAddr2, district: venueDistrict,
+        maxCap: venueMaxCap, maxParking: venueMaxParking, totalBuildingCap: '', numBuildings: '',
         useOfVenue: '', additionalParking: [],
         ownerName: pickedVenue ? (pickedVenue.ownerName || '') : '',
         ownerAddress: pickedVenue ? (pickedVenue.ownerAddress || '') : '',
@@ -30900,8 +31210,8 @@ async function muni_createManualApplication(){
       try{
         await window.storage.set(`venue:${venueRegistryVenueId}`, JSON.stringify({
           id: venueRegistryVenueId, muniId: currentUser.muniId, name: venueName,
-          streetNumber: '', streetName: venueAddr1, district: venueDistrict,
-          maxCap: venueMaxCap || 0, cost: 0, active: false, pendingApproval: true,
+          streetNumber: '', streetName: [venueAddr1, venueAddr2].filter(Boolean).join(', '), district: venueDistrict,
+          maxCap: venueMaxCap || 0, maxParking: venueMaxParking || 0, cost: 0, active: false, pendingApproval: true,
           sourceAppNumber: appNumber
         }), true);
       } catch(venueErr){ /* best-effort only */ }
