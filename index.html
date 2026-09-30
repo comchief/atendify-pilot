@@ -25634,7 +25634,17 @@ async function muni_initRegistryData(){
     const agencyRecords = await window.atdLoadAgencies();
     MUNICIPALITIES = agencyRecords
       .filter(a => a.type === 'Municipal Corporation' && a.status === 'Active' && a.muniNumber)
-      .map(a => ({ id: a.muniNumber, name: a.name, subscriptionTier: a.subscriptionTier || 'Premium' }));
+      .map(a => ({
+        id: a.muniNumber, name: a.name, subscriptionTier: a.subscriptionTier || 'Premium',
+        // Carried through so muniMeta.appFeeSpecial/appFeeAnnual actually
+        // resolve to the National Admin's configured fee instead of always
+        // being undefined — mirrors the POA wizard's own mapping in
+        // poa_initMunicipalities(), which already includes these. Without
+        // this, any code reading MUNICIPALITIES for these fields (including
+        // muni_createManualApplication()'s Atendify fee lookup) silently
+        // fell back to its hardcoded default no matter what Admin set.
+        appFeeAnnual: a.appFeeAnnual, appFeeSpecial: a.appFeeSpecial
+      }));
   }catch(e){ MUNICIPALITIES = []; }
   try{
     municipalUsers = await window.atdLoadMuniUsers();
@@ -31101,8 +31111,17 @@ async function muni_createManualApplication(){
     }
 
     const appNumber = await muni_generateManualAppNumber();
-    const muniMeta = MUNICIPALITIES.find(m => m.id === currentUser.muniId);
-    const applicationFee = (muniMeta && muniMeta.appFeeSpecial != null) ? muniMeta.appFeeSpecial : 2500;
+    // Fetched live (not read off the cached MUNICIPALITIES array, which is
+    // only rebuilt at login/session-restore — see muni_refreshLoginRegistry's
+    // no-op-while-logged-in guard) so this always reflects whatever the
+    // National Admin currently has set for this municipality's Special Event
+    // application fee, even if it was changed after this officer signed in.
+    // Same pattern renderMuniBilling() already uses for full agency fields
+    // MUNICIPALITIES doesn't carry.
+    const myAgencyRecord = await muni_loadMyAgencyRecord();
+    // 2500 mirrors the platform default (APPLICATION_FEE in the applicant
+    // wizard's own isolated script scope, not reachable from here).
+    const applicationFee = (myAgencyRecord && myAgencyRecord.appFeeSpecial != null) ? myAgencyRecord.appFeeSpecial : 2500;
 
     const eventTypeMatch = ((formElementsConfig && formElementsConfig.eventTypes) || []).find(t => t.name === eventType);
     const regulatoryDocList = eventTypeMatch ? eventTypeMatch.requiredDocuments.slice() : [];
@@ -31588,7 +31607,7 @@ function renderSubmissionColumn(a){
   if(!docList.length){
     html += `<p class="col-desc" style="margin:8px 0 0;">No additional regulatory documents are required for this application.</p>`;
   } else {
-    docList.forEach(name=>{
+    docList.forEach((name, docIdx)=>{
       // "Police Approval (apply online)" is no longer uploaded by the applicant —
       // it's obtained by completing the online JCF Noise Abatement application,
       // so its status here is driven entirely by the linked JCF application
@@ -31617,6 +31636,16 @@ function renderSubmissionColumn(a){
       // still needs an officer's Approve/Reject — same review controls as
       // an upload, just no file preview (see openDocModal's own branch).
       const canReview = d.uploaded || d.status === 'Not Applicable';
+      // Manual entries have no applicant wizard to have uploaded this in the
+      // first place — a Supervisor uploads it right here instead (see
+      // muni_uploadRegulatoryDoc()), mirroring muni_renderFixedDocRow's own
+      // canUploadManually pattern above. A normal applicant-submitted
+      // application never shows this control.
+      const canUploadManually = !d.uploaded && d.status !== 'Not Applicable' && r.entrySource === 'manual' && hasPerm('review');
+      const regUploadInputId = `manualRegDocUpload_${docIdx}`;
+      const regUploadCtl = canUploadManually ? `
+          <input type="file" id="${regUploadInputId}" class="manual-doc-upload-input" onchange='muni_uploadRegulatoryDoc(${JSON.stringify(name)}, this)'>
+          <button class="btn btn-sm btn-primary" onclick="document.getElementById('${regUploadInputId}').click()">Upload</button>` : '';
       html += `
         <div class="doc-review-row">
           <div>
@@ -31625,7 +31654,7 @@ function renderSubmissionColumn(a){
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
             <span class="badge ${statusClass}">${d.status}</span>
-            <button class="btn btn-sm" ${canReview ? '' : 'disabled'} onclick='openDocModal(${JSON.stringify(name)})'>View</button>
+            <button class="btn btn-sm" ${canReview ? '' : 'disabled'} onclick='openDocModal(${JSON.stringify(name)})'>View</button>${regUploadCtl}
           </div>
         </div>`;
     });
@@ -33027,6 +33056,67 @@ async function muni_uploadFixedDoc(key, inputEl){
   reader.readAsDataURL(file);
 }
 window.muni_uploadFixedDoc = muni_uploadFixedDoc;
+
+// Officer-side (Supervisor) upload for the admin-configured "regulatory
+// documents" checklist (Health Certification, Fire Certification, NSWMA,
+// etc. — driven by r.regulatoryDocList) on a manual (walk-in) application.
+// Mirrors muni_uploadFixedDoc above, but these documents use a different
+// storage convention: the applicant's own mmDocFileChosen() (POA/Main-Menu
+// scope) embeds the file INLINE as regulatoryDocuments[docName].fileData,
+// rather than a separate storageKey per document like the fixed docs. This
+// keeps a manually-uploaded document indistinguishable, to every downstream
+// reader (openDocModal/updateDocStatus/muni_computeRequiredDocumentsSubmitted),
+// from one the applicant uploaded themselves. Never offered for "Police
+// Approval (apply online)" — see the POLICE_APPROVAL_DOC_NAME special case
+// in renderSubmissionColumn, whose status comes from the linked JCF
+// application instead of any upload.
+async function muni_uploadRegulatoryDoc(docName, inputEl){
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  const a = applications.find(a => a.id === activeAppId);
+  if(!a || !a.raw) return;
+  const r = a.raw;
+
+  const reader = new FileReader();
+  reader.onload = async function(){
+    const dataUrl = reader.result;
+    r.regulatoryDocuments = r.regulatoryDocuments || {};
+    r.regulatoryDocuments[docName] = {
+      uploaded: true,
+      fileName: file.name,
+      fileData: dataUrl,
+      uploadedDate: new Date().toISOString().slice(0,10),
+      status: 'Submitted',
+      officerNote: ''
+    };
+
+    const computed = muni_computeRequiredDocumentsSubmitted(a);
+    r.requiredDocumentsSubmitted = computed;
+    a.requiredDocumentsSubmitted = computed;
+
+    const ok = await persistIfFromStorage(a);
+    if(!ok){
+      muni_showToast('Could not upload this file. Please try again.');
+      return;
+    }
+
+    if(window.atdLogAudit && currentUser){
+      await window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'document.manualUpload',
+        details: `Uploaded ${docName} for manual application ${a.appNumber}.`,
+        muniId: currentUser.muniId
+      });
+    }
+
+    muni_showToast(`${docName} uploaded.`);
+    renderAppDetail();
+    muni_renderAll();
+  };
+  reader.onerror = function(){ muni_showToast('Could not read this file. Please try again.'); };
+  reader.readAsDataURL(file);
+}
+window.muni_uploadRegulatoryDoc = muni_uploadRegulatoryDoc;
 
 // Returns true only if the write to backend storage actually succeeded
 // (or there was nothing to persist). Most callers historically ignored the
