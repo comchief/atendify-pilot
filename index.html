@@ -7568,7 +7568,7 @@
 <div class="modal-overlay hidden" id="poa_adLocationModal">
   <div class="modal-box modal-wide">
     <h3>Assign sign locations</h3>
-    <p class="modal-sub" id="poa_adLocationModalSub">Assign each sign below to one of this municipality's standard locations.</p>
+    <p class="modal-sub" id="poa_adLocationModalSub">Assign each sign below to one of this municipality's standard locations, and the date it will go up. Each sign stays up for 30 days from its start date.</p>
     <div id="poa_adLocationModalBody" style="max-height:50vh; overflow-y:auto;"></div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="poa_closeAdLocationModal()">Close</button>
@@ -8251,8 +8251,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <label for="adLocationInput">Location name</label>
             <input type="text" id="adLocationInput" placeholder="e.g. Main Street, near the market" onkeydown="if(event.key==='Enter'){event.preventDefault(); addAdLocation();}">
           </div>
+          <div class="field-group" style="width:170px;">
+            <label for="adLocationMaxInput">Max ads at once</label>
+            <input type="number" min="1" id="adLocationMaxInput" placeholder="No limit" onkeydown="if(event.key==='Enter'){event.preventDefault(); addAdLocation();}">
+          </div>
           <button class="btn btn-primary" type="button" id="adLocationAddBtn" style="margin-bottom:26px;" onclick="addAdLocation()">+ Add location</button>
         </div>
+        <p style="font-size:12.5px; color:var(--text-muted); margin:-10px 0 14px;">Each advertisement occupies its assigned location for 30 days from the promoter's chosen start date. Once a location's "Max ads at once" is reached for a given 30-day window, promoters are automatically offered the next available start date instead. Leave blank for no limit.</p>
         <div id="adLocationsList" style="margin-top:14px;"></div>
       </div>
 
@@ -19971,7 +19976,138 @@ const AD_PRICES = {
 // is invoked once immediately at module load (see the top-level
 // `buildAdTable();` call), so this must already be initialized by then.
 let poa_adLocationAssignments = {};
+// Parallel to poa_adLocationAssignments, same "<item name>#<index>" keys —
+// the start date the promoter chose for that sign's 30-day placement at its
+// assigned location (see the Max Advertisements per location feature,
+// poa_isLocationStartAvailable/poa_nextAvailableLocationDate below).
+let poa_adLocationStartDates = {};
 let muniAdLocations = [];
+
+// muniAdLocations entries used to be plain name strings; a location can now
+// also carry a maxAds cap (see adLocName()/adLocMax() in the Municipal
+// Officer portal's own matching copy of this normalization — duplicated
+// here per this file's per-scope convention, since one <script> can't reach
+// into another's lexical scope). A municipality's existing plain-string
+// locations keep working, unrestricted, until the CEO explicitly sets a cap.
+function poa_adLocName(loc){ return typeof loc === 'string' ? loc : ((loc && loc.name) || ''); }
+function poa_adLocMax(loc){
+  if(typeof loc === 'string') return null;
+  const m = loc && loc.maxAds;
+  return (typeof m === 'number' && m > 0) ? m : null;
+}
+
+// ---- Advertisement Location Capacity (30-day placement window) --------
+// Each sign occupies its assigned location for a fixed 30-day window
+// starting on the promoter's chosen start date (inclusive — a sign started
+// Aug 1 occupies Aug 1 through Aug 30, so the next slot opens up Aug 31).
+// poa_locationBookings (populated once per modal-open by
+// poa_loadLocationBookings(), since it requires an async scan of every
+// submitted application) holds every OTHER already-placed sign's start date
+// at each location; this applicant's own in-progress picks made elsewhere
+// in the same modal are merged in live by poa_mergedLocationBookings() so
+// two signs on the SAME in-progress application can't both claim a slot the
+// location doesn't actually have room for.
+const AD_LOCATION_WINDOW_DAYS = 30;
+let poa_locationBookings = {}; // { [locationName]: [{start: 'YYYY-MM-DD'}] }
+
+function poa_adWindowDates(startDateStr){
+  const start = new Date(startDateStr + 'T00:00:00');
+  const dates = [];
+  for(let i = 0; i < AD_LOCATION_WINDOW_DAYS; i++){
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+// Scans every submitted application for signs that already have both a
+// location and a start date on file, grouped by location. This is a
+// client-side scan (not a server query) because the whole app persists
+// records as plain JSON blobs in a key-value store, not SQL tables — same
+// pattern already used elsewhere in this file for cross-application reads
+// (e.g. the JCF event calendar, admin reports). An application submitted
+// before this feature existed has a location but no start date for its
+// signs — there's no reliable date to treat that older placement as
+// occupying, so it's deliberately left out of the count rather than guessed
+// at (see delivery notes).
+async function poa_loadLocationBookings(){
+  poa_locationBookings = {};
+  if(!window.storage) return;
+  try{
+    const listResult = await window.storage.list('application:', true);
+    const keys = (listResult && listResult.keys) || [];
+    const fetched = await Promise.all(keys.map(async key => {
+      try{
+        const result = await window.storage.get(key, true);
+        if(result && result.value) return JSON.parse(result.value);
+      } catch(err){ /* skip unreadable */ }
+      return null;
+    }));
+    fetched.forEach(rec=>{
+      if(!rec || !rec.advertisement || !Array.isArray(rec.advertisement.items)) return;
+      rec.advertisement.items.forEach(item=>{
+        if(!Array.isArray(item.locations)) return;
+        item.locations.forEach((loc, i)=>{
+          const start = Array.isArray(item.startDates) ? item.startDates[i] : null;
+          if(!loc || !start) return;
+          if(!poa_locationBookings[loc]) poa_locationBookings[loc] = [];
+          poa_locationBookings[loc].push({ start });
+        });
+      });
+    });
+  } catch(err){ /* leave whatever was already loaded (likely empty) */ }
+}
+
+// Folds this applicant's own in-progress picks (made elsewhere in the same
+// Location Assignment modal, not yet submitted) into the already-scanned
+// bookings for one location, excluding the slot currently being checked —
+// a sign can't be blocked by its own not-yet-finalized pick.
+function poa_mergedLocationBookings(locationName, excludeKey){
+  const scanned = poa_locationBookings[locationName] || [];
+  const inProgress = [];
+  Object.keys(poa_adLocationAssignments).forEach(key=>{
+    if(key === excludeKey) return;
+    if(poa_adLocationAssignments[key] !== locationName) return;
+    const start = poa_adLocationStartDates[key];
+    if(start) inProgress.push({ start });
+  });
+  return scanned.concat(inProgress);
+}
+
+// True if starting a new sign at `locationName` on `startDateStr` would keep
+// every day of its own 30-day window under maxAds existing signs already
+// occupying that location that same day.
+function poa_isLocationStartAvailable(locationName, startDateStr, maxAds, bookings){
+  if(maxAds === null || maxAds === undefined) return true; // no cap configured
+  const occupancy = {};
+  poa_adWindowDates(startDateStr).forEach(d => occupancy[d] = 0);
+  bookings.forEach(b=>{
+    poa_adWindowDates(b.start).forEach(d=>{
+      if(Object.prototype.hasOwnProperty.call(occupancy, d)) occupancy[d]++;
+    });
+  });
+  return Object.values(occupancy).every(count => count < maxAds);
+}
+
+// Walks forward one day at a time from desiredDateStr to find the first
+// date with room for a full 30-day placement — existing bookings can start
+// on any staggered mix of dates, so this can't be computed analytically in
+// one step. Capped at ~2 years out so a pathological max (e.g. 0, or a
+// location that's simply always full) can't loop forever. excludeKey is the
+// "<item name>#<index>" slot being checked, so its own already-chosen date
+// (if any) doesn't block its own search for a different one.
+function poa_nextAvailableLocationDate(locationName, desiredDateStr, maxAds, excludeKey){
+  if(maxAds === null || maxAds === undefined) return desiredDateStr;
+  const bookings = poa_mergedLocationBookings(locationName, excludeKey);
+  let d = new Date(desiredDateStr + 'T00:00:00');
+  for(let i = 0; i < 730; i++){
+    const ds = d.toISOString().slice(0, 10);
+    if(poa_isLocationStartAvailable(locationName, ds, maxAds, bookings)) return ds;
+    d.setDate(d.getDate() + 1);
+  }
+  return null; // no availability found within 2 years
+}
 
 function defaultGroupedAdItems(){
   // The hardcoded seed catalog (used before a municipality has configured
@@ -20003,6 +20139,7 @@ function buildAdTable(groups){
   // matches these rows one-for-one — start the Location Assignment state
   // clean rather than risk stale keys silently miscounting.
   poa_adLocationAssignments = {};
+  poa_adLocationStartDates = {};
   document.querySelectorAll('.ad-qty').forEach(input=>{
     input.addEventListener('input', ()=>{
       const qty = parseInt(input.value, 10) || 0;
@@ -20016,6 +20153,11 @@ function buildAdTable(groups){
         if(!k.startsWith(input.dataset.type + '#')) return;
         const idx = parseInt(k.slice(input.dataset.type.length + 1), 10);
         if(idx >= qty) delete poa_adLocationAssignments[k];
+      });
+      Object.keys(poa_adLocationStartDates).forEach(k=>{
+        if(!k.startsWith(input.dataset.type + '#')) return;
+        const idx = parseInt(k.slice(input.dataset.type.length + 1), 10);
+        if(idx >= qty) delete poa_adLocationStartDates[k];
       });
       poa_updateAdLocationButton();
     });
@@ -20075,9 +20217,29 @@ async function loadMunicipalityAdLocations(){
   poa_updateAdLocationButton();
 }
 
+function poa_findAdLocationEntry(name){
+  return muniAdLocations.find(l => poa_adLocName(l) === name) || null;
+}
+
+// A sign counts as fully assigned only once it has BOTH a location and a
+// start date, and — if that location has a configured "Max ads at once" —
+// that start date actually has room (see poa_isLocationStartAvailable()).
+// Before the Max Advertisements per location feature, a location alone was
+// enough; a start date is now part of "assigning" a sign, same as the
+// location itself, since the CEO's cap is meaningless without one.
+function poa_signSlotValid(type, i){
+  const key = `${type}#${i}`;
+  const loc = poa_adLocationAssignments[key];
+  const date = poa_adLocationStartDates[key];
+  if(!loc || !date) return false;
+  const maxAds = poa_adLocMax(poa_findAdLocationEntry(loc));
+  if(maxAds === null) return true;
+  return poa_isLocationStartAvailable(loc, date, maxAds, poa_mergedLocationBookings(loc, key));
+}
+
 // Walks every currently-rendered .ad-qty row and reports, across every item
 // with requiresLocation on and qty > 0, how many individual signs need a
-// location assigned vs. how many already have one.
+// location (and a valid start date) assigned vs. how many already have one.
 function poa_adLocationRequirement(){
   const perType = [];
   let totalRequired = 0, totalAssigned = 0;
@@ -20087,7 +20249,7 @@ function poa_adLocationRequirement(){
     if(qty <= 0) return;
     const type = input.dataset.type;
     let assigned = 0;
-    for(let i = 0; i < qty; i++){ if(poa_adLocationAssignments[`${type}#${i}`]) assigned++; }
+    for(let i = 0; i < qty; i++){ if(poa_signSlotValid(type, i)) assigned++; }
     perType.push({ type, qty, assigned });
     totalRequired += qty;
     totalAssigned += assigned;
@@ -20106,7 +20268,7 @@ function poa_updateAdLocationButton(){
   wrap.classList.toggle('hidden', req.totalRequired === 0);
   if(req.totalRequired === 0) return;
   const complete = req.totalAssigned >= req.totalRequired;
-  hint.textContent = `${req.totalAssigned} of ${req.totalRequired} sign${req.totalRequired === 1 ? '' : 's'} assigned a location.`;
+  hint.textContent = `${req.totalAssigned} of ${req.totalRequired} sign${req.totalRequired === 1 ? '' : 's'} assigned a location and start date.`;
   hint.style.color = complete ? 'var(--green, #1a9f5c)' : 'var(--text-muted)';
 }
 
@@ -20116,8 +20278,12 @@ async function poa_openAdLocationModal(){
   // this step for a while, and a location the CEO adds in the meantime (or
   // one that only starts working once fix50_adlocations_rls.sql is applied)
   // should show up the next time they open this modal, not only after a
-  // full page reload.
+  // full page reload. Also re-scan every other applicant's already-placed
+  // signs (poa_loadLocationBookings()) so a location that filled up while
+  // this applicant was mid-wizard is reflected the next time they open this
+  // modal, not only after a full page reload.
   await loadMunicipalityAdLocations();
+  await poa_loadLocationBookings();
   poa_renderAdLocationModalBody();
   document.getElementById('poa_adLocationModal').classList.remove('hidden');
 }
@@ -20126,6 +20292,12 @@ function poa_closeAdLocationModal(){
 }
 window.poa_openAdLocationModal = poa_openAdLocationModal;
 window.poa_closeAdLocationModal = poa_closeAdLocationModal;
+
+// Today's date (local), used as the start-date field's minimum — a sign
+// can't be placed in the past.
+function poa_todayDateStr(){
+  return new Date().toISOString().slice(0, 10);
+}
 
 function poa_renderAdLocationModalBody(){
   const body = document.getElementById('poa_adLocationModalBody');
@@ -20138,19 +20310,52 @@ function poa_renderAdLocationModalBody(){
     body.innerHTML = `<p class="col-desc" style="color:var(--red);">This municipality hasn't configured any Standard Advertisement Locations yet. Please contact them before continuing, or choose a different advertisement item.</p>`;
     return;
   }
+  const today = poa_todayDateStr();
   let html = '';
   req.perType.forEach(pt=>{
     html += `<div class="section-title" style="margin-top:16px;">${poa_escapeHtml(pt.type)} (${pt.assigned} of ${pt.qty} assigned)</div>`;
     for(let i = 0; i < pt.qty; i++){
       const key = `${pt.type}#${i}`;
-      const current = poa_adLocationAssignments[key] || '';
-      const options = muniAdLocations.map(l => `<option value="${poa_escapeHtml(l)}" ${l === current ? 'selected' : ''}>${poa_escapeHtml(l)}</option>`).join('');
+      const currentLoc = poa_adLocationAssignments[key] || '';
+      const currentDate = poa_adLocationStartDates[key] || '';
+      const options = muniAdLocations.map(l => {
+        const name = poa_adLocName(l);
+        return `<option value="${poa_escapeHtml(name)}" ${name === currentLoc ? 'selected' : ''}>${poa_escapeHtml(name)}</option>`;
+      }).join('');
+
+      // Figures out what (if anything) to tell the applicant about this
+      // sign's location + date combination right now: a cap-reached warning
+      // with a one-click way to accept the next open date, a plain "up to N
+      // at once" info note before a date is even picked, or nothing at all
+      // for an unlimited location / no location chosen yet.
+      let note = '';
+      if(currentLoc){
+        const maxAds = poa_adLocMax(poa_findAdLocationEntry(currentLoc));
+        if(maxAds !== null){
+          if(!currentDate){
+            note = `<div class="field-hint" style="color:var(--text-muted);">"${poa_escapeHtml(currentLoc)}" allows up to ${maxAds} advertisement${maxAds === 1 ? '' : 's'} at once (each stays up 30 days from its start date).</div>`;
+          } else if(!poa_isLocationStartAvailable(currentLoc, currentDate, maxAds, poa_mergedLocationBookings(currentLoc, key))){
+            const nextDate = poa_nextAvailableLocationDate(currentLoc, currentDate, maxAds, key);
+            note = `<div class="field-hint" style="color:var(--red);">"${poa_escapeHtml(currentLoc)}" already has ${maxAds} advertisement${maxAds === 1 ? '' : 's'} up during that period.` +
+              (nextDate
+                ? ` The next available start date is <strong>${poa_escapeHtml(nextDate)}</strong>. <a href="#" onclick='poa_applyNextAvailableDate(${JSON.stringify(pt.type)}, ${i}, ${JSON.stringify(nextDate)}); return false;'>Use ${poa_escapeHtml(nextDate)}</a>.`
+                : ` No open date was found in the next 2 years — please choose a different location.`) +
+              `</div>`;
+          }
+        }
+      }
+
       html += `<div class="field-group" style="margin-bottom:10px;">
         <label>${poa_escapeHtml(pt.type)} — Sign ${i + 1}</label>
-        <select onchange='poa_setAdLocationAssignment(${JSON.stringify(pt.type)}, ${i}, this.value)'>
-          <option value="" ${current ? '' : 'selected'}>Select a location</option>
-          ${options}
-        </select>
+        <div class="field-row">
+          <select style="flex:1;" onchange='poa_setAdLocationAssignment(${JSON.stringify(pt.type)}, ${i}, this.value)'>
+            <option value="" ${currentLoc ? '' : 'selected'}>Select a location</option>
+            ${options}
+          </select>
+          <input type="date" style="flex:1;" min="${today}" value="${currentDate}" ${currentLoc ? '' : 'disabled'}
+            onchange='poa_setAdLocationStartDate(${JSON.stringify(pt.type)}, ${i}, this.value)'>
+        </div>
+        ${note}
       </div>`;
     }
   });
@@ -20161,11 +20366,28 @@ window.poa_renderAdLocationModalBody = poa_renderAdLocationModalBody;
 function poa_setAdLocationAssignment(type, index, value){
   const key = `${type}#${index}`;
   if(value) poa_adLocationAssignments[key] = value;
-  else delete poa_adLocationAssignments[key];
+  else { delete poa_adLocationAssignments[key]; delete poa_adLocationStartDates[key]; }
   poa_updateAdLocationButton();
   poa_renderAdLocationModalBody();
 }
 window.poa_setAdLocationAssignment = poa_setAdLocationAssignment;
+
+function poa_setAdLocationStartDate(type, index, value){
+  const key = `${type}#${index}`;
+  if(value) poa_adLocationStartDates[key] = value;
+  else delete poa_adLocationStartDates[key];
+  poa_updateAdLocationButton();
+  poa_renderAdLocationModalBody();
+}
+window.poa_setAdLocationStartDate = poa_setAdLocationStartDate;
+
+// Called from the "Use <date>" link shown next to a blocked start date —
+// accepts the suggested next-available date for that sign in one click
+// instead of making the applicant guess-and-check their way to an open one.
+function poa_applyNextAvailableDate(type, index, date){
+  poa_setAdLocationStartDate(type, index, date);
+}
+window.poa_applyNextAvailableDate = poa_applyNextAvailableDate;
 
 const steps = ["poa_step1","poa_step2","poa_step3","poa_step4","step5"];
 const stepNames = ["Applicant","Amusement","Advertisement","Venue","Costs"];
@@ -20848,7 +21070,7 @@ async function poa_goStepSaving(n){
   if(currentStep === 3){
     const req = poa_adLocationRequirement();
     if(req.totalAssigned < req.totalRequired){
-      poa_showToast(`Please assign a location to every sign (${req.totalAssigned} of ${req.totalRequired} done) using "Location Assignment" before continuing.`);
+      poa_showToast(`Please assign a location and start date to every sign (${req.totalAssigned} of ${req.totalRequired} done) using "Location Assignment" before continuing.`);
       return;
     }
   }
@@ -21680,6 +21902,14 @@ async function loadMunicipalityVenues(){
     // The local-storage-shim fallback (no backend configured — sandboxed
     // preview only) has no RLS to work around, so it keeps the old
     // system-wide-fetch-then-filter approach.
+    //
+    // That function's explicit field list is also why tiered-venue pricing
+    // (tieredPricing/tierPrices) silently priced at $0 for every applicant
+    // when it first shipped — the function's jsonb_build_object(...) was
+    // written before those fields existed and never returned them, even
+    // though the venue record itself had them set correctly. Fixed by
+    // Fix #60 (backend/fix60_venue_public_read_tiered_pricing.sql), which
+    // adds just those two fields to what the function returns.
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
       const rows = await window.ATDBackend.publicVenues(selectedMunicipality.id);
       dbVenues = rows || [];
@@ -21891,7 +22121,26 @@ function renderDbVenueCard(venue){
   }
 
   const address = [venue.streetNumber, venue.streetName, venue.district].filter(Boolean).join(', ');
-  const feeNote = venue.cost ? `${poa_formatCurrency(venue.cost)} venue fee applies (charged instead of the standard inspection fee)` : 'No venue fee on file for this venue.';
+  // Bug fix: this used to check only the flat venue.cost field, which is
+  // always empty/0 for a tiered venue (tiered venues price off tierPrices,
+  // not cost -- see poa_resolveVenueCost) -- so a correctly-configured
+  // tiered venue showed the misleading "No venue fee on file for this
+  // venue" message here even though a real fee would be charged once
+  // patrons/computeCosts() ran. Mirrors the same tiered-vs-flat branch
+  // poa_resolveVenueCost/poa_venueTierLabel already use for the actual
+  // charge, reading the patron count already entered on the earlier
+  // Amusement step (id="patrons").
+  const patronsForFeeNote = parseInt(poa_val('patrons'), 10) || 0;
+  let feeNote;
+  if(venue.tieredPricing && venue.tierPrices){
+    const tierFee = poa_resolveVenueCost(venue, patronsForFeeNote);
+    const tierLabel = poa_venueTierLabel(venue, patronsForFeeNote);
+    feeNote = patronsForFeeNote
+      ? `Tiered pricing — ${tierLabel}: ${poa_formatCurrency(tierFee)} venue fee applies (charged instead of the standard inspection fee)`
+      : `Tiered pricing applies at this venue — the fee depends on your expected number of patrons (entered on the Amusement step).`;
+  } else {
+    feeNote = venue.cost ? `${poa_formatCurrency(venue.cost)} venue fee applies (charged instead of the standard inspection fee)` : 'No venue fee on file for this venue.';
+  }
 
   card.innerHTML = `
     <div class="record-row">
@@ -22539,16 +22788,22 @@ async function buildApplicationRecord(appNumber){
     document.querySelectorAll('.ad-qty').forEach(inp=>{
       const q = parseInt(inp.value, 10) || 0;
       if(q > 0){
-        // One assigned location per unit, in order — see
-        // poa_adLocationAssignments/poa_adLocationRequirement(). An item
-        // whose municipality doesn't require a placement location (or
-        // wasn't turned on when this application was submitted) simply
-        // carries an empty array here, same as before this feature existed.
+        // One assigned location (and, since the Max Advertisements per
+        // location feature, one matching start date) per unit, in order —
+        // see poa_adLocationAssignments/poa_adLocationStartDates/
+        // poa_adLocationRequirement(). An item whose municipality doesn't
+        // require a placement location (or wasn't turned on when this
+        // application was submitted) simply carries empty arrays here, same
+        // as before this feature existed.
         const locations = [];
+        const startDates = [];
         if(inp.dataset.requiresLocation === '1'){
-          for(let i = 0; i < q; i++){ locations.push(poa_adLocationAssignments[`${inp.dataset.type}#${i}`] || ''); }
+          for(let i = 0; i < q; i++){
+            locations.push(poa_adLocationAssignments[`${inp.dataset.type}#${i}`] || '');
+            startDates.push(poa_adLocationStartDates[`${inp.dataset.type}#${i}`] || '');
+          }
         }
-        adItems.push({ name: inp.dataset.type, qty: q, cost: q * (parseFloat(inp.dataset.price) || 0), locations });
+        adItems.push({ name: inp.dataset.type, qty: q, cost: q * (parseFloat(inp.dataset.price) || 0), locations, startDates });
       }
     });
   }
@@ -22991,7 +23246,7 @@ async function submitApp(){
     if(s === 3){
       const adLocReq = poa_adLocationRequirement();
       if(adLocReq.totalAssigned < adLocReq.totalRequired){
-        errorBox.textContent = `Please assign a location to every sign (${adLocReq.totalAssigned} of ${adLocReq.totalRequired} done) using "Location Assignment" before submitting.`;
+        errorBox.textContent = `Please assign a location and start date to every sign (${adLocReq.totalAssigned} of ${adLocReq.totalRequired} done) using "Location Assignment" before submitting.`;
         errorBox.classList.remove('hidden');
         return;
       }
@@ -28389,7 +28644,25 @@ async function deleteAdItem(id){
 // side). Kept as one simple JSON array under its own storage key per
 // municipality, rather than folded into formElements:<muniId> — a flat list
 // of names has no per-item metadata to justify that shared record's shape.
+//
+// Each entry used to be a plain name string. The "Max Advertisements per
+// location" feature added a per-location cap (how many signs can occupy
+// that location at once, within any rolling 30-day placement window — see
+// poa_isLocationStartAvailable/poa_nextAvailableLocationDate on the
+// applicant side), so an entry is now `{name, maxAds}` (maxAds: a positive
+// integer, or null for "no limit"). adLocName()/adLocMax() below normalize
+// either shape so a municipality's existing plain-string locations (saved
+// before this feature existed) keep working, unrestricted, until the CEO
+// explicitly sets a max for them — adding a cap is opt-in, never retroactive
+// by surprise.
 let adLocations = [];
+
+function adLocName(loc){ return typeof loc === 'string' ? loc : ((loc && loc.name) || ''); }
+function adLocMax(loc){
+  if(typeof loc === 'string') return null;
+  const m = loc && loc.maxAds;
+  return (typeof m === 'number' && m > 0) ? m : null;
+}
 
 async function loadAdLocations(){
   if(!window.storage || !currentUser) return;
@@ -28428,10 +28701,18 @@ function renderAdLocationsList(){
   container.innerHTML = `<div style="display:flex; flex-direction:column; gap:8px;">` +
     adLocations.map((loc, i) => `
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 14px; border:1px solid var(--border); border-radius:8px;">
-        <span style="font-size:14px;">${muni_escapeHtml(loc)}</span>
-        <button class="icon-btn" title="${canManageLocations ? 'Remove' : tierLockTitle}" ${canManageLocations ? '' : 'disabled'} onclick="removeAdLocation(${i})">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-        </button>
+        <span style="font-size:14px;">${muni_escapeHtml(adLocName(loc))}</span>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <label style="font-size:12.5px; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
+            Max ads at once
+            <input type="number" min="1" style="width:80px;" value="${adLocMax(loc) === null ? '' : adLocMax(loc)}" placeholder="No limit"
+              ${canManageLocations ? '' : 'disabled'} title="${canManageLocations ? '' : tierLockTitle}"
+              onchange="updateAdLocationMax(${i}, this.value)">
+          </label>
+          <button class="icon-btn" title="${canManageLocations ? 'Remove' : tierLockTitle}" ${canManageLocations ? '' : 'disabled'} onclick="removeAdLocation(${i})">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>
       </div>
     `).join('') + `</div>`;
 }
@@ -28451,15 +28732,18 @@ async function addAdLocation(){
     muni_showToast('Please enter a location name.');
     return;
   }
-  if(adLocations.some(l => l.toLowerCase() === name.toLowerCase())){
+  if(adLocations.some(l => adLocName(l).toLowerCase() === name.toLowerCase())){
     muni_showToast('That location is already in the list.');
     return;
   }
-  adLocations.push(name);
+  const maxInput = document.getElementById('adLocationMaxInput');
+  const maxVal = maxInput ? parseInt(maxInput.value, 10) : NaN;
+  adLocations.push({ name, maxAds: (Number.isInteger(maxVal) && maxVal > 0) ? maxVal : null });
   const saved = await persistAdLocations();
   renderAdLocationsList();
   if(saved){
     input.value = '';
+    if(maxInput) maxInput.value = '';
     muni_showToast(`${name} added to your standard locations.`);
   } else {
     // Roll back the optimistic in-memory add so the list on screen matches
@@ -28481,8 +28765,9 @@ async function removeAdLocation(index){
     muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
     return;
   }
-  const name = adLocations[index];
-  if(name === undefined) return;
+  const loc = adLocations[index];
+  if(loc === undefined) return;
+  const name = adLocName(loc);
   if(!(await window.atdConfirm(`Remove "${name}" from your standard locations? Applicants will no longer be able to assign a sign to it.`))) return;
   adLocations.splice(index, 1);
   const saved = await persistAdLocations();
@@ -28491,9 +28776,41 @@ async function removeAdLocation(index){
     muni_showToast(`${name} removed.`);
   } else {
     // Roll back — see the matching comment in addAdLocation().
-    adLocations.splice(index, 0, name);
+    adLocations.splice(index, 0, loc);
     renderAdLocationsList();
   }
+}
+
+// Edits an existing location's cap in place (rather than remove + re-add,
+// which would also momentarily make it unavailable to any applicant
+// browsing the Location Assignment modal at that exact moment). Same
+// optimistic-update-then-roll-back-on-failure pattern as add/removeAdLocation.
+async function updateAdLocationMax(index, value){
+  if(!hasPerm('review')){
+    muni_showToast("You don't have permission to manage advertisements.");
+    renderAdLocationsList();
+    return;
+  }
+  if(!muniCanManageAdLocations()){
+    muni_showToast("This feature isn't included in your municipality's current subscription tier. Contact your Atendify administrator to upgrade.");
+    renderAdLocationsList();
+    return;
+  }
+  const loc = adLocations[index];
+  if(loc === undefined) return;
+  const previous = adLocMax(loc);
+  const parsed = parseInt(value, 10);
+  const next = (Number.isInteger(parsed) && parsed > 0) ? parsed : null;
+  adLocations[index] = { name: adLocName(loc), maxAds: next };
+  const saved = await persistAdLocations();
+  if(saved){
+    muni_showToast(next === null
+      ? `${adLocName(loc)} now has no limit on advertisements at once.`
+      : `${adLocName(loc)} capped at ${next} advertisement${next === 1 ? '' : 's'} at once.`);
+  } else {
+    adLocations[index] = { name: adLocName(loc), maxAds: previous };
+  }
+  renderAdLocationsList();
 }
 
 // Returns true once the write actually reaches storage, false if it was
@@ -31714,7 +32031,15 @@ function renderSubmissionColumn(a){
         // array here just means that item never required one.
         let value = muni_formatCurrency(item.cost);
         if(item.locations && item.locations.length){
-          value += ' — ' + item.locations.map(l => l || '(unassigned)').join(', ');
+          // startDates is a parallel array to locations (one start date per
+          // sign, see poa_adLocationStartDates on the applicant side) —
+          // added alongside the Max Advertisements per location feature, so
+          // an item submitted before that existed simply has no startDates
+          // array at all and just shows its location with no date.
+          value += ' — ' + item.locations.map((l, idx) => {
+            const d = item.startDates && item.startDates[idx];
+            return (l || '(unassigned)') + (d ? ` (from ${d})` : '');
+          }).join(', ');
         }
         html += detailRow(`${item.name} (x${item.qty})`, value);
       });
@@ -34502,6 +34827,7 @@ window.addCustomFormElementDoc = addCustomFormElementDoc;
 window.resetFormElementsToDefault = resetFormElementsToDefault;
 window.deleteAdItem = deleteAdItem;
 window.removeAdLocation = removeAdLocation;
+window.updateAdLocationMax = updateAdLocationMax;
 window.deleteUser = deleteUser;
 window.documentAdditionalPayment = documentAdditionalPayment;
 window.requestMunicipalCredit = requestMunicipalCredit;
