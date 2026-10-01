@@ -9230,9 +9230,45 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <label for="venueFormDistrict">District</label>
         <input type="text" id="venueFormDistrict" placeholder="District">
       </div>
-      <div class="field-group">
+      <div class="field-group" id="venueFormFlatCostGroup">
         <label for="venueFormCost">Cost (JMD)</label>
         <input type="number" id="venueFormCost" min="0" placeholder="e.g. 5000">
+      </div>
+    </div>
+
+    <!-- Tiered pricing: an alternative to the single flat Cost field above,
+         charging whichever of three FIXED, platform-wide patron-count
+         ranges matches an event's expected patrons (see
+         muni_resolveVenueCost()'s own comment for the exact ranges and why
+         they're fixed rather than per-venue). Only the three prices are
+         venue-specific — set here, read at application time by both the
+         online wizard (computeCosts()) and manual (walk-in) entry
+         (muni_createManualApplication()) whenever this venue is picked from
+         the database. -->
+    <div class="toggle-row" style="margin-bottom:16px;">
+      <label class="toggle-switch">
+        <input type="checkbox" id="venueTieredToggle" onchange="venueTieredToggleChanged()">
+        <span class="toggle-slider"></span>
+      </label>
+      <span style="font-size:14px; font-weight:600;">Tiered pricing (based on expected patrons)</span>
+    </div>
+    <div class="hidden" id="venueTierPricesSection" style="margin-bottom:20px;">
+      <div class="field-hint" style="margin-bottom:10px;">The cost charged is whichever tier below matches the number of patrons expected for the event.</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="venueFormTier1">Tier 1 — 1 to 300 patrons (JMD)</label>
+          <input type="number" id="venueFormTier1" min="0" placeholder="e.g. 5000">
+        </div>
+        <div class="field-group">
+          <label for="venueFormTier2">Tier 2 — 301 to 999 patrons (JMD)</label>
+          <input type="number" id="venueFormTier2" min="0" placeholder="e.g. 10000">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label for="venueFormTier3">Tier 3 — 1000 or more patrons (JMD)</label>
+          <input type="number" id="venueFormTier3" min="0" placeholder="e.g. 20000">
+        </div>
       </div>
     </div>
 
@@ -16734,11 +16770,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // field (via jcfd_getLiveJcfDocuments) rather than the stale
     // rec.carriedJcfDocuments snapshot, which only ever reflected the
     // filenames on file at the moment this JCF filing was first submitted.
-    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
+    const { jams, jcap, poaEventType } = await jcfd_getLiveJcfDocuments(rec);
     html += jcfd_detailRowDoc('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId', isManualEntry);
     html += jcfd_detailRowDoc("Proof of Ownership/Authorization", vi.permissionLetterFileName, vi.permissionLetterStatus, 'permissionLetter', isManualEntry);
-    html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
-    html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
+    if(poaEventType === 'Dead Yard'){
+      html += jcfd_detailRow('JAMMS Approval', 'Not required for Dead Yard events');
+      html += jcfd_detailRow('JCAP Approval', 'Not required for Dead Yard events');
+    } else {
+      html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
+      html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
+    }
     html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -16958,7 +16999,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // linked POA application still resolves cleanly via the carriedJcfDocuments
   // filename-only snapshot.
   async function jcfd_getLiveJcfDocuments(rec){
-    let jams = null, jcap = null;
+    let jams = null, jcap = null, poaEventType = '';
     if(rec.poaAppNumber && window.storage){
       try{
         const r = await window.storage.get(`application:${rec.poaAppNumber}`, true);
@@ -16966,6 +17007,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const jd = (poaRec && poaRec.jcfDocuments) || {};
         jams = jd['JAMMS Approval'] || null;
         jcap = jd['JCAP Approval'] || null;
+        // "Dead Yard" is the one event type that never requires JAMMS/JCAP
+        // (see openJcfForm/submitJcfApp's own matching skip on the applicant
+        // side) — read straight off the linked POA application so this
+        // filing's own checklist gate/display can never disagree with it.
+        poaEventType = (poaRec && poaRec.amusement && poaRec.amusement.eventType) || '';
       } catch(e){ /* fall through to the snapshot below */ }
     }
     if(!jams && !jcap){
@@ -16973,7 +17019,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(carriedDocs.jamsFileName) jams = { uploaded: true, fileName: carriedDocs.jamsFileName };
       if(carriedDocs.jcapFileName) jcap = { uploaded: true, fileName: carriedDocs.jcapFileName };
     }
-    return { jams, jcap };
+    return { jams, jcap, poaEventType };
   }
 
   // Company Logo and Business Registration Document are uploaded on the
@@ -17036,14 +17082,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // gating logic below so they can never fall out of sync with each other.
   async function jcfd_computeChecklistAutoFields(rec){
     const eo = rec.eventOverview || {}, vi = rec.venueInfo || {}, briefings = rec.briefings || {};
-    const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
+    const { jams, jcap, poaEventType } = await jcfd_getLiveJcfDocuments(rec);
     // JAMMS/JCAP only ever exist for a filing with a linked POA application
     // to have carried them from (submitJcfApp()'s own continueFromStep2
     // gate only requires them in that case, since there's no upload control
     // for either in the JCF wizard itself) — so a standalone filing (no
     // poaAppNumber) is never penalized for lacking documents it had no way
-    // to supply in the first place.
-    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
+    // to supply in the first place. Same reasoning covers "Dead Yard"
+    // events: the applicant's own Documents tab never asks for JAMMS/JCAP
+    // for that event type (see renderMmJcfDocuments), so this gate must not
+    // wait on them either.
+    const jamsJcapSatisfied = !rec.poaAppNumber || poaEventType === 'Dead Yard' || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
     return {
       requiredDocsUploaded: !!eo.photoIdFileName && !!vi.permissionLetterFileName && jamsJcapSatisfied,
       promoterIdentityVerified: eo.photoIdStatus === 'Approved',
@@ -19863,6 +19912,32 @@ const APPLICATION_FEE = 2500;
 // fee there instead of this being one fixed platform-wide amount.
 const VENUE_INSPECTION_FEE = 5000;
 
+// Fixed platform-wide patron-count breakpoints for a venue's optional
+// "tiered pricing" (see saveVenue()'s tieredPricing/tierPrices fields on
+// the Municipal Officer side — Manage > Venues). Every venue that opts into
+// tiered pricing uses these same three ranges; only the price charged per
+// tier is venue-specific, set by the CEO when the venue is created/edited.
+// Mirrored as muni_resolveVenueCost()/muni_venueTierLabel() in the
+// Municipal Officer portal's own script scope, since a plain <script> tag
+// can't reach into another one's lexical scope (this file's established
+// per-scope-duplication convention — see DEFAULT_VENUE_INSPECTION_FEE/
+// muni_calcAgeFromDob for prior examples of the same pattern).
+function poa_resolveVenueCost(venue, patronCount){
+  if(!venue) return 0;
+  if(!venue.tieredPricing || !venue.tierPrices) return venue.cost || 0;
+  const p = parseInt(patronCount, 10) || 0;
+  if(p <= 300) return venue.tierPrices.tier1 || 0;
+  if(p <= 999) return venue.tierPrices.tier2 || 0;
+  return venue.tierPrices.tier3 || 0;
+}
+function poa_venueTierLabel(venue, patronCount){
+  if(!venue || !venue.tieredPricing) return '';
+  const p = parseInt(patronCount, 10) || 0;
+  if(p <= 300) return 'Tier 1 (1–300 patrons)';
+  if(p <= 999) return 'Tier 2 (301–999 patrons)';
+  return 'Tier 3 (1000+ patrons)';
+}
+
 function poa_formatCurrency(amount){
   return 'J$' + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -21969,6 +22044,12 @@ function computeCosts(){
   // Inspection Fee" for a manually-added one (or nothing selected yet, which
   // defaults to the same standard-inspection assumption).
   let venueFromDb;
+  // Set only when a database venue with tiered pricing was picked — carried
+  // through to the persisted application record (costs.venueTierLabel) so
+  // the applicant's and officer's own detail views can show which tier was
+  // actually charged, without re-deriving it later from a patron count that
+  // may since have been edited on the record.
+  let venueTierLabel = '';
   if(isAnnualLic){
     // Set by this municipality's own CEO (Manage > Form Elements >
     // "Annual License — Capacity Band Fees") — three Registration of Use
@@ -22015,9 +22096,15 @@ function computeCosts(){
     // inspection fee, since no new inspection is needed for a venue already
     // in the system. That fee can legitimately be $0 for some venues.
     const dbVenue = dbVenues.find(v => 'db-' + v.id === venueSearchVal);
-    const fee = dbVenue ? (dbVenue.cost || 0) : 0;
+    // Tiered pricing charges whichever of the venue's three fixed-range
+    // tiers matches the expected patron count entered on this same
+    // application (see poa_resolveVenueCost's own comment on the ranges);
+    // a venue without tiered pricing keeps using its single flat cost.
+    const patronsForTier = parseInt(poa_val('patrons'), 10) || 0;
+    const fee = dbVenue ? poa_resolveVenueCost(dbVenue, patronsForTier) : 0;
+    venueTierLabel = dbVenue ? poa_venueTierLabel(dbVenue, patronsForTier) : '';
     venueLabel = fee
-      ? `Existing venue (from database) — venue fee (${poa_formatCurrency(fee)})`
+      ? `Existing venue (from database) — ${venueTierLabel ? venueTierLabel + ' fee' : 'venue fee'} (${poa_formatCurrency(fee)})`
       : 'Existing venue (from database) — no venue fee on file';
     venueCostGross = fee;
     venueIsNew = false;
@@ -22110,7 +22197,7 @@ function computeCosts(){
   return {
     applicationFee,
     isAnnual: isAnnualLic,
-    venueLabel, venueCost, venueCostGross, venueIsNew, venueFromDb,
+    venueLabel, venueCost, venueCostGross, venueIsNew, venueFromDb, venueTierLabel,
     adItems, adTotal, adTotalGross, total,
     promoApplied: !!appliedPromotion,
     promoDiscountAmount,
@@ -22167,7 +22254,7 @@ function renderCosts(){
     // has an assessed fee on file — no new inspection needed, so this reads as
     // "Permit Fee (Venue)". A manually-added venue (or nothing selected yet)
     // still needs the standard inspection, so it stays "Venue Inspection Fee".
-    html += `<div class="cost-row"><span class="cost-label">${c.venueFromDb ? 'Permit Fee (Venue)' : 'Venue Inspection Fee'}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
+    html += `<div class="cost-row"><span class="cost-label">${c.venueFromDb ? (c.venueTierLabel ? 'Permit Fee (Venue) — ' + poa_escapeHtml(c.venueTierLabel) : 'Permit Fee (Venue)') : 'Venue Inspection Fee'}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
 
     html += `<div class="cost-group-header">Advertisement Costs</div>`;
     if(c.adItems.length){
@@ -22755,6 +22842,7 @@ async function buildApplicationRecord(appNumber){
       venueCost: c.venueCost,
       venueLabel: c.venueLabel,
       venueIsNew: c.venueIsNew,
+      venueTierLabel: c.venueTierLabel || '',
       adTotal: c.adTotal,
       total: c.total,
       promoApplied: c.promoApplied,
@@ -24215,6 +24303,13 @@ async function openJcfForm(){
     // wizard (jcf_step1..4) never reads any of these, so adding them here
     // is safe for every existing JCF filing.
     licenseType: r.amusement.licenseType || '',
+    // "Dead Yard" events don't attract the same noise/crowd concerns as most
+    // other Special Event types (see the CEO's own formElementsConfig entry
+    // for it, which requires only Police Approval — no Health/Fire
+    // Certification either) — the JCF Noise Abatement wizard's JAMMS/JCAP
+    // gate (submitJcfApp) and the JCF Officer's Official Use Checklist both
+    // read this to skip that requirement for this one event type.
+    eventType: r.amusement.eventType || '',
     applicantType: r.applicant.type || '',
     directors: r.applicant.directors || [],
     businessType: r.amusement.businessType || '',
@@ -24315,7 +24410,7 @@ function renderMmSummary(){
   if(isAnnual){
     html += mmDetailRow(r.costs.venueLabel || 'Business/Venue Fee', poa_formatCurrency(r.costs.venueCost));
   } else {
-    html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost));
+    html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
     html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
   }
   // Municipal portion (everything except the Atendify application fee) gets
@@ -24722,7 +24817,7 @@ async function printPaymentAdvice(previewRecord){
       <div class="doc-breakdown-row" style="color:#666;"><span>Service Fee (paid online to Atendify — not due at cashier):</span><span>${poa_formatCurrency(r.costs.applicationFee)}</span></div>
       ${isAnnual
         ? `<div class="doc-breakdown-row"><span>${poa_escapeHtml(r.costs.venueLabel || 'Business/Venue Fee')}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>`
-        : `<div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
+        : `<div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}${r.costs.venueTierLabel ? ' (' + poa_escapeHtml(r.costs.venueTierLabel) + ')' : ''}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
       <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>`
       }
       <div class="doc-breakdown-row total"><span>TOTAL DUE AT ${poa_escapeHtml((r.municipalityName || 'MUNICIPAL CORPORATION').toUpperCase())}:</span><span>${poa_formatCurrency(r.costs.total - (r.costs.applicationFee || 0))}</span></div>
@@ -24949,9 +25044,30 @@ function renderMmJcfDocuments(){
   const grid = document.getElementById('mmJcfDocGrid');
   if(!grid) return;
 
+  // "Dead Yard" is the one event type that doesn't require JAMMS/JCAP at all
+  // (see openJcfForm's own comment on why eventType is carried over to the
+  // JCF wizard, and submitJcfApp's matching skip) — shown here as a plain,
+  // non-uploadable "Not required" tile instead of the usual required-upload
+  // slot, so the applicant isn't asked for a document their event type was
+  // never asked to provide.
+  const jamsJcapRequired = (r.amusement && r.amusement.eventType) !== 'Dead Yard';
+
   grid.innerHTML = JCF_REQUIRED_DOC_LIST.map((docName, i) => {
     const doc = (r.jcfDocuments && r.jcfDocuments[docName]) || { uploaded: false, status: 'Not Uploaded' };
     const status = doc.status || (doc.uploaded ? 'Submitted' : 'Not Uploaded');
+
+    if(!jamsJcapRequired){
+      return `
+        <div class="mm-doc-item">
+          <div class="mm-doc-upload" style="cursor:default;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          </div>
+          <div class="mm-doc-label">${poa_escapeHtml(docName)}</div>
+          <div class="mm-doc-status">Not required for Dead Yard events</div>
+        </div>
+      `;
+    }
+
     const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
     const icon = status === 'Rejected'
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
@@ -26930,6 +27046,30 @@ const FORM_ELEMENT_DOCUMENT_CATALOG = [
 // on portal isolation — so it's duplicated here rather than shared).
 const DEFAULT_VENUE_INSPECTION_FEE = 5000;
 
+// Fixed platform-wide patron-count breakpoints for a venue's optional
+// "tiered pricing" toggle (see saveVenue()/#venueModal below) — every venue
+// that opts in uses these same three ranges; only the price per tier is
+// venue-specific, set by the CEO on that venue's own record. Mirrors
+// poa_resolveVenueCost()/poa_venueTierLabel() in the POA applicant portal's
+// own script scope exactly (portal scripts are isolated IIFEs/script tags,
+// so this is a deliberate duplicate, same as DEFAULT_VENUE_INSPECTION_FEE
+// above).
+function muni_resolveVenueCost(venue, patronCount){
+  if(!venue) return 0;
+  if(!venue.tieredPricing || !venue.tierPrices) return venue.cost || 0;
+  const p = parseInt(patronCount, 10) || 0;
+  if(p <= 300) return venue.tierPrices.tier1 || 0;
+  if(p <= 999) return venue.tierPrices.tier2 || 0;
+  return venue.tierPrices.tier3 || 0;
+}
+function muni_venueTierLabel(venue, patronCount){
+  if(!venue || !venue.tieredPricing) return '';
+  const p = parseInt(patronCount, 10) || 0;
+  if(p <= 300) return 'Tier 1 (1–300 patrons)';
+  if(p <= 999) return 'Tier 2 (301–999 patrons)';
+  return 'Tier 3 (1000+ patrons)';
+}
+
 // Mirrors the POA-side (applicant-facing) copy of these same three constants
 // exactly — portal scripts are isolated IIFEs, so this is a deliberate
 // duplication rather than a shared import. `slug` gives each category a
@@ -27556,7 +27696,9 @@ function renderVenues(){
         <td class="cell-primary">${muni_escapeHtml(v.name)}${v.flagged ? `<div class="cell-sub" style="color:var(--red);">${muni_escapeHtml(v.flagReason)}</div>` : ''}</td>
         <td>${muni_escapeHtml(location)}</td>
         <td>${v.maxCap || 0}</td>
-        <td>${muni_formatCurrency(v.cost)}</td>
+        <td>${v.tieredPricing
+          ? `<span class="badge badge-blue" title="Tier 1 (1–300): ${muni_formatCurrency(v.tierPrices && v.tierPrices.tier1)} · Tier 2 (301–999): ${muni_formatCurrency(v.tierPrices && v.tierPrices.tier2)} · Tier 3 (1000+): ${muni_formatCurrency(v.tierPrices && v.tierPrices.tier3)}">Tiered</span>`
+          : muni_formatCurrency(v.cost)}</td>
         <td>${venueStatusBadge(v)}</td>
         <td>
           <div class="row-actions">
@@ -27617,6 +27759,12 @@ function openVenueModal(id){
     document.getElementById('venueFormStreetName').value = v.streetName || '';
     document.getElementById('venueFormDistrict').value = v.district || '';
     document.getElementById('venueFormCost').value = v.cost || 0;
+    document.getElementById('venueTieredToggle').checked = !!v.tieredPricing;
+    const vTiers = v.tierPrices || {};
+    document.getElementById('venueFormTier1').value = vTiers.tier1 || 0;
+    document.getElementById('venueFormTier2').value = vTiers.tier2 || 0;
+    document.getElementById('venueFormTier3').value = vTiers.tier3 || 0;
+    venueTieredToggleChanged();
     document.getElementById('venueFormMaxCap').value = v.maxCap || '';
     document.getElementById('venueFormMaxParking').value = v.maxParking || '';
     document.getElementById('venueFormOwnerName').value = v.ownerName || '';
@@ -27635,9 +27783,11 @@ function openVenueModal(id){
     title.textContent = 'Add venue';
     document.getElementById('venueActiveToggle').checked = true;
     document.getElementById('venueActiveLabel').textContent = 'Active';
-    ['venueFormName','venueFormStreetNumber','venueFormStreetName','venueFormDistrict','venueFormCost','venueFormMaxCap','venueFormMaxParking','venueFormOwnerName','venueFormOwnerAddress','venueFormOwnerPhone'].forEach(id=>{
+    ['venueFormName','venueFormStreetNumber','venueFormStreetName','venueFormDistrict','venueFormCost','venueFormMaxCap','venueFormMaxParking','venueFormOwnerName','venueFormOwnerAddress','venueFormOwnerPhone','venueFormTier1','venueFormTier2','venueFormTier3'].forEach(id=>{
       document.getElementById(id).value = '';
     });
+    document.getElementById('venueTieredToggle').checked = false;
+    venueTieredToggleChanged();
     // A brand-new venue has no id yet (one is only generated once it's
     // actually saved — see saveVenue()'s newVenue.id below), and no permits
     // can be attached to it until it exists as a real record, so both
@@ -27656,11 +27806,34 @@ document.getElementById('venueActiveToggle').addEventListener('change', function
   document.getElementById('venueActiveLabel').textContent = this.checked ? 'Active' : 'Inactive';
 });
 
+// Toggling tiered pricing on/off swaps which cost input(s) are shown — the
+// single flat Cost field (used when tiering is off) vs the three per-tier
+// price fields (used when it's on). Both are always saved on the venue
+// record (see saveVenue()) so switching back and forth never loses either
+// set of values, but only one is ever actually charged at application time
+// (see muni_resolveVenueCost()).
+function venueTieredToggleChanged(){
+  const tiered = document.getElementById('venueTieredToggle').checked;
+  document.getElementById('venueFormFlatCostGroup').classList.toggle('hidden', tiered);
+  document.getElementById('venueTierPricesSection').classList.toggle('hidden', !tiered);
+}
+
 async function saveVenue(){
   const name = document.getElementById('venueFormName').value.trim();
   if(!name){
     muni_showToast('Please enter a venue name.');
     return;
+  }
+
+  const tieredPricing = document.getElementById('venueTieredToggle').checked;
+  if(tieredPricing){
+    const tier1Raw = document.getElementById('venueFormTier1').value;
+    const tier2Raw = document.getElementById('venueFormTier2').value;
+    const tier3Raw = document.getElementById('venueFormTier3').value;
+    if(tier1Raw === '' || tier2Raw === '' || tier3Raw === ''){
+      muni_showToast('Please enter a price for all three tiers, or turn off tiered pricing.');
+      return;
+    }
   }
 
   const data = {
@@ -27671,6 +27844,18 @@ async function saveVenue(){
     streetName: document.getElementById('venueFormStreetName').value.trim(),
     district: document.getElementById('venueFormDistrict').value.trim(),
     cost: parseFloat(document.getElementById('venueFormCost').value) || 0,
+    // Tiered pricing — a fixed platform-wide set of three patron-count
+    // ranges (see muni_resolveVenueCost()'s own comment), each with a price
+    // set here per venue. `cost` above stays the flat fallback: kept in
+    // sync (not cleared) so switching the toggle off doesn't lose whatever
+    // flat cost was last entered, and so a pre-existing integration reading
+    // `cost` directly still sees a sane number rather than 0.
+    tieredPricing,
+    tierPrices: {
+      tier1: parseFloat(document.getElementById('venueFormTier1').value) || 0,
+      tier2: parseFloat(document.getElementById('venueFormTier2').value) || 0,
+      tier3: parseFloat(document.getElementById('venueFormTier3').value) || 0
+    },
     maxCap: parseInt(document.getElementById('venueFormMaxCap').value, 10) || 0,
     maxParking: parseInt(document.getElementById('venueFormMaxParking').value, 10) || 0,
     ownerName: document.getElementById('venueFormOwnerName').value.trim(),
@@ -27728,7 +27913,14 @@ async function openVenueViewModal(id){
     ['Venue ID', v.id],
     ['Status', v.flagged ? `Flagged — ${v.flagReason}` : (v.active ? 'Active' : 'Inactive')],
     ['Address', [v.streetNumber, v.streetName, v.district].filter(Boolean).join(', ') || 'N/A'],
-    ['Cost', muni_formatCurrency(v.cost)],
+    ...(v.tieredPricing
+      ? [
+          ['Pricing', 'Tiered — based on expected patrons'],
+          ['Tier 1 (1–300 patrons)', muni_formatCurrency(v.tierPrices && v.tierPrices.tier1)],
+          ['Tier 2 (301–999 patrons)', muni_formatCurrency(v.tierPrices && v.tierPrices.tier2)],
+          ['Tier 3 (1000+ patrons)', muni_formatCurrency(v.tierPrices && v.tierPrices.tier3)]
+        ]
+      : [['Cost', muni_formatCurrency(v.cost)]]),
     ['Maximum capacity', v.maxCap || 'N/A'],
     ['Parking capacity', v.maxParking || 'N/A'],
     ['Owner name', v.ownerName || 'N/A'],
@@ -31080,14 +31272,17 @@ async function muni_createManualApplication(){
   // Venue Inspection Fee — same pricing rule computeCosts() applies in the
   // online wizard: a venue picked from this municipality's own registered
   // database already has an assessed, venue-specific fee on file (set by
-  // the CEO when it was accepted, see submitAcceptPendingVenue()'s v.cost),
-  // so no new inspection is charged; a brand-new, manually-typed venue gets
-  // the flat, municipality-wide fee the CEO configured under Manage > Form
-  // Elements (formElementsConfig.venueInspectionFee), falling back to the
-  // platform default if the CEO hasn't set one.
+  // the CEO when it was accepted, see submitAcceptPendingVenue()'s v.cost,
+  // or tiered by patron count — see muni_resolveVenueCost() — if the CEO
+  // turned on tiered pricing for it under Manage > Venues), so no new
+  // inspection is charged; a brand-new, manually-typed venue gets the flat,
+  // municipality-wide fee the CEO configured under Manage > Form Elements
+  // (formElementsConfig.venueInspectionFee), falling back to the platform
+  // default if the CEO hasn't set one.
   const venueCost = pickedVenue
-    ? (pickedVenue.cost || 0)
+    ? muni_resolveVenueCost(pickedVenue, patrons)
     : ((formElementsConfig && typeof formElementsConfig.venueInspectionFee === 'number') ? formElementsConfig.venueInspectionFee : DEFAULT_VENUE_INSPECTION_FEE);
+  const venueTierLabel = pickedVenue ? muni_venueTierLabel(pickedVenue, patrons) : '';
 
   if(!window.storage){
     errorBox.textContent = "This environment doesn't support saving applications right now.";
@@ -31214,7 +31409,7 @@ async function muni_createManualApplication(){
         ownershipFileName: ''
       },
       costs: {
-        applicationFee, venueCost, venueLabel: venueName, venueIsNew,
+        applicationFee, venueCost, venueLabel: venueName, venueIsNew, venueTierLabel,
         adTotal: 0, total: applicationFee + venueCost,
         promoApplied: false, promoCode: '', promoName: '', promoAppliesTo: '', promoDiscount: 0, promotionId: null
       },
@@ -31246,6 +31441,7 @@ async function muni_createManualApplication(){
         id: venueRegistryVenueId, muniId: currentUser.muniId, name: venueName,
         streetNumber: '', streetName: [venueAddr1, venueAddr2].filter(Boolean).join(', '), district: venueDistrict,
         maxCap: venueMaxCap || 0, maxParking: venueMaxParking || 0, cost: 0,
+        tieredPricing: false, tierPrices: { tier1: 0, tier2: 0, tier3: 0 },
         ownerName: '', ownerAddress: '', ownerPhone: '',
         active: false, flagged: false, flagReason: '', pendingApproval: true, rejected: false,
         sourceAppNumber: appNumber,
@@ -31711,7 +31907,7 @@ function renderSubmissionColumn(a){
     // placeholder line until the CEO's Annual fee rules exist.
     html += detailRow(r.costs.venueLabel || 'Business/Venue Fee', muni_formatCurrency(r.costs.venueCost));
   } else {
-    html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost));
+    html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
     if(a.venueIsNew){
       const registryLabel = a.venueRegistryStatus === 'accepted'
         ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
@@ -34343,6 +34539,7 @@ window.openDocModal = openDocModal;
 window.openFlagVenueModal = openFlagVenueModal;
 window.openUserModal = openUserModal;
 window.openVenueModal = openVenueModal;
+window.venueTieredToggleChanged = venueTieredToggleChanged;
 window.deleteVenue = deleteVenue;
 window.openVenueViewModal = openVenueViewModal;
 window.openWatchlistAddModal = openWatchlistAddModal;
@@ -39558,12 +39755,17 @@ async function submitJcfApp(){
     errorBox.classList.remove('hidden');
     return;
   }
-  if(poaData && !jamsFileData){
+  // "Dead Yard" events don't require JAMMS/JCAP at all (see openJcfForm's own
+  // comment on why poaData.eventType is carried over) — skip both checks
+  // entirely for this one event type rather than blocking submission on a
+  // document the applicant was never asked to provide in the first place.
+  const jamsJcapRequiredForEvent = !poaData || poaData.eventType !== 'Dead Yard';
+  if(jamsJcapRequiredForEvent && poaData && !jamsFileData){
     errorBox.textContent = 'JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
     errorBox.classList.remove('hidden');
     return;
   }
-  if(poaData && !jcapFileData){
+  if(jamsJcapRequiredForEvent && poaData && !jcapFileData){
     errorBox.textContent = 'JCAP Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
     errorBox.classList.remove('hidden');
     return;
@@ -40711,6 +40913,7 @@ async function jcfAnnual_submitApp(){
               id: ownerDetail.id, muniId: record.muniId, name: ownerDetail.name,
               streetNumber: '', streetName: [ownerDetail.addr1, ownerDetail.addr2].filter(Boolean).join(', '),
               district: ownerDetail.district, cost: 0, maxCap: 0, maxParking: 0,
+              tieredPricing: false, tierPrices: { tier1: 0, tier2: 0, tier3: 0 },
               ownerName: ownerDetail.ownerName, ownerAddress: '', ownerPhone: ownerDetail.ownerPhone,
               active: false, flagged: false, flagReason: '',
               pendingApproval: true, rejected: false,
