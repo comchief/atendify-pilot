@@ -22603,10 +22603,10 @@ function renderDbVenueCard(venue){
     const tierFee = poa_resolveVenueCost(venue, patronsForFeeNote);
     const tierLabel = poa_venueTierLabel(venue, patronsForFeeNote);
     feeNote = patronsForFeeNote
-      ? `Tiered pricing — ${tierLabel}: ${poa_formatCurrency(tierFee)} venue fee applies (charged instead of the standard inspection fee)`
+      ? `Tiered pricing — ${tierLabel}: ${poa_formatCurrency(tierFee)} venue fee applies`
       : `Tiered pricing applies at this venue — the fee depends on your expected number of patrons (entered on the Amusement step).`;
   } else {
-    feeNote = venue.cost ? `${poa_formatCurrency(venue.cost)} venue fee applies (charged instead of the standard inspection fee)` : 'No venue fee on file for this venue.';
+    feeNote = venue.cost ? `${poa_formatCurrency(venue.cost)} venue fee applies` : 'No venue fee on file for this venue.';
   }
 
   card.innerHTML = `
