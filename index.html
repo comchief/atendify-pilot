@@ -3563,8 +3563,63 @@
   // supabase_schema.sql is what actually enforces who can read/write what,
   // not secrecy of this key. Never put the service_role key here or
   // anywhere else client-side; that one bypasses every RLS policy.
+  //
+  // ---- Environments: one file, two databases (Fix #61) ----
+  // This single file is served by BOTH the live site and the test site, so
+  // what you test is byte-for-byte what you promote. Which database it talks
+  // to is decided here, by the hostname it's loaded from:
+  //   - Any hostname NOT listed in ATD_TEST_HOSTS (www.atendifyapp.com, a
+  //     local file, anything else) is LIVE, exactly as before this change.
+  //   - A hostname listed in ATD_TEST_HOSTS is TEST: it uses the separate
+  //     test Supabase project below, shows a TEST banner, and never sends
+  //     real email (see atdSendEmail).
+  // Matching is exact on purpose, and there is deliberately no ?env= switch,
+  // so nothing a visitor types can point the live site at the test database.
+  // If a test host is listed but the test project's URL/key haven't been
+  // filled in, the app refuses to start rather than quietly using live data.
+  // Both values below are PUBLIC by design (RLS is the protection, see above);
+  // never put a service_role key here. Setup: backend/TEST_ENVIRONMENT.md.
+  var ATD_TEST_HOSTS = [
+    'test-atendify.up.railway.app',
+  ];
+  var ATD_TEST_SUPABASE_URL = 'https://jrzpvuxarzmekoteviah.supabase.co';
+  var ATD_TEST_SUPABASE_ANON_KEY = 'sb_publishable_MTjD_aKRny6ARwUVdR4kww_n1trVCFU';
+  var atdHost = (location.hostname || '').toLowerCase();
+  window.ATD_ENV = (ATD_TEST_HOSTS.indexOf(atdHost) !== -1) ? 'test' : 'live';
+  if (window.ATD_ENV === 'test') {
+    // Explicitly NOT `|| <live value>`: a blank test config must never fall
+    // through to the live project.
+    window.ATD_SUPABASE_URL = ATD_TEST_SUPABASE_URL || null;
+    window.ATD_SUPABASE_ANON_KEY = ATD_TEST_SUPABASE_ANON_KEY || null;
+  } else {
   window.ATD_SUPABASE_URL = window.ATD_SUPABASE_URL || 'https://synezhkrfwnxmegunyjk.supabase.co';
   window.ATD_SUPABASE_ANON_KEY = window.ATD_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bmV6aGtyZndueG1lZ3VueWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0Njg0MTksImV4cCI6MjEwMzA0NDQxOX0.uIlEU2KqLSCK_lmJ3zMFdJ68FJEKO422LMQoMheUwR8';
+  }
+
+  if (window.ATD_ENV === 'test') {
+    try { document.title = '[TEST] ' + document.title; } catch (e) {}
+    var atdTestChrome = function () {
+      if (document.getElementById('atdTestEnvStripe')) return;
+      var stripe = document.createElement('div');
+      stripe.id = 'atdTestEnvStripe';
+      stripe.style.cssText = 'position:fixed;top:0;left:0;right:0;height:4px;background:#d97706;z-index:2147483646;pointer-events:none;';
+      var pill = document.createElement('div');
+      pill.id = 'atdTestEnvPill';
+      pill.textContent = 'TEST ENVIRONMENT — demo data only, not live';
+      pill.style.cssText = 'position:fixed;left:12px;bottom:12px;padding:5px 11px;border-radius:999px;background:#d97706;color:#fff;font:600 12px/1.2 system-ui,sans-serif;letter-spacing:.02em;z-index:2147483646;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.25);';
+      document.body.appendChild(stripe);
+      document.body.appendChild(pill);
+      if (!window.ATD_SUPABASE_URL || !window.ATD_SUPABASE_ANON_KEY) {
+        var block = document.createElement('div');
+        block.id = 'atdTestEnvUnconfigured';
+        block.style.cssText = 'position:fixed;inset:0;background:#fff;color:#1f2937;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;font:16px/1.5 system-ui,sans-serif;text-align:center;';
+        block.innerHTML = '<div style="max-width:460px"><h2 style="margin:0 0 8px">Test environment not configured</h2><p style="margin:0">This is the test site, but the test database details have not been added yet, so the app has not started. It will not fall back to the live database. See <code>backend/TEST_ENVIRONMENT.md</code>.</p></div>';
+        document.body.appendChild(block);
+      }
+    };
+    if (document.body) atdTestChrome();
+    else document.addEventListener('DOMContentLoaded', atdTestChrome);
+  }
 })();
 </script>
 <script>
@@ -5317,6 +5372,14 @@
   // + Resend account behind it.
   window.atdSendEmail = async function(event, to, data){
     if(!to) return { ok: false, error: 'no recipient email on file' };
+    // Fix #61: the test site never sends real email, whatever the test
+    // project's Edge Function is (or isn't) configured to do. Reported as a
+    // success so the flow behaves as it would live, and logged so a tester
+    // can see what WOULD have gone out.
+    if(window.ATD_ENV === 'test'){
+      console.info('[TEST ENV] email suppressed:', event, '->', to, data || {});
+      return { ok: true, id: 'suppressed-test-env' };
+    }
     try{
       const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
