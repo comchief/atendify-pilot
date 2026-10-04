@@ -11429,27 +11429,28 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="section-title">Required JCF Approvals</div>
         <div class="col-desc" style="margin:-6px 0 14px;">Upload these here, or from your Places of Amusement application's Main Menu — whichever you upload first shows up in both places.</div>
 
-        <div>
-          <div class="id-flyer-box-title">JAMMS Approval</div>
-          <div id="jamsFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
-          <div class="flyer-upload-box" id="jamsBox" onclick="document.getElementById('jamsFile').click()">
-            <div id="jamsPreviewWrap">
-              <div class="fu-icon">⤒</div>
-              <div class="fu-label">Upload JAMMS Approval</div>
+        <div class="id-flyer-row">
+          <div>
+            <div class="id-flyer-box-title">JAMMS Approval</div>
+            <div id="jamsFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
+            <div class="flyer-upload-box" id="jamsBox" onclick="document.getElementById('jamsFile').click()">
+              <div id="jamsPreviewWrap">
+                <div class="fu-icon">⤒</div>
+                <div class="fu-label">Upload JAMMS Approval</div>
+              </div>
+              <input type="file" id="jamsFile" accept="image/*,.pdf" style="display:none;" onchange="jamsFileChosen(this)">
             </div>
-            <input type="file" id="jamsFile" accept="image/*,.pdf" style="display:none;" onchange="jamsFileChosen(this)">
           </div>
-        </div>
-
-        <div style="margin-top:18px;">
-          <div class="id-flyer-box-title">JCAP Approval</div>
-          <div id="jcapFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
-          <div class="flyer-upload-box" id="jcapBox" onclick="document.getElementById('jcapFile').click()">
-            <div id="jcapPreviewWrap">
-              <div class="fu-icon">⤒</div>
-              <div class="fu-label">Upload JCAP Approval</div>
+          <div>
+            <div class="id-flyer-box-title">JCAP Approval</div>
+            <div id="jcapFromMmTag" class="from-poa-tag hidden">✓ Already uploaded</div>
+            <div class="flyer-upload-box" id="jcapBox" onclick="document.getElementById('jcapFile').click()">
+              <div id="jcapPreviewWrap">
+                <div class="fu-icon">⤒</div>
+                <div class="fu-label">Upload JCAP Approval</div>
+              </div>
+              <input type="file" id="jcapFile" accept="image/*,.pdf" style="display:none;" onchange="jcapFileChosen(this)">
             </div>
-            <input type="file" id="jcapFile" accept="image/*,.pdf" style="display:none;" onchange="jcapFileChosen(this)">
           </div>
         </div>
 
@@ -12487,6 +12488,185 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div id="jcfd_dashboardNotices"></div>
         <div class="stat-grid" id="jcfd_statGrid"></div>
+
+        <!-- Police Chief only: the same enhanced ("premium") dashboard layout
+             the Municipal CEO gets (see #muni_dashboardEnhanced) -- KPI row,
+             Key Insights, Event Map, Upcoming Events & Risk / Event Types,
+             Action Required -- built from this jurisdiction's own real JCF
+             filings. Revenue cards from the Municipal version are
+             deliberately not carried over: JCF records hold no fees or
+             payments. Police Supervisor / Police Officer keep the plain
+             #jcfd_statGrid above. See jcfd_renderDashboardEnhanced(). -->
+        <div id="jcfd_dashboardEnhanced" class="hidden">
+          <div class="stat-grid-enhanced">
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--blue-tint); color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiReceived">0<span class="sc-trend" id="jcfd_kpiReceivedTrend"></span></div>
+              <div class="sc-label">Applications Received</div>
+              <div class="sc-trend-note">vs. previous 30 days</div>
+            </div>
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--amber-tint); color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiPending">0</div>
+              <div class="sc-label">Pending Applications</div>
+              <div class="sc-trend-note">Right now</div>
+            </div>
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--green-tint); color:var(--green);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiApproved">0<span class="sc-trend" id="jcfd_kpiApprovedTrend"></span></div>
+              <div class="sc-label">Approved</div>
+              <div class="sc-trend-note">vs. previous 30 days</div>
+            </div>
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--red-tint,#fdecea); color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiRejected">0<span class="sc-trend" id="jcfd_kpiRejectedTrend"></span></div>
+              <div class="sc-label">Rejected / Declined</div>
+              <div class="sc-trend-note">vs. previous 30 days</div>
+            </div>
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--red-tint,#fdecea); color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiSlaBreaches">0</div>
+              <div class="sc-label">SLA Breaches</div>
+              <div class="sc-trend-note">Right now</div>
+            </div>
+            <div class="stat-card">
+              <div class="sc-top"><div class="sc-icon" style="background:var(--blue-tint); color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div></div>
+              <div class="sc-value" id="jcfd_kpiAwaitingDecision">0</div>
+              <div class="sc-label">Awaiting Your Decision</div>
+              <div class="sc-trend-note">Right now</div>
+            </div>
+          </div>
+
+          <div class="panel key-insights-card" id="jcfd_keyInsightsPanel">
+            <div class="ki-head">
+              <span class="ki-head-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 00-4 12.7c.5.4.8 1 .8 1.6v.7h6.4v-.7c0-.6.3-1.2.8-1.6A7 7 0 0012 2z"/></svg>
+              </span>
+              <h2>Key Insights</h2>
+            </div>
+            <div class="ki-grid" id="jcfd_keyInsightsGrid"></div>
+          </div>
+
+          <div class="panel" id="jcfd_eventMapPanel">
+            <div class="panel-head"><h2>Event Map — <span id="jcfd_dashMapName">This Jurisdiction</span></h2></div>
+            <div class="dash-map-illustration">
+              <svg class="dash-map-svg" viewBox="0 0 960 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+                <defs>
+                  <path id="jcfdMapPinShape" d="M0 0C0 0 -11 -17 -11 -27A11 11 0 1 1 11 -27C11 -17 0 0 0 0Z"/>
+                </defs>
+                <rect x="0" y="0" width="960" height="360" style="fill:var(--bg);"/>
+                <path d="M0,300 C120,258 250,326 410,296 C560,268 630,326 780,302 C860,290 920,312 960,300 L960,360 L0,360 Z" style="fill:var(--blue-tint,var(--info-bg));"/>
+                <g style="stroke:var(--border);stroke-width:3;">
+                  <line x1="0" y1="70" x2="960" y2="70"/>
+                  <line x1="0" y1="150" x2="960" y2="150"/>
+                  <line x1="0" y1="230" x2="820" y2="230"/>
+                  <line x1="120" y1="0" x2="120" y2="360"/>
+                  <line x1="260" y1="0" x2="260" y2="360"/>
+                  <line x1="400" y1="0" x2="400" y2="360"/>
+                  <line x1="540" y1="0" x2="540" y2="290"/>
+                  <line x1="680" y1="0" x2="680" y2="290"/>
+                  <line x1="820" y1="0" x2="820" y2="250"/>
+                </g>
+                <g style="stroke:var(--text-muted);stroke-width:6;stroke-opacity:0.22;">
+                  <line x1="0" y1="150" x2="960" y2="150"/>
+                  <line x1="400" y1="0" x2="400" y2="360"/>
+                </g>
+                <g style="fill:var(--track);stroke:var(--border);stroke-width:1;">
+                  <rect x="16" y="16" width="88" height="40" rx="6"/>
+                  <rect x="136" y="16" width="108" height="40" rx="6"/>
+                  <rect x="416" y="16" width="108" height="40" rx="6"/>
+                  <rect x="556" y="16" width="108" height="40" rx="6"/>
+                  <rect x="696" y="16" width="108" height="40" rx="6"/>
+                  <rect x="836" y="16" width="108" height="40" rx="6"/>
+                  <rect x="16" y="96" width="88" height="38" rx="6"/>
+                  <rect x="696" y="96" width="108" height="38" rx="6"/>
+                  <rect x="836" y="96" width="108" height="38" rx="6"/>
+                  <rect x="16" y="176" width="88" height="38" rx="6"/>
+                  <rect x="136" y="176" width="108" height="38" rx="6"/>
+                  <rect x="696" y="176" width="108" height="38" rx="6"/>
+                  <rect x="16" y="254" width="88" height="30" rx="6"/>
+                  <rect x="136" y="254" width="108" height="30" rx="6"/>
+                </g>
+                <g>
+                  <rect x="276" y="96" width="108" height="76" rx="12" style="fill:var(--green-tint);stroke:var(--green);stroke-opacity:0.4;"/>
+                  <circle cx="305" cy="125" r="7" style="fill:var(--green);fill-opacity:0.55;"/>
+                  <circle cx="335" cy="145" r="9" style="fill:var(--green);fill-opacity:0.45;"/>
+                  <circle cx="360" cy="118" r="6" style="fill:var(--green);fill-opacity:0.5;"/>
+                </g>
+                <!-- Illustrative pins only — decorative, not plotted from real
+                     data (see the "Coming soon" note: no venue holds
+                     coordinates yet). -->
+                <g>
+                  <use href="#jcfdMapPinShape" x="180" y="60" style="fill:var(--dvz-1);"/>
+                  <circle cx="180" cy="33" r="4" style="fill:var(--bg);"/>
+                  <use href="#jcfdMapPinShape" x="740" y="55" style="fill:var(--dvz-2);"/>
+                  <circle cx="740" cy="28" r="4" style="fill:var(--bg);"/>
+                  <use href="#jcfdMapPinShape" x="80" y="255" style="fill:var(--dvz-3);"/>
+                  <circle cx="80" cy="228" r="4" style="fill:var(--bg);"/>
+                  <use href="#jcfdMapPinShape" x="880" y="205" style="fill:var(--dvz-4);"/>
+                  <circle cx="880" cy="178" r="4" style="fill:var(--bg);"/>
+                  <use href="#jcfdMapPinShape" x="470" y="45" style="fill:var(--dvz-5);"/>
+                  <circle cx="470" cy="18" r="4" style="fill:var(--bg);"/>
+                </g>
+              </svg>
+              <div class="dash-map-overlay">
+                <span class="dmp-badge">Coming soon</span>
+                <div class="dmp-copy">Plotting events on a real map needs each venue's coordinates, which aren't collected yet. Once venues carry a location, this card will show them here, sized by activity.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-row-top" id="jcfd_dashRowTop">
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Upcoming Events &amp; Risk</h2>
+                <button class="btn btn-sm" onclick="jcfd_goPage('applications')">View All</button>
+              </div>
+              <div class="dash-risk-tabs" id="jcfd_riskTabs">
+                <button class="dash-risk-tab active" data-window="72h" onclick="jcfd_setUpcomingWindow('72h')">Next 72 Hours</button>
+                <button class="dash-risk-tab" data-window="7d" onclick="jcfd_setUpcomingWindow('7d')">Next 7 Days</button>
+                <button class="dash-risk-tab" data-window="30d" onclick="jcfd_setUpcomingWindow('30d')">Next 30 Days</button>
+              </div>
+              <div class="dash-card-fill">
+                <div class="dash-card-scroll" style="overflow-x:auto;">
+                  <table>
+                    <thead><tr><th>Event / Venue</th><th>Date</th><th>Patrons</th><th>JCF Status</th><th>Risk</th></tr></thead>
+                    <tbody id="jcfd_upcomingEventsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h2>Event Types</h2>
+                <button class="btn btn-sm" onclick="jcfd_goPage('applications')">View All</button>
+              </div>
+              <div class="pie-card-body dash-pie-stacked">
+                <div class="pie-chart-wrap">
+                  <div class="pie-chart" id="jcfd_eventTypesChart"></div>
+                  <div class="pie-chart-hole"><div class="pcc-value" id="jcfd_eventTypesChartTotal">0</div><div class="pcc-label">Total</div></div>
+                </div>
+                <div class="pie-legend" id="jcfd_eventTypesLegend"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dash-row-bottom">
+            <div class="panel" id="jcfd_actionsPanel">
+              <div class="panel-head">
+                <h2>Chief Action Required</h2>
+                <button class="btn btn-sm" onclick="jcfd_goPage('slaBreaches')">View All</button>
+              </div>
+              <div style="overflow-x:auto;">
+                <table>
+                  <thead><tr><th>Application</th><th>Event / Venue</th><th>Issue</th><th>Status</th></tr></thead>
+                  <tbody id="jcfd_actionsBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel" style="margin-top:20px;">
           <div class="panel-head"><h2>Recently Commented</h2></div>
           <p style="font-size:12.5px; color:var(--text-muted); margin:-8px 0 12px;">Only applications commented on in the last 7 days.</p>
@@ -15827,6 +16007,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
     `).join('');
 
+    // Police Chief gets the enhanced (premium) layout in place of the plain
+    // 4-card row; every other JCF role keeps the plain row above.
+    const isChief = jcfdCurrentUser.role === JCFD_ROLE_CHIEF;
+    const enhancedEl = document.getElementById('jcfd_dashboardEnhanced');
+    grid.classList.toggle('hidden', isChief);
+    if(enhancedEl) enhancedEl.classList.toggle('hidden', !isChief);
+    if(isChief && enhancedEl) await jcfd_renderDashboardEnhanced(all);
+
     jcfd_renderDashboardNotices(visible);
     jcfd_renderCommentedTable(visible);
     // Awaited (moved ahead of the two new tables below) so their own
@@ -15844,6 +16032,285 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // onclick markup, evaluated in global scope) can call back into this
   // otherwise closure-private function.
   window.jcfd_renderDashboard = jcfd_renderDashboard;
+
+  // ==================== Police Chief enhanced dashboard ====================
+  // The Municipal CEO's "premium" dashboard layout (see
+  // muni_renderDashboardMode() and friends), ported to the Police Chief and
+  // rebuilt on this jurisdiction's own real JCF filings. Everything below is
+  // computed from jcfApplication:* records (plus, for the Event Types donut
+  // only, the linked POA application's own event type) -- nothing is
+  // estimated. The Municipal version's revenue cards are intentionally not
+  // ported: a JCF record carries no fees or payments, so there's nothing
+  // honest to show. Duplicated here with a jcfd_ prefix, not shared with the
+  // muni_ originals, per this file's per-portal script-scope convention.
+  let jcfdDashSla = { openCount: 0, breached: [], dueSoon: [] };
+  let jcfdDashApps = [];
+  let jcfdDashPoaByApp = {};
+  let jcfdDashUpcomingWindow = '72h';
+
+  // Same trend rule as muniDashTrend(): never invents a trend where there's
+  // no prior period to compare against.
+  function jcfd_dashTrend(current, previous, sentiment){
+    if(!previous){
+      if(!current) return '';
+      return `<span class="sc-trend trend-neutral">new</span>`;
+    }
+    const pct = Math.round(((current - previous) / previous) * 100);
+    const arrow = pct >= 0 ? '▲' : '▼';
+    let cls = 'trend-neutral';
+    if(sentiment === 'positive') cls = pct >= 0 ? 'trend-good' : 'trend-bad';
+    else if(sentiment === 'negative') cls = pct >= 0 ? 'trend-bad' : 'trend-good';
+    return `<span class="sc-trend ${cls}">${arrow} ${Math.abs(pct)}%</span>`;
+  }
+
+  function jcfd_isOpenRec(rec){ return rec.status !== 'Approved' && rec.status !== 'Rejected'; }
+  // A recommendation has been made and the Chief hasn't decided yet.
+  function jcfd_isAwaitingDecision(rec){ return !!rec.recommendedAt && jcfd_isOpenRec(rec); }
+
+  async function jcfd_renderDashboardEnhanced(all){
+    jcfdDashApps = all || [];
+
+    const nameEl = document.getElementById('jcfd_dashMapName');
+    if(nameEl) nameEl.textContent = (jcfdCurrentBranch && jcfdCurrentBranch.name) || 'This Jurisdiction';
+
+    // Same SLA policy lookup jcfd_renderSlaBreaches() does, so the dashboard
+    // reflects this branch's own configured targets, not the defaults.
+    let rules = JCFD_DEFAULT_SLA_RULES;
+    if(window.storage && jcfdCurrentBranch){
+      try{
+        const result = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:settings`, true);
+        if(result && result.value) rules = jcfd_normalizeSlaRules(JSON.parse(result.value));
+      } catch(err){ /* fall back to default */ }
+    }
+    jcfdDashSla = jcfd_computeSlaBreaches(rules, jcfdDashApps);
+
+    // Linked POA applications, only to read each Special Event filing's
+    // event type for the Event Types donut -- a JCF filing's own
+    // eventOverview.eventType is just Private/Public.
+    jcfdDashPoaByApp = {};
+    try{
+      const poaApps = await jcfd_findJurisdictionPoaApplications();
+      poaApps.forEach(r => { if(r && r.appNumber) jcfdDashPoaByApp[r.appNumber] = r; });
+    } catch(err){ /* donut falls back to "Not linked" */ }
+
+    try{ await jcfd_loadWatchlist(); } catch(err){ /* insight tile just shows 0 */ }
+
+    jcfd_renderDashboardKpis();
+    jcfd_renderKeyInsights();
+    jcfd_renderUpcomingEvents();
+    jcfd_renderEventTypesChart();
+    jcfd_renderChiefActions();
+  }
+
+  function jcfd_renderDashboardKpis(){
+    const list = jcfdDashApps.map(a => a.rec);
+    const DAY_MS = 86400000;
+    const now = Date.now();
+    const last30Start = now - 30 * DAY_MS, prev30Start = now - 60 * DAY_MS;
+    const inWindow = (iso, start, end) => {
+      if(!iso) return false;
+      const t = new Date(iso).getTime();
+      return !isNaN(t) && t >= start && t < end;
+    };
+    const submittedIso = r => r.submittedAt || r.submittedDate;
+
+    const recvLast = list.filter(r => inWindow(submittedIso(r), last30Start, now)).length;
+    const recvPrev = list.filter(r => inWindow(submittedIso(r), prev30Start, last30Start)).length;
+    document.getElementById('jcfd_kpiReceived').innerHTML = `${list.length}${jcfd_dashTrend(recvLast, recvPrev, 'neutral')}`;
+
+    document.getElementById('jcfd_kpiPending').textContent = list.filter(jcfd_isOpenRec).length;
+
+    const approved = list.filter(r => r.status === 'Approved');
+    const aLast = approved.filter(r => inWindow(r.decidedAt, last30Start, now)).length;
+    const aPrev = approved.filter(r => inWindow(r.decidedAt, prev30Start, last30Start)).length;
+    document.getElementById('jcfd_kpiApproved').innerHTML = `${approved.length}${jcfd_dashTrend(aLast, aPrev, 'positive')}`;
+
+    const rejected = list.filter(r => r.status === 'Rejected');
+    const rLast = rejected.filter(r => inWindow(r.decidedAt, last30Start, now)).length;
+    const rPrev = rejected.filter(r => inWindow(r.decidedAt, prev30Start, last30Start)).length;
+    document.getElementById('jcfd_kpiRejected').innerHTML = `${rejected.length}${jcfd_dashTrend(rLast, rPrev, 'negative')}`;
+
+    document.getElementById('jcfd_kpiSlaBreaches').textContent = jcfdDashSla.breached.length;
+    document.getElementById('jcfd_kpiAwaitingDecision').textContent = list.filter(jcfd_isAwaitingDecision).length;
+  }
+
+  function jcfd_renderKeyInsights(){
+    const grid = document.getElementById('jcfd_keyInsightsGrid');
+    if(!grid) return;
+    const DAY_MS = 86400000;
+    const now = Date.now();
+    const recs = jcfdDashApps.map(a => a.rec);
+
+    // 1) Special Event filings with an event inside 7 days that the Chief
+    // hasn't approved yet.
+    const soon7d = recs.filter(r => {
+      if(r.formVariant === 'Annual' || r.status === 'Rejected') return false;
+      const d = r.eventOverview && r.eventOverview.dateOfEvent;
+      const t = d ? new Date(d).getTime() : NaN;
+      return !isNaN(t) && t >= now && t <= now + 7 * DAY_MS;
+    });
+    const unapprovedSoon = soon7d.filter(r => r.status !== 'Approved').length;
+
+    // 2) SLA compliance right now -- same real engine as the SLA Breaches
+    // page, no fabricated "vs last month" arrow.
+    const openCount = jcfdDashSla.openCount;
+    const breachedCount = jcfdDashSla.breached.length;
+    const compliancePct = openCount > 0 ? Math.round(((openCount - breachedCount) / openCount) * 100) : 100;
+    const complianceTone = compliancePct >= 90 ? 'good' : (compliancePct >= 70 ? 'warn' : 'bad');
+
+    // 3) Waiting on the Chief specifically.
+    const awaiting = recs.filter(jcfd_isAwaitingDecision).length;
+
+    // 4) This branch's own active JCF Watch List entries.
+    const flagged = jcfd_myWatchlist().filter(w => w.status === 'Active').length;
+
+    // 5) Open filings expecting more than 500 patrons -- the threshold above
+    // which only the Chief can decide (see jcfd_canDecideApp).
+    const large = recs.filter(r => jcfd_isOpenRec(r) && (jcfd_expectedPatronsForApp(r) || 0) > 500).length;
+
+    const toneColors = {
+      good: { bg: 'var(--green-tint)', fg: 'var(--green)' },
+      warn: { bg: 'var(--amber-tint)', fg: 'var(--amber)' },
+      bad: { bg: 'var(--red-tint)', fg: 'var(--red)' }
+    };
+    const calendarIcon = '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>';
+    const shieldIcon = '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>';
+    const userIcon = '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>';
+    const clockIcon = '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>';
+    const peopleIcon = '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>';
+
+    const tile = (toneKey, iconPath, html) => {
+      const c = toneColors[toneKey];
+      return `<div class="ki-tile">
+        <div class="ki-tile-icon" style="background:${c.bg}; color:${c.fg};"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconPath}</svg></div>
+        <div class="ki-tile-text">${html}</div>
+      </div>`;
+    };
+    const plural = (n, one, many) => n === 1 ? one : many;
+
+    grid.innerHTML = [
+      tile(unapprovedSoon > 0 ? 'warn' : 'good', calendarIcon,
+        `<strong>${unapprovedSoon}</strong> event${plural(unapprovedSoon, '', 's')} within 7 days ${plural(unapprovedSoon, 'is', 'are')} not yet approved`),
+      tile(complianceTone, shieldIcon, `SLA compliance at <strong>${compliancePct}%</strong> right now`),
+      tile(awaiting > 0 ? 'warn' : 'good', clockIcon,
+        `<strong>${awaiting}</strong> application${plural(awaiting, '', 's')} awaiting your decision`),
+      tile(flagged > 0 ? 'bad' : 'good', userIcon,
+        `<strong>${flagged}</strong> flagged individual${plural(flagged, '', 's')} on your Watch List`),
+      tile(large > 0 ? 'warn' : 'good', peopleIcon,
+        `<strong>${large}</strong> open application${plural(large, '', 's')} expecting over 500 patrons`)
+    ].join('');
+  }
+
+  function jcfd_setUpcomingWindow(win){
+    jcfdDashUpcomingWindow = win;
+    // Scoped to this dashboard's own tab row so it never touches the
+    // Municipal portal's identically-classed tabs.
+    document.querySelectorAll('#jcfd_riskTabs .dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.window === win));
+    jcfd_renderUpcomingEvents();
+  }
+  window.jcfd_setUpcomingWindow = jcfd_setUpcomingWindow;
+
+  // Special Event filings (Annual has no single event date) whose event date
+  // falls in the selected window, not Rejected. Status and Risk come from
+  // real tracked fields:
+  //   JCF Status: Approved -> Awaiting decision (recommended, Chief hasn't
+  //   decided) -> Not yet recommended.
+  //   Risk: Low once Approved; otherwise High if the event is inside 72
+  //   hours OR the filing already has a live SLA breach, Medium inside 7
+  //   days, Low otherwise.
+  function jcfd_renderUpcomingEvents(){
+    const body = document.getElementById('jcfd_upcomingEventsBody');
+    if(!body) return;
+    const HOUR_MS = 3600000, DAY_MS = 86400000;
+    const now = Date.now();
+    const windowMs = jcfdDashUpcomingWindow === '72h' ? 72 * HOUR_MS : jcfdDashUpcomingWindow === '7d' ? 7 * DAY_MS : 30 * DAY_MS;
+    const breachedKeys = new Set(jcfdDashSla.breached.map(r => r.a.key));
+
+    const list = jcfdDashApps.filter(a => {
+      const rec = a.rec;
+      if(rec.formVariant === 'Annual' || rec.status === 'Rejected') return false;
+      const d = rec.eventOverview && rec.eventOverview.dateOfEvent;
+      const t = d ? new Date(d).getTime() : NaN;
+      return !isNaN(t) && t >= now && t <= now + windowMs;
+    }).sort((x, y) => new Date(x.rec.eventOverview.dateOfEvent) - new Date(y.rec.eventOverview.dateOfEvent));
+
+    if(!list.length){
+      body.innerHTML = `<tr><td colspan="5" class="table-empty">No upcoming events in this window.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = list.map(a => {
+      const rec = a.rec, eo = rec.eventOverview || {}, vi = rec.venueInfo || {};
+      const statusLabel = rec.status === 'Approved' ? 'Approved' : (rec.recommendedAt ? 'Awaiting decision' : 'Not yet recommended');
+      const statusBadge = { 'Approved': 'badge-green', 'Awaiting decision': 'badge-amber', 'Not yet recommended': 'badge-red' }[statusLabel];
+      const hoursUntil = (new Date(eo.dateOfEvent).getTime() - now) / HOUR_MS;
+      let risk = 'Low';
+      if(rec.status !== 'Approved'){
+        if(breachedKeys.has(a.key) || hoursUntil <= 72) risk = 'High';
+        else if(hoursUntil <= 24 * 7) risk = 'Medium';
+      }
+      const riskBadge = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' }[risk];
+      const shortDate = acctEscapeHtml(new Date(eo.dateOfEvent).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      return `
+        <tr>
+          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication('${a.key}'); return false;">${acctEscapeHtml(eo.eventName || rec.jcfAppNumber || 'Event')}</a><br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(vi.venueName || 'N/A')}</span></td>
+          <td title="${acctEscapeHtml(eo.dateOfEvent)}">${shortDate}</td>
+          <td>${acctEscapeHtml(String(eo.patronsExpected || '—'))}</td>
+          <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
+          <td><span class="badge ${riskBadge}">${risk}</span></td>
+        </tr>`;
+    }).join('');
+  }
+
+  // Special Event filings grouped by the linked POA application's event
+  // type (the municipality's own Form Elements catalog), top 5 plus Other,
+  // per the same categorical-color rule the Municipal donut follows. A filing
+  // with no linked POA application groups under "Not linked".
+  function jcfd_renderEventTypesChart(){
+    const list = jcfdDashApps.filter(a => a.rec.formVariant !== 'Annual');
+    const counts = {};
+    list.forEach(a => {
+      const poa = a.rec.poaAppNumber ? jcfdDashPoaByApp[a.rec.poaAppNumber] : null;
+      const key = (poa && poa.amusement && poa.amusement.eventType) || (a.rec.poaAppNumber ? 'Unspecified' : 'Not linked');
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const colors = ['var(--dvz-1)', 'var(--dvz-2)', 'var(--dvz-3)', 'var(--dvz-4)', 'var(--dvz-5)'];
+    const slices = sorted.slice(0, 5).map(([label, value], i) => ({ label, value, color: colors[i] }));
+    const otherTotal = sorted.slice(5).reduce((sum, [, v]) => sum + v, 0);
+    if(otherTotal > 0) slices.push({ label: 'Other', value: otherTotal, color: 'var(--dvz-other)' });
+    window.renderPieChart('jcfd_eventTypesChart', 'jcfd_eventTypesLegend', slices);
+    const totalEl = document.getElementById('jcfd_eventTypesChartTotal');
+    if(totalEl) totalEl.textContent = list.length;
+  }
+
+  // Straight off the real SLA engine (jcfdDashSla), so it can never disagree
+  // with the SLA Breaches page. Most overdue first, capped to the 8 worst.
+  function jcfd_renderChiefActions(){
+    const body = document.getElementById('jcfd_actionsBody');
+    if(!body) return;
+    const breached = jcfdDashSla.breached.slice(0, 8);
+    if(!breached.length){
+      body.innerHTML = `<tr><td colspan="4" class="table-empty">Nothing needs your attention right now.</td></tr>`;
+      return;
+    }
+    body.innerHTML = breached.map(r => {
+      const rec = r.a.rec, eo = rec.eventOverview || {}, vi = rec.venueInfo || {};
+      const eventLabel = eo.eventName || (rec.formVariant === 'Annual' ? 'Annual filing' : 'Special Event');
+      const venueName = vi.venueName || (rec.premisesInfo && rec.premisesInfo.businessName) || 'N/A';
+      const overdueText = r.overdueDays > 0 ? `${r.overdueDays} day(s)` : `${r.overdueHours} hour(s)`;
+      const issue = `${r.label} overdue by ${overdueText}`;
+      const severity = r.overdueDays >= 3 ? 'Critical' : (r.overdueDays >= 1 ? 'High' : 'Medium');
+      const sevBadge = { Critical: 'badge-red', High: 'badge-amber', Medium: 'badge-gray' }[severity];
+      return `
+        <tr>
+          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication('${r.a.key}'); return false;">${acctEscapeHtml(rec.jcfAppNumber || '')}</a></td>
+          <td>${acctEscapeHtml(eventLabel)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(venueName)}</span></td>
+          <td>${acctEscapeHtml(issue)}</td>
+          <td><span class="badge ${sevBadge}">${severity}</span></td>
+        </tr>`;
+    }).join('');
+  }
 
   // Assigned-but-not-yet-commented-on applications are "unactioned". A
   // recently assigned one (<12h since jcfd_assignOfficer() stamped
@@ -30753,7 +31220,10 @@ function muni_renderDashboardKpis(){
 
 function muni_setUpcomingWindow(win){
   muniDashUpcomingWindow = win;
-  document.querySelectorAll('.dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.window === win));
+  // Scoped to the Municipal dashboard's own row now that the Police Chief
+  // dashboard reuses the same .dash-risk-tab class — an unscoped selector
+  // would flip the other portal's tab highlight too.
+  document.querySelectorAll('#muni_dashRowTop .dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.window === win));
   muni_renderUpcomingEvents();
 }
 window.muni_setUpcomingWindow = muni_setUpcomingWindow;
@@ -39670,6 +40140,16 @@ let jamsFileData = null;
 let jcapFileName = '';
 let jcapFileData = null;
 
+// Shared by renderJamsPreview()/renderJcapPreview() (this step's own upload
+// boxes, "Required JCF Approvals") and submitJcfApp()'s submission gate —
+// "Dead Yard" is the one POA event type that never requires JAMMS/JCAP at
+// all (see openJcfForm's own comment on why poaData.eventType is carried
+// over from the linked POA application). Pulled out to one function so both
+// call sites can't drift from each other.
+function jcf_jamsJcapRequired(){
+  return !poaData || poaData.eventType !== 'Dead Yard';
+}
+
 // Writes a JAMMS/JCAP upload made HERE back onto the linked POA
 // application's own r.jcfDocuments[docName] — the same field
 // renderMmJcfDocuments()/mmJcfDocFileChosen() (atendify.html) read and write
@@ -39734,11 +40214,27 @@ async function jcf_persistJcfDocToPoa(docName, fileName, fileData){
 // same limitation Photo ID/Flyer/Ownership carry-over already has) — an
 // applicant whose upload gets rejected after this step was opened re-opens
 // via their Main Menu (which IS live) to re-upload, same as today.
+// The "Not required for Dead Yard events" tile below mirrors the one
+// renderMmJcfDocuments() shows on the Places of Amusement Main Menu for the
+// exact same case (same minus-circle icon, same message) — this step's own
+// upload box used its own markup/classes (flyer-upload-box/fu-icon/fu-label,
+// not the Main Menu's mm-doc-* grid), so it had been left showing a normal,
+// clickable "Upload JAMMS/JCAP Approval" box even for a Dead Yard event,
+// inconsistent with every other place this exemption applies.
+const JCF_NOT_REQUIRED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:22px; height:22px;"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+
 function renderJamsPreview(){
   const wrap = document.getElementById('jamsPreviewWrap');
   const box = document.getElementById('jamsBox');
   const tag = document.getElementById('jamsFromMmTag');
   if(!wrap || !box) return;
+  if(!jcf_jamsJcapRequired()){
+    wrap.innerHTML = `<div class="fu-icon">${JCF_NOT_REQUIRED_ICON}</div><div class="fu-label">Not required for Dead Yard events</div>`;
+    box.onclick = null;
+    box.style.cursor = 'default';
+    if(tag) tag.classList.add('hidden');
+    return;
+  }
   if(jamsFileData){
     wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jamsFileName || 'JAMMS Approval')}</div>`;
     box.onclick = null;
@@ -39756,6 +40252,13 @@ function renderJcapPreview(){
   const box = document.getElementById('jcapBox');
   const tag = document.getElementById('jcapFromMmTag');
   if(!wrap || !box) return;
+  if(!jcf_jamsJcapRequired()){
+    wrap.innerHTML = `<div class="fu-icon">${JCF_NOT_REQUIRED_ICON}</div><div class="fu-label">Not required for Dead Yard events</div>`;
+    box.onclick = null;
+    box.style.cursor = 'default';
+    if(tag) tag.classList.add('hidden');
+    return;
+  }
   if(jcapFileData){
     wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(jcapFileName || 'JCAP Approval')}</div>`;
     box.onclick = null;
@@ -40085,7 +40588,7 @@ async function submitJcfApp(){
   // comment on why poaData.eventType is carried over) — skip both checks
   // entirely for this one event type rather than blocking submission on a
   // document the applicant was never asked to provide in the first place.
-  const jamsJcapRequiredForEvent = !poaData || poaData.eventType !== 'Dead Yard';
+  const jamsJcapRequiredForEvent = jcf_jamsJcapRequired();
   if(jamsJcapRequiredForEvent && poaData && !jamsFileData){
     errorBox.textContent = 'JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
     errorBox.classList.remove('hidden');
