@@ -3563,8 +3563,63 @@
   // supabase_schema.sql is what actually enforces who can read/write what,
   // not secrecy of this key. Never put the service_role key here or
   // anywhere else client-side; that one bypasses every RLS policy.
+  //
+  // ---- Environments: one file, two databases (Fix #61) ----
+  // This single file is served by BOTH the live site and the test site, so
+  // what you test is byte-for-byte what you promote. Which database it talks
+  // to is decided here, by the hostname it's loaded from:
+  //   - Any hostname NOT listed in ATD_TEST_HOSTS (www.atendifyapp.com, a
+  //     local file, anything else) is LIVE, exactly as before this change.
+  //   - A hostname listed in ATD_TEST_HOSTS is TEST: it uses the separate
+  //     test Supabase project below, shows a TEST banner, and never sends
+  //     real email (see atdSendEmail).
+  // Matching is exact on purpose, and there is deliberately no ?env= switch,
+  // so nothing a visitor types can point the live site at the test database.
+  // If a test host is listed but the test project's URL/key haven't been
+  // filled in, the app refuses to start rather than quietly using live data.
+  // Both values below are PUBLIC by design (RLS is the protection, see above);
+  // never put a service_role key here. Setup: backend/TEST_ENVIRONMENT.md.
+  var ATD_TEST_HOSTS = [
+    'test-atendify.up.railway.app',
+  ];
+  var ATD_TEST_SUPABASE_URL = 'https://jrzpvuxarzmekoteviah.supabase.co';
+  var ATD_TEST_SUPABASE_ANON_KEY = 'sb_publishable_MTjD_aKRny6ARwUVdR4kww_n1trVCFU';
+  var atdHost = (location.hostname || '').toLowerCase();
+  window.ATD_ENV = (ATD_TEST_HOSTS.indexOf(atdHost) !== -1) ? 'test' : 'live';
+  if (window.ATD_ENV === 'test') {
+    // Explicitly NOT `|| <live value>`: a blank test config must never fall
+    // through to the live project.
+    window.ATD_SUPABASE_URL = ATD_TEST_SUPABASE_URL || null;
+    window.ATD_SUPABASE_ANON_KEY = ATD_TEST_SUPABASE_ANON_KEY || null;
+  } else {
   window.ATD_SUPABASE_URL = window.ATD_SUPABASE_URL || 'https://synezhkrfwnxmegunyjk.supabase.co';
   window.ATD_SUPABASE_ANON_KEY = window.ATD_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5bmV6aGtyZndueG1lZ3VueWprIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0Njg0MTksImV4cCI6MjEwMzA0NDQxOX0.uIlEU2KqLSCK_lmJ3zMFdJ68FJEKO422LMQoMheUwR8';
+  }
+
+  if (window.ATD_ENV === 'test') {
+    try { document.title = '[TEST] ' + document.title; } catch (e) {}
+    var atdTestChrome = function () {
+      if (document.getElementById('atdTestEnvStripe')) return;
+      var stripe = document.createElement('div');
+      stripe.id = 'atdTestEnvStripe';
+      stripe.style.cssText = 'position:fixed;top:0;left:0;right:0;height:4px;background:#d97706;z-index:2147483646;pointer-events:none;';
+      var pill = document.createElement('div');
+      pill.id = 'atdTestEnvPill';
+      pill.textContent = 'TEST ENVIRONMENT — demo data only, not live';
+      pill.style.cssText = 'position:fixed;left:12px;bottom:12px;padding:5px 11px;border-radius:999px;background:#d97706;color:#fff;font:600 12px/1.2 system-ui,sans-serif;letter-spacing:.02em;z-index:2147483646;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.25);';
+      document.body.appendChild(stripe);
+      document.body.appendChild(pill);
+      if (!window.ATD_SUPABASE_URL || !window.ATD_SUPABASE_ANON_KEY) {
+        var block = document.createElement('div');
+        block.id = 'atdTestEnvUnconfigured';
+        block.style.cssText = 'position:fixed;inset:0;background:#fff;color:#1f2937;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;font:16px/1.5 system-ui,sans-serif;text-align:center;';
+        block.innerHTML = '<div style="max-width:460px"><h2 style="margin:0 0 8px">Test environment not configured</h2><p style="margin:0">This is the test site, but the test database details have not been added yet, so the app has not started. It will not fall back to the live database. See <code>backend/TEST_ENVIRONMENT.md</code>.</p></div>';
+        document.body.appendChild(block);
+      }
+    };
+    if (document.body) atdTestChrome();
+    else document.addEventListener('DOMContentLoaded', atdTestChrome);
+  }
 })();
 </script>
 <script>
@@ -5317,6 +5372,14 @@
   // + Resend account behind it.
   window.atdSendEmail = async function(event, to, data){
     if(!to) return { ok: false, error: 'no recipient email on file' };
+    // Fix #61: the test site never sends real email, whatever the test
+    // project's Edge Function is (or isn't) configured to do. Reported as a
+    // success so the flow behaves as it would live, and logged so a tester
+    // can see what WOULD have gone out.
+    if(window.ATD_ENV === 'test'){
+      console.info('[TEST ENV] email suppressed:', event, '->', to, data || {});
+      return { ok: true, id: 'suppressed-test-env' };
+    }
     try{
       const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
@@ -6189,6 +6252,7 @@
     { capability: 'Complete official-use checklist', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'checklist (per role)' },
     { capability: 'Manage watch list', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'watchlist (per role)' },
     { capability: 'Manage permit signature', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'signatures (per role)' },
+    { capability: 'Enter manual (walk-in) applications', admin: '—', muni: 'manualEntry (per user, Supervisor accounts only; off until the CEO grants it)', jcf: '— (Police Supervisor role only)' },
     { capability: 'Manage staff accounts', admin: 'manage_staff', muni: 'manageUsers (per user)', jcf: '— (hardcoded to the Police Chief role only, not permission-gated)' },
     { capability: 'View reports', admin: 'view_reports', muni: '— (open to any logged-in officer)', jcf: 'reports (per role)' }
   ];
@@ -8065,8 +8129,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <!-- ===== APPLICATIONS PAGE ===== -->
     <div class="page hidden" id="muni_page-applications">
 
-      <!-- Manual (walk-in) application intake — Supervisor-only, see
-           muni_renderApplications()'s role gate and muni_openManualAppModal().
+      <!-- Manual (walk-in) application intake — Supervisor accounts with the
+           CEO-granted manualEntry permission only, see muni_canEnterManualApplication().
            Independent of subscription tier (a front-desk task, not a Premium
            analytics feature), so it's toggled up here rather than inside any
            tier-gated section. Lives on the Applications page (not the
@@ -9500,6 +9564,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permManageVenues"> Manage venue database (accept/reject applicant-suggested venues)</label>
       <label class="checkbox-row"><input type="checkbox" id="permSpecialEvent"> View/review Special Event Applications</label>
       <label class="checkbox-row"><input type="checkbox" id="permAnnual"> View/review Annual Applications</label>
+      <label class="checkbox-row hidden" id="permManualEntryRow"><input type="checkbox" id="permManualEntry"> Enter manual (walk-in) applications <span style="color:var(--text-muted); font-size:12px;">&nbsp;— Supervisor accounts only</span></label>
     </div>
 
     <div class="field-group">
@@ -26386,10 +26451,14 @@ const DEMO_PASSWORD = 'Password@123';
 // "default preserves current behavior" reasoning as manageVenues above.
 // Existing staff accounts are normalized the same way at login/session-
 // restore time — see muni_enterShellAsUser() below.
+// manualEntry (walk-in / manual application intake) is the one permission
+// that defaults to OFF for every role, Supervisor included: it is a gate the
+// CEO opens deliberately, per Supervisor, from the Users screen. It only ever
+// takes effect on a Supervisor account (see muni_canEnterManualApplication()).
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true, specialEvent: true, annual: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false, specialEvent: true, annual: true },
-  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true, specialEvent: true, annual: true }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true, specialEvent: true, annual: true, manualEntry: false },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false, specialEvent: true, annual: true, manualEntry: false },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true, specialEvent: true, annual: true, manualEntry: false }
 };
 
 // ---------------- Subscription tiers (Municipal Corporation only, to
@@ -26810,6 +26879,11 @@ function muni_enterShellAsUser(user){
   }
   if(user && user.permissions && user.permissions.annual === undefined){
     user.permissions.annual = true;
+  }
+  // manualEntry is opt-in: an account that has never been granted it by its
+  // CEO simply doesn't have it (the opposite default to specialEvent/annual).
+  if(user && user.permissions && user.permissions.manualEntry === undefined){
+    user.permissions.manualEntry = false;
   }
   currentUser = user;
   // MUNICIPALITIES only lists Active Municipal Corporations (see
@@ -31411,12 +31485,12 @@ function setAppCategory(category){
 }
 
 function muni_renderApplications(){
-  // Manual (walk-in) application intake — Supervisor-only, and independent
+  // Manual (walk-in) application intake — Supervisor accounts the CEO has granted manualEntry to, and independent
   // of subscription tier. Lives on this Applications page (see the CTA's
   // own HTML comment above muniManualAppCta for why) rather than the
   // Dashboard, but the gate itself is unchanged from when it lived there.
   const manualCtaEl = document.getElementById('muniManualAppCta');
-  if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !(currentUser && currentUser.role === 'Supervisor'));
+  if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !muni_canEnterManualApplication());
 
   const specialBody = document.getElementById('muni_applicationsBodySpecial');
   const annualBody = document.getElementById('muni_applicationsBodyAnnual');
@@ -31522,7 +31596,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database', specialEvent: 'Special Event apps', annual: 'Annual apps' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database', specialEvent: 'Special Event apps', annual: 'Annual apps', manualEntry: 'Manual application entry' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -31567,7 +31641,19 @@ function applyRoleDefaults(){
   document.getElementById('permManageVenues').checked = !!defaults.manageVenues;
   document.getElementById('permSpecialEvent').checked = !!defaults.specialEvent;
   document.getElementById('permAnnual').checked = !!defaults.annual;
+  document.getElementById('permManualEntry').checked = !!defaults.manualEntry;
+  muni_syncManualEntryPermRow();
 }
+
+// The manual-entry permission only means anything for a Supervisor account
+// (see muni_canEnterManualApplication()), so its checkbox is shown only while
+// the Role dropdown is set to Supervisor.
+function muni_syncManualEntryPermRow(){
+  const row = document.getElementById('permManualEntryRow');
+  const roleEl = document.getElementById('userRole');
+  if(row && roleEl) row.classList.toggle('hidden', roleEl.value !== 'Supervisor');
+}
+window.muni_syncManualEntryPermRow = muni_syncManualEntryPermRow;
 
 function generateUserPassword(){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
@@ -31614,6 +31700,9 @@ function openUserModal(id){
     // muni_enterShellAsUser()'s own backfill for the same reason.
     document.getElementById('permSpecialEvent').checked = u.permissions.specialEvent === undefined ? true : !!u.permissions.specialEvent;
     document.getElementById('permAnnual').checked = u.permissions.annual === undefined ? true : !!u.permissions.annual;
+    // Absent means never granted: manual entry is opt-in (unlike the two above).
+    document.getElementById('permManualEntry').checked = !!u.permissions.manualEntry;
+    muni_syncManualEntryPermRow();
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
   } else {
@@ -31648,7 +31737,9 @@ async function saveUser(){
     manageUsers: document.getElementById('permManageUsers').checked,
     manageVenues: document.getElementById('permManageVenues').checked,
     specialEvent: document.getElementById('permSpecialEvent').checked,
-    annual: document.getElementById('permAnnual').checked
+    annual: document.getElementById('permAnnual').checked,
+    // Only a Supervisor account can ever hold it, whatever the hidden checkbox says.
+    manualEntry: role === 'Supervisor' && document.getElementById('permManualEntry').checked
   };
 
   if(!name || !email){
@@ -31732,7 +31823,7 @@ async function deleteUser(id){
   renderUsers();
 }
 
-// ==================== Manual (walk-in) application intake — Supervisor only ====================
+// ==================== Manual (walk-in) application intake — Supervisor with manualEntry permission ====================
 // See muniManualAppCta/muniManualAppModal in the Applications page HTML, and
 // muni_renderApplications()'s role gate. Special Event only (Annual stays
 // online-wizard-only) — a condensed version of the public wizard's own
@@ -31773,9 +31864,17 @@ function muni_calcAgeFromDob(dobStr){
 }
 window.muni_calcAgeFromDob = muni_calcAgeFromDob;
 
+// Who may enter an application manually: a Supervisor account whose CEO has
+// switched on the "Enter manual (walk-in) applications" permission. Both
+// conditions are required; neither alone is enough.
+function muni_canEnterManualApplication(){
+  return !!(currentUser && currentUser.role === 'Supervisor' && currentUser.permissions && currentUser.permissions.manualEntry === true);
+}
+window.muni_canEnterManualApplication = muni_canEnterManualApplication;
+
 async function muni_openManualAppModal(){
-  if(!currentUser || currentUser.role !== 'Supervisor'){
-    muni_showToast("Only a Supervisor account can create a manual application.");
+  if(!muni_canEnterManualApplication()){
+    muni_showToast("Manual application entry isn't enabled for your account. Ask your CEO to turn it on for you.");
     return;
   }
   document.getElementById('manualAppFullName').value = '';
@@ -31991,6 +32090,11 @@ function muni_manualAppTrackingCode(){
 async function muni_createManualApplication(){
   const errorBox = document.getElementById('manualAppError');
   errorBox.classList.add('hidden');
+  if(!muni_canEnterManualApplication()){
+    errorBox.textContent = "Manual application entry isn't enabled for your account. Ask your CEO to turn it on for you.";
+    errorBox.classList.remove('hidden');
+    return;
+  }
 
   const checkedType = document.querySelector('input[name="manualApplicantType"]:checked');
   const isCompany = checkedType && checkedType.value === 'Company';
