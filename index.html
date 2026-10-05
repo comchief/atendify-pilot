@@ -6252,6 +6252,7 @@
     { capability: 'Complete official-use checklist', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'checklist (per role)' },
     { capability: 'Manage watch list', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'watchlist (per role)' },
     { capability: 'Manage permit signature', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'signatures (per role)' },
+    { capability: 'Enter manual (walk-in) applications', admin: '—', muni: 'manualEntry (per user, Supervisor accounts only; off until the CEO grants it)', jcf: '— (Police Supervisor role only)' },
     { capability: 'Manage staff accounts', admin: 'manage_staff', muni: 'manageUsers (per user)', jcf: '— (hardcoded to the Police Chief role only, not permission-gated)' },
     { capability: 'View reports', admin: 'view_reports', muni: '— (open to any logged-in officer)', jcf: 'reports (per role)' }
   ];
@@ -8128,8 +8129,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <!-- ===== APPLICATIONS PAGE ===== -->
     <div class="page hidden" id="muni_page-applications">
 
-      <!-- Manual (walk-in) application intake — Supervisor-only, see
-           muni_renderApplications()'s role gate and muni_openManualAppModal().
+      <!-- Manual (walk-in) application intake — Supervisor accounts with the
+           CEO-granted manualEntry permission only, see muni_canEnterManualApplication().
            Independent of subscription tier (a front-desk task, not a Premium
            analytics feature), so it's toggled up here rather than inside any
            tier-gated section. Lives on the Applications page (not the
@@ -9563,6 +9564,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row"><input type="checkbox" id="permManageVenues"> Manage venue database (accept/reject applicant-suggested venues)</label>
       <label class="checkbox-row"><input type="checkbox" id="permSpecialEvent"> View/review Special Event Applications</label>
       <label class="checkbox-row"><input type="checkbox" id="permAnnual"> View/review Annual Applications</label>
+      <label class="checkbox-row hidden" id="permManualEntryRow"><input type="checkbox" id="permManualEntry"> Enter manual (walk-in) applications <span style="color:var(--text-muted); font-size:12px;">&nbsp;— Supervisor accounts only</span></label>
     </div>
 
     <div class="field-group">
@@ -26449,10 +26451,14 @@ const DEMO_PASSWORD = 'Password@123';
 // "default preserves current behavior" reasoning as manageVenues above.
 // Existing staff accounts are normalized the same way at login/session-
 // restore time — see muni_enterShellAsUser() below.
+// manualEntry (walk-in / manual application intake) is the one permission
+// that defaults to OFF for every role, Supervisor included: it is a gate the
+// CEO opens deliberately, per Supervisor, from the Users screen. It only ever
+// takes effect on a Supervisor account (see muni_canEnterManualApplication()).
 const ROLE_DEFAULTS = {
-  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true, specialEvent: true, annual: true },
-  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false, specialEvent: true, annual: true },
-  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true, specialEvent: true, annual: true }
+  CEO: { view: true, payment: true, review: true, approve: true, approveCapped: false, manageUsers: true, manageVenues: true, specialEvent: true, annual: true, manualEntry: false },
+  Accountant: { view: true, payment: true, review: false, approve: false, approveCapped: false, manageUsers: false, manageVenues: false, specialEvent: true, annual: true, manualEntry: false },
+  Supervisor: { view: true, payment: false, review: true, approve: false, approveCapped: false, manageUsers: false, manageVenues: true, specialEvent: true, annual: true, manualEntry: false }
 };
 
 // ---------------- Subscription tiers (Municipal Corporation only, to
@@ -26873,6 +26879,11 @@ function muni_enterShellAsUser(user){
   }
   if(user && user.permissions && user.permissions.annual === undefined){
     user.permissions.annual = true;
+  }
+  // manualEntry is opt-in: an account that has never been granted it by its
+  // CEO simply doesn't have it (the opposite default to specialEvent/annual).
+  if(user && user.permissions && user.permissions.manualEntry === undefined){
+    user.permissions.manualEntry = false;
   }
   currentUser = user;
   // MUNICIPALITIES only lists Active Municipal Corporations (see
@@ -31474,12 +31485,12 @@ function setAppCategory(category){
 }
 
 function muni_renderApplications(){
-  // Manual (walk-in) application intake — Supervisor-only, and independent
+  // Manual (walk-in) application intake — Supervisor accounts the CEO has granted manualEntry to, and independent
   // of subscription tier. Lives on this Applications page (see the CTA's
   // own HTML comment above muniManualAppCta for why) rather than the
   // Dashboard, but the gate itself is unchanged from when it lived there.
   const manualCtaEl = document.getElementById('muniManualAppCta');
-  if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !(currentUser && currentUser.role === 'Supervisor'));
+  if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !muni_canEnterManualApplication());
 
   const specialBody = document.getElementById('muni_applicationsBodySpecial');
   const annualBody = document.getElementById('muni_applicationsBodyAnnual');
@@ -31585,7 +31596,7 @@ function renderUsers(){
   }
 
   const roleBadge = { CEO: 'badge-blue', Accountant: 'badge-green', Supervisor: 'badge-purple' };
-  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database', specialEvent: 'Special Event apps', annual: 'Annual apps' };
+  const permLabels = { view: 'View', payment: 'Verify payment', review: 'Review & recommend', approve: 'Approve/Reject', approveCapped: 'Approve/Reject (≤500 patrons)', manageUsers: 'Manage users', manageVenues: 'Manage venue database', specialEvent: 'Special Event apps', annual: 'Annual apps', manualEntry: 'Manual application entry' };
 
   body.innerHTML = list.map(u => {
     const perms = Object.keys(u.permissions).filter(k => u.permissions[k]).map(k => permLabels[k]).join(', ');
@@ -31630,7 +31641,19 @@ function applyRoleDefaults(){
   document.getElementById('permManageVenues').checked = !!defaults.manageVenues;
   document.getElementById('permSpecialEvent').checked = !!defaults.specialEvent;
   document.getElementById('permAnnual').checked = !!defaults.annual;
+  document.getElementById('permManualEntry').checked = !!defaults.manualEntry;
+  muni_syncManualEntryPermRow();
 }
+
+// The manual-entry permission only means anything for a Supervisor account
+// (see muni_canEnterManualApplication()), so its checkbox is shown only while
+// the Role dropdown is set to Supervisor.
+function muni_syncManualEntryPermRow(){
+  const row = document.getElementById('permManualEntryRow');
+  const roleEl = document.getElementById('userRole');
+  if(row && roleEl) row.classList.toggle('hidden', roleEl.value !== 'Supervisor');
+}
+window.muni_syncManualEntryPermRow = muni_syncManualEntryPermRow;
 
 function generateUserPassword(){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
@@ -31677,6 +31700,9 @@ function openUserModal(id){
     // muni_enterShellAsUser()'s own backfill for the same reason.
     document.getElementById('permSpecialEvent').checked = u.permissions.specialEvent === undefined ? true : !!u.permissions.specialEvent;
     document.getElementById('permAnnual').checked = u.permissions.annual === undefined ? true : !!u.permissions.annual;
+    // Absent means never granted: manual entry is opt-in (unlike the two above).
+    document.getElementById('permManualEntry').checked = !!u.permissions.manualEntry;
+    muni_syncManualEntryPermRow();
     document.getElementById('userPassword').value = '';
     document.getElementById('userPassword').placeholder = 'Leave blank to keep current password';
   } else {
@@ -31711,7 +31737,9 @@ async function saveUser(){
     manageUsers: document.getElementById('permManageUsers').checked,
     manageVenues: document.getElementById('permManageVenues').checked,
     specialEvent: document.getElementById('permSpecialEvent').checked,
-    annual: document.getElementById('permAnnual').checked
+    annual: document.getElementById('permAnnual').checked,
+    // Only a Supervisor account can ever hold it, whatever the hidden checkbox says.
+    manualEntry: role === 'Supervisor' && document.getElementById('permManualEntry').checked
   };
 
   if(!name || !email){
@@ -31795,7 +31823,7 @@ async function deleteUser(id){
   renderUsers();
 }
 
-// ==================== Manual (walk-in) application intake — Supervisor only ====================
+// ==================== Manual (walk-in) application intake — Supervisor with manualEntry permission ====================
 // See muniManualAppCta/muniManualAppModal in the Applications page HTML, and
 // muni_renderApplications()'s role gate. Special Event only (Annual stays
 // online-wizard-only) — a condensed version of the public wizard's own
@@ -31836,9 +31864,17 @@ function muni_calcAgeFromDob(dobStr){
 }
 window.muni_calcAgeFromDob = muni_calcAgeFromDob;
 
+// Who may enter an application manually: a Supervisor account whose CEO has
+// switched on the "Enter manual (walk-in) applications" permission. Both
+// conditions are required; neither alone is enough.
+function muni_canEnterManualApplication(){
+  return !!(currentUser && currentUser.role === 'Supervisor' && currentUser.permissions && currentUser.permissions.manualEntry === true);
+}
+window.muni_canEnterManualApplication = muni_canEnterManualApplication;
+
 async function muni_openManualAppModal(){
-  if(!currentUser || currentUser.role !== 'Supervisor'){
-    muni_showToast("Only a Supervisor account can create a manual application.");
+  if(!muni_canEnterManualApplication()){
+    muni_showToast("Manual application entry isn't enabled for your account. Ask your CEO to turn it on for you.");
     return;
   }
   document.getElementById('manualAppFullName').value = '';
@@ -32054,6 +32090,11 @@ function muni_manualAppTrackingCode(){
 async function muni_createManualApplication(){
   const errorBox = document.getElementById('manualAppError');
   errorBox.classList.add('hidden');
+  if(!muni_canEnterManualApplication()){
+    errorBox.textContent = "Manual application entry isn't enabled for your account. Ask your CEO to turn it on for you.";
+    errorBox.classList.remove('hidden');
+    return;
+  }
 
   const checkedType = document.querySelector('input[name="manualApplicantType"]:checked');
   const isCompany = checkedType && checkedType.value === 'Company';
