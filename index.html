@@ -28528,9 +28528,25 @@ async function deleteVenue(id){
   if(!(await window.atdConfirm(`Remove "${v.name}" from your registered venues database? Applicants will no longer be able to select it.`))) return;
 
   if(window.storage){
-    try{ await window.storage.delete(v._storageKey || `venue:${v.id}`, true); } catch(err){ /* ignore */ }
+    const venueKey = v._storageKey || `venue:${v.id}`;
+    try{ await window.storage.delete(venueKey, true); } catch(err){ /* checked below */ }
+    // storage.delete() never reports failure (a database permission refusal is
+    // swallowed), and the National Venue Registry reads this same record, so
+    // confirm it is really gone before telling the officer it was removed.
+    let stillThere = false;
+    try{
+      const check = await window.storage.get(venueKey, true);
+      stillThere = !!(check && check.value);
+    }catch(err){ /* a failed read is treated as gone */ }
+    if(stillThere){
+      muni_showToast(`${v.name} could not be removed right now, so it is still in the venue database and the National Venue Registry. Please try again, or contact your administrator.`);
+      return;
+    }
   }
   venues = venues.filter(x => x.id !== id);
+  if(window.atdLogAudit && currentUser){
+    window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'venue.deleted', details: `Deleted venue "${v.name}" from the venue database (and the National Venue Registry).`, muniId: currentUser.muniId });
+  }
   muni_showToast(`${v.name} removed.`);
   renderVenues();
 }
@@ -35714,6 +35730,10 @@ async function admin_loadVenues(){
         const result = await window.storage.get(key);
         if(!result || !result.value) continue;
         const rec = JSON.parse(result.value);
+        // A venue its municipality rejected is not part of the National
+        // Venue Registry: it is never listed, counted, or written to from
+        // here. (The municipality keeps its own record of the rejection.)
+        if(rec && rec.rejected) continue;
         out.push(Object.assign({ _storageKey: key }, rec));
       }catch(e){ /* skip unreadable record */ }
     }
@@ -36224,6 +36244,10 @@ function admin_goPage(page){
   document.getElementById('admin_topbarTitle').textContent = titles[page];
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
+  // The National Venue Registry is shared with every municipality, which can
+  // delete or reject venues at any time. Re-read it each time this page is
+  // opened so a venue a municipality has deleted never lingers here.
+  if(page === 'venueregistry') admin_loadVenues().then(renderVenueRegistry).catch(()=>{});
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -38032,9 +38056,29 @@ function admin_renderVenueViolations(v){
 // municipality's own save flow merges whatever is already on the record
 // into memory and only overwrites the specific fields its own form edits,
 // so these admin fields survive a later edit made in that portal.
+// Admin writes back to the same `venue:<id>` row the municipality owns, and a
+// plain write would silently RE-CREATE a venue the municipality has deleted
+// since this page last loaded. Check the row still exists (and was not
+// rejected) first; if not, drop it from the registry instead of saving.
+async function admin_venueStillInRegistry(v){
+  const key = v._storageKey || ('venue:' + v.id);
+  let current = null;
+  try{
+    const r = await window.storage.get(key);
+    current = (r && r.value) ? JSON.parse(r.value) : null;
+  }catch(e){ return true; /* can't tell (offline): don't block */ }
+  if(current && !current.rejected) return true;
+  venues = venues.filter(x => x.id !== v.id);
+  closeVenueRegistryModal();
+  renderVenueRegistry();
+  admin_showToast(current ? 'That venue was rejected by its municipality and is no longer in the registry.' : 'That venue was deleted by its municipality and has been removed from the registry.');
+  return false;
+}
+
 async function admin_saveVenueOverlay(){
   const v = venues.find(v => v.id === activeVenueId);
   if(!v || !window.storage) return;
+  if(!(await admin_venueStillInRegistry(v))) return;
   v.plusCode = document.getElementById('venueFormPlusCode').value.trim();
   v.indoorOutdoor = document.getElementById('venueFormIndoorOutdoor').value;
   v.fireCertification = document.getElementById('venueFormFireCert').value;
@@ -38058,6 +38102,7 @@ async function admin_saveVenueOverlay(){
 async function admin_addVenueViolation(){
   const v = venues.find(v => v.id === activeVenueId);
   if(!v || !window.storage) return;
+  if(!(await admin_venueStillInRegistry(v))) return;
   const date = document.getElementById('venueFormViolationDate').value;
   const severity = document.getElementById('venueFormViolationSeverity').value;
   const description = document.getElementById('venueFormViolationDesc').value.trim();
