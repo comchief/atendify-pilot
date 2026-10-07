@@ -9534,9 +9534,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <p class="modal-sub" id="venueAcceptModalSub"></p>
     <div class="field-group">
       <label for="venueAcceptCostInput">Venue Cost (JMD)</label>
-      <input type="number" id="venueAcceptCostInput" min="0" placeholder="e.g. 15000">
+      <input type="number" id="venueAcceptCostInput" min="0" placeholder="e.g. 15000" oninput="muni_updateVenueAcceptTotal()">
       <div class="field-hint">Required. This is the venue's own assessed cost — it's saved to your venue database either way, whether or not it's billed to the applicant below.</div>
     </div>
+    <div class="field-hint" id="venueAcceptTotalHint" style="display:none; margin:-4px 0 10px; font-weight:600;"></div>
     <!-- Was a hard "Required" rule that always billed the applicant. A venue
          entered on an Annual application only registers the location — it
          isn't billed this cost the way a Special Event application's venue
@@ -22152,7 +22153,7 @@ function poa_mdRender(){
             <input type="text" data-md="venueName" data-i="${i}" value="${esc(d.venueName)}"></div>
           <div class="field-group" style="grid-column:1 / -1;"><label>Location address</label>
             <input type="text" data-md="venueAddr" data-i="${i}" value="${esc(d.venueAddr)}">
-            <div class="field-hint">A location that is not in the municipality's venue database is subject to the standard venue inspection fee.</div></div>`;
+            <div class="field-hint">A location that is not in the municipality's venue database is subject to the standard venue inspection fee. The municipality will also review it: if accepted, its venue cost is billed for each day you use it, as an additional payment; if not accepted, you will be told why.</div></div>`;
       }
     }
     return `<div class="md-day" data-i="${i}">
@@ -23834,6 +23835,30 @@ async function buildApplicationRecord(appNumber){
 
   const mdTypes = mdRec ? poa_mdEventTypes() : [];
 
+  // Different locations typed in for Day 2+ are not registered venues, so each
+  // distinct one (same name + address = one location, however many days it is
+  // used on) gets its own pending-venue entry, reviewed by the municipality
+  // exactly like a manually entered main venue: accepted with a cost (billed
+  // per day it is used) or rejected with a reason. Day rows point at their
+  // entry through venueRegistryVenueId.
+  const extraVenues = [];
+  if(mdRec){
+    const usedIds = new Set();
+    const byKey = new Map();
+    mdRec.forEach(d => {
+      if(d.day > 1 && d.loc === 'manual' && d.venueName){
+        const key = (d.venueName + '|' + d.venueAddr).toLowerCase();
+        let ev = byKey.get(key);
+        if(!ev){
+          ev = { id: atdGenerateVenueId(usedIds), name: d.venueName, addr: d.venueAddr, days: [], dates: [], status: 'pending', rejectReason: '', cost: 0, billedAmount: 0, billed: false, decidedBy: '', decidedAt: '' };
+          usedIds.add(ev.id); byKey.set(key, ev); extraVenues.push(ev);
+        }
+        ev.days.push(d.day); ev.dates.push(d.date);
+        d.venueRegistryVenueId = ev.id;
+      }
+    });
+  }
+
   const adItems = [];
   if(adDisplay === 'Yes'){
     document.querySelectorAll('.ad-qty').forEach(inp=>{
@@ -24192,6 +24217,9 @@ async function buildApplicationRecord(appNumber){
     venueRegistryStatus: c.venueIsNew ? 'pending' : '',
     venueRegistryVenueId: c.venueIsNew ? atdGenerateVenueId() : '',
     venueRegistryRejectReason: '',
+    // Multi-day: other (non-registered) locations used on Day 2+ and where each
+    // stands in the municipality's venue review — see the extraVenues note above.
+    extraVenues,
     // SLA-pipeline timestamps (see the "Review Turnaround (SLA)" settings and
     // the notification bell): each is set the moment its triggering action
     // happens (payment submission, payment verification, venue-inspection
@@ -24204,6 +24232,41 @@ async function buildApplicationRecord(appNumber){
     venueApprovedAt: '',
     recommendationMadeAt: ''
   };
+}
+
+// Multi-day events: pre-load each different (non-registered) location used on
+// Day 2+ into the municipality's venue database as a pending entry, the same
+// way submitApp() does for a manually entered main venue. Best-effort: a
+// failure never blocks the submitted application.
+async function poa_registerExtraVenues(record, appNumber){
+  const list = (record && record.extraVenues) || [];
+  for(const ev of list){
+    try{
+      const dayText = ev.days.length === 1 ? `Day ${ev.days[0]}` : `Days ${ev.days.join(', ')}`;
+      if(window.ATDBackend && window.ATDBackend.isConfigured()){
+        await window.ATDBackend.submitPendingVenue({
+          id: ev.id, muniNumber: record.muniId, sourceAppNumber: appNumber,
+          name: ev.name, addr1: ev.addr, addr2: '', district: '',
+          maxCap: '', maxParking: '', ownerName: '', ownerAddress: '', ownerPhone: ''
+        });
+      } else if(window.storage){
+        await window.storage.set(`venue:${ev.id}`, JSON.stringify({
+          id: ev.id, muniId: record.muniId, name: ev.name, streetNumber: '', streetName: ev.addr,
+          district: '', cost: 0, maxCap: 0, maxParking: 0,
+          ownerName: '', ownerAddress: '', ownerPhone: '', active: false, flagged: false, flagReason: '',
+          pendingApproval: true, rejected: false, sourceAppNumber: appNumber,
+          createdBy: `Applicant (via ${appNumber})`, created: new Date().toISOString().slice(0, 10)
+        }), true);
+      }
+      if(record.muniId != null){
+        window.atdNotify(record.muniId, 'manageVenues', 'venue_pending_review',
+          `Additional location "${ev.name}" (${dayText}) submitted on ${appNumber} needs review before it can be added to the venue database.`,
+          appNumber);
+      }
+    } catch(err){
+      console.error(`Could not register additional location "${ev.name}" for ${appNumber}:`, err);
+    }
+  }
 }
 
 async function generateAppNumber(){
@@ -24560,6 +24623,8 @@ async function submitApp(){
         console.error(`Could not register the venue for ${appNumber}:`, venueErr);
       }
     }
+
+    await poa_registerExtraVenues(record, appNumber);
 
     if(record.applicant && record.applicant.email){
       window.atdSendEmail('application_submitted', record.applicant.email, {
@@ -25729,6 +25794,14 @@ function renderMmSummary(){
       : 'Pending municipality review';
     html += mmDetailRow('Venue database status', registryLabel);
   }
+  (r.extraVenues || []).forEach(ev => {
+    const dayText = ev.days.length === 1 ? `Day ${ev.days[0]}` : `Days ${ev.days.join(', ')}`;
+    const label = ev.status === 'accepted'
+      ? `Accepted${ev.cost ? ` — ${poa_formatCurrency(ev.cost)} per day${ev.billed ? ` × ${ev.days.length} = ${poa_formatCurrency(ev.billedAmount)}, billed as an additional payment` : ' (not billed)'}` : ''}`
+      : ev.status === 'rejected' ? `Not accepted${ev.rejectReason ? ' — ' + ev.rejectReason : ''}`
+      : 'Pending municipality review';
+    html += mmDetailRow(`Additional location — ${ev.name} (${dayText})`, label);
+  });
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Application Costs</div>`;
@@ -29012,12 +29085,14 @@ function renderPendingVenues(){
   list.sort((a,b)=> (a.created || '').localeCompare(b.created || ''));
   body.innerHTML = list.map(v => {
     const location = [v.streetName, v.district].filter(Boolean).join(', ') || '—';
+    const srcApp = v.sourceAppNumber ? applications.find(a => a.appNumber === v.sourceAppNumber) : null;
+    const srcExtra = muni_extraVenueFor(srcApp, v.id);
     return `
       <tr>
         <td class="cell-primary">${muni_escapeHtml(v.name)}</td>
         <td>${muni_escapeHtml(location)}</td>
         <td>${v.maxCap || 0}</td>
-        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}</td>
+        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}${srcExtra ? `<div class="cell-sub">Multi-day — additional location, ${muni_escapeHtml(muni_extraVenueDayText(srcExtra))} (${srcExtra.days.length} ${srcExtra.days.length === 1 ? 'day' : 'days'})</div>` : ''}</td>
         <td>
           <div class="row-actions">
             <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${JSON.stringify(v.id)})'>Accept</button>
@@ -29366,6 +29441,36 @@ async function unflagVenue(id){
 let acceptingVenueId = null;
 let rejectingVenueId = null;
 
+// Multi-day applications: the entry in application `a` for a different
+// location (Day 2+) whose pending venue has this id, or null. The main venue
+// and every other kind of pending venue return null and keep their old flow.
+function muni_extraVenueFor(a, venueId){
+  return (a && a.extraVenues || []).find(e => e.id === venueId) || null;
+}
+function muni_extraVenueDayText(ev){
+  return ev.days.length === 1 ? `Day ${ev.days[0]}` : `Days ${ev.days.join(', ')}`;
+}
+// Reasons final approval must wait on additional locations (empty = clear).
+function muni_extraVenueBlockers(a){
+  const list = (a && a.extraVenues) || [];
+  const pending = list.filter(e => e.status === 'pending');
+  const rejected = list.filter(e => e.status === 'rejected');
+  const out = [];
+  if(pending.length) out.push(`${pending.length === 1 ? 'an additional location is' : pending.length + ' additional locations are'} still awaiting venue review (${pending.map(e => e.name).join(', ')})`);
+  if(rejected.length) out.push(`${rejected.length === 1 ? 'an additional location was' : rejected.length + ' additional locations were'} rejected (${rejected.map(e => e.name).join(', ')}) — reject the application or have the location changed`);
+  return out;
+}
+function muni_updateVenueAcceptTotal(){
+  const el = document.getElementById('venueAcceptTotalHint');
+  if(!el) return;
+  const v = pendingVenues().find(x => x.id === acceptingVenueId);
+  const sourceApp = v && v.sourceAppNumber ? applications.find(a => a.appNumber === v.sourceAppNumber) : null;
+  const ev = muni_extraVenueFor(sourceApp, acceptingVenueId);
+  if(!ev){ el.style.display = 'none'; return; }
+  const cost = parseFloat(document.getElementById('venueAcceptCostInput').value) || 0;
+  el.style.display = 'block';
+  el.textContent = `Used on ${muni_extraVenueDayText(ev)} (${ev.days.length} ${ev.days.length === 1 ? 'day' : 'days'}). Enter the cost for ONE day — if billed, the applicant is charged ${muni_formatCurrency(cost)} × ${ev.days.length} = ${muni_formatCurrency(cost * ev.days.length)}.`;
+}
 function openVenueAcceptModal(id){
   if(!hasPerm('manageVenues')){
     muni_showToast("You don't have permission to manage the venue database.");
@@ -29387,6 +29492,7 @@ function openVenueAcceptModal(id){
   const isAnnualSource = !!(sourceApp && sourceApp.licenseType === 'Annual');
   document.getElementById('venueAcceptBillApplicantCheckbox').checked = !isAnnualSource;
   document.getElementById('venueAcceptAnnualHint').style.display = isAnnualSource ? 'block' : 'none';
+  muni_updateVenueAcceptTotal();
 
   document.getElementById('venueAcceptModal').classList.remove('hidden');
 }
@@ -29424,16 +29530,20 @@ function closeVenueRejectModal(){
 // cost, once it's added to the registry) are two separate charges, and
 // both are now billed in full — the applicant is billed the complete
 // assessed cost here regardless of what they already paid.
-async function chargeVenueCostToApplication(appNumber, venueName, cost){
+async function chargeVenueCostToApplication(appNumber, venueName, cost, days){
   const a = applications.find(x => x.appNumber === appNumber);
   if(!a) return { additionalDue: cost, alreadyPaid: 0 };
   const alreadyPaid = (a.raw && a.raw.costs && typeof a.raw.costs.venueCost === 'number') ? a.raw.costs.venueCost : 0;
-  const additionalDue = Math.round(cost * 100) / 100;
+  // days > 1: a multi-day application's different location, billed for each day it is used.
+  const dayCount = days > 1 ? days : 1;
+  const additionalDue = Math.round(cost * dayCount * 100) / 100;
   if(additionalDue > 0){
     if(!a.additionalPaymentRequests) a.additionalPaymentRequests = [];
     a.additionalPaymentRequests.push({
       amount: additionalDue,
-      reason: `Venue Cost — ${venueName} (assessed at ${muni_formatCurrency(cost)})`,
+      reason: dayCount > 1
+        ? `Venue Cost — ${venueName} (${muni_formatCurrency(cost)} per day × ${dayCount} days)`
+        : `Venue Cost — ${venueName} (assessed at ${muni_formatCurrency(cost)})`,
       status: 'Pending',
       requestedBy: currentUser.name,
       requestedDate: new Date().toISOString().slice(0, 10),
@@ -29475,12 +29585,24 @@ async function submitAcceptPendingVenue(){
   let billing = { additionalDue: 0, alreadyPaid: 0 };
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
-    if(a){
+    const ev = muni_extraVenueFor(a, v.id);
+    if(a && ev){
+      // A different location on a multi-day application: record the decision
+      // on its own entry (the main venue's status is left alone).
+      ev.status = 'accepted';
+      ev.cost = cost;
+      ev.decidedBy = currentUser.name;
+      ev.decidedAt = new Date().toISOString();
+      ev.rejectReason = '';
+      ev.billed = !!billApplicant;
+      ev.billedAmount = billApplicant ? Math.round(cost * ev.days.length * 100) / 100 : 0;
+      await persistIfFromStorage(a);
+    } else if(a){
       a.venueRegistryStatus = 'accepted';
       await persistIfFromStorage(a);
     }
     if(billApplicant){
-      billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost);
+      billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost, ev ? ev.days.length : 1);
     }
   }
 
@@ -29488,7 +29610,9 @@ async function submitAcceptPendingVenue(){
     : !billApplicant
       ? ` The assessed cost of ${muni_formatCurrency(cost)} has been saved to the venue database — no additional payment was charged to ${v.sourceAppNumber}.`
       : billing.additionalDue > 0
-        ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`
+        ? (muni_extraVenueFor(applications.find(x => x.appNumber === v.sourceAppNumber), v.id)
+          ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} (${muni_formatCurrency(cost)} per day × ${muni_extraVenueFor(applications.find(x => x.appNumber === v.sourceAppNumber), v.id).days.length} days) has been requested on ${v.sourceAppNumber}.`
+          : ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`)
         : ` No additional payment is due on ${v.sourceAppNumber}.`;
   muni_showToast(`${v.name} added to your venue database.${billedMsg}`);
   closeVenueAcceptModal();
@@ -29515,7 +29639,21 @@ async function submitRejectPendingVenue(){
 
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
-    if(a){
+    const ev = muni_extraVenueFor(a, v.id);
+    if(a && ev){
+      ev.status = 'rejected';
+      ev.rejectReason = reason;
+      ev.decidedBy = currentUser.name;
+      ev.decidedAt = new Date().toISOString();
+      ev.billed = false; ev.billedAmount = 0; ev.cost = 0;
+      await persistIfFromStorage(a);
+      const applicantEmail = a.raw && a.raw.applicant && a.raw.applicant.email;
+      if(applicantEmail){
+        window.atdNotifyApplicant(applicantEmail, 'venue_rejected',
+          `${myMunicipalityName()} could not accept the additional location "${v.name}" (${muni_extraVenueDayText(ev)}) you entered on ${a.appNumber}: ${reason}`, a.appNumber);
+      }
+      if(activeAppId === a.id) renderAppDetail();
+    } else if(a){
       a.venueRegistryStatus = 'rejected';
       a.venueRegistryRejectReason = reason;
       await persistIfFromStorage(a);
@@ -33399,6 +33537,14 @@ function renderSubmissionColumn(a){
             : 'Pending review by a staff member who can manage the venue database');
       html += detailRow('Venue database status', registryLabel);
     }
+    (a.extraVenues || []).forEach(ev => {
+      const label = ev.status === 'accepted'
+        ? `Accepted by ${muni_escapeHtml(ev.decidedBy || 'staff')} — ${muni_formatCurrency(ev.cost)} per day${ev.billed ? ` × ${ev.days.length} = ${muni_formatCurrency(ev.billedAmount)} billed (see Additional Payments below)` : ' — not billed to the applicant'}`
+        : ev.status === 'rejected'
+          ? `Rejected${ev.rejectReason ? ' — ' + muni_escapeHtml(ev.rejectReason) : ''}`
+          : (hasPerm('manageVenues') ? 'Pending review — see Venues Pending Review on the Venues page' : 'Pending review by a staff member who can manage the venue database');
+      html += detailRow(`Additional location — ${muni_escapeHtml(ev.name)} (${muni_escapeHtml(muni_extraVenueDayText(ev))})`, label);
+    });
     html += detailRow('Advertisement total', muni_formatCurrency(r.costs.adTotal));
   }
   html += `<div class="detail-row" style="border-top:1px solid var(--border-color); margin-top:2px; padding-top:10px;"><div class="dr-label"><strong>Payable to ${muni_escapeHtml(myMunicipalityName())}</strong></div><div class="dr-value"><strong>${muni_formatCurrency(municipalAmount)}</strong>${municipalFeeTag}</div></div>`;
@@ -34013,6 +34159,7 @@ async function renderAppDetail(){
       else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
       if(!liveRequiredDocsSubmitted) missingItems.push('required documents have not all been uploaded');
       if(!a.venueApproved) missingItems.push('the venue has not been approved');
+      muni_extraVenueBlockers(a).forEach(m => missingItems.push(m));
       if(a.licenseType === 'Annual' && await muniRequiresJcfPermitForAnnual(a.muniId)){
         if(!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)) missingItems.push('the corresponding JCF Annual Noise Abatement Permit has not yet been issued');
       }
@@ -34834,6 +34981,7 @@ async function persistIfFromStorage(a){
     a.raw.municipalCredits = a.municipalCredits || [];
     a.raw.venueRegistryStatus = a.venueRegistryStatus || '';
     a.raw.venueRegistryRejectReason = a.venueRegistryRejectReason || '';
+    a.raw.extraVenues = a.extraVenues || [];
     a.raw.paymentVerifiedAt = a.paymentVerifiedAt || '';
     a.raw.venueApprovedAt = a.venueApprovedAt || '';
     a.raw.recommendationMadeAt = a.recommendationMadeAt || '';
@@ -35516,6 +35664,7 @@ async function setFinalStatus(status){
     else if(!a.applicationFeePaid) missingItems.push('the Atendify application fee has not been paid');
     if(!muni_computeRequiredDocumentsSubmitted(a)) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
+    muni_extraVenueBlockers(a).forEach(m => missingItems.push(m));
     if(a.licenseType === 'Annual' && await muniRequiresJcfPermitForAnnual(a.muniId)){
       if(!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)) missingItems.push('the corresponding JCF Annual Noise Abatement Permit has not yet been issued');
     }
@@ -35695,6 +35844,7 @@ async function loadSubmittedApplications(silent, btnId){
         venueRegistryStatus: rec.venueRegistryStatus || '',
         venueRegistryVenueId: rec.venueRegistryVenueId || '',
         venueRegistryRejectReason: rec.venueRegistryRejectReason || '',
+        extraVenues: rec.extraVenues || [],
         permitGenerated: !!rec.permitGenerated,
         permit: rec.permit || null,
         additionalPaymentRequests: rec.additionalPaymentRequests || [],
@@ -36105,6 +36255,7 @@ window.muniPrintReceipt = muniPrintReceipt;
 window.muni_loadMyAgencyRecord = muni_loadMyAgencyRecord;
 window.renderPendingVenues = renderPendingVenues;
 window.openVenueAcceptModal = openVenueAcceptModal;
+window.muni_updateVenueAcceptTotal = muni_updateVenueAcceptTotal;
 window.closeVenueAcceptModal = closeVenueAcceptModal;
 window.submitAcceptPendingVenue = submitAcceptPendingVenue;
 window.openVenueRejectModal = openVenueRejectModal;
