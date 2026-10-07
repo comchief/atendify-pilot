@@ -1070,6 +1070,22 @@
   }
   .record-main{ font-weight: 600; font-size: 14.5px; }
   .record-sub{ font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Watchlist subject rows: name on one line, TRN + status badge beneath it,
+     action buttons on their own row below. */
+  .record-row.wl-row{ flex-direction:column; align-items:stretch; justify-content:flex-start; gap:12px; }
+  .record-row.wl-row .wl-trn{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
+  .record-row.wl-row .record-main{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .record-row.wl-row .action-btn-row .btn{ flex:1 1 auto; justify-content:center; }
+
+  /* JCF form — multi-day event cards (Day 2+) */
+  .jcf-md-panel{ border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:0 0 18px; background:var(--track, rgba(0,0,0,.03)); }
+  .jcf-md-title{ font-size:14px; font-weight:700; margin:0 0 4px; }
+  .jcf-md-sub{ font-size:12.5px; color:var(--text-muted); margin:0 0 2px; }
+  .jcf-md-card{ background:var(--bg, #fff); border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-top:10px; }
+  .jcf-md-l1{ font-weight:600; font-size:14.5px; }
+  .jcf-md-l1 .jcf-md-date{ font-weight:500; color:var(--text-muted); }
+  .jcf-md-l2, .jcf-md-l3{ font-size:13px; color:var(--text-muted); margin-top:3px; }
   .record-remove{
     background: transparent;
     border: none;
@@ -11386,6 +11402,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="text" id="jcfEventName" placeholder="e.g. Mobay Igloo: Christmas Anniversary Black &amp; White" readonly>
         </div>
 
+        <!-- Multi-day events only: Day 2+ of the linked application (Day 1 is
+             the Date of Event / Venue fields on this form). Filled by
+             jcf_renderMultiDayPanel(). -->
+        <div class="jcf-md-panel hidden" id="jcfMultiDayPanel"></div>
+
         <div class="field-row">
           <div class="field-group">
             <label for="promoterName">Name of Promoter</label>
@@ -14533,6 +14554,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         html += '<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>' +
           acctDetailRow('Type of event', eo.eventType) +
           acctDetailRow('Date of event', eo.dateOfEvent) +
+          (eo.eventDays || []).filter(d => d.day > 1).map(d => acctDetailRow(`Day ${d.day}`, `${d.eventName || eo.eventName || 'Event'} · ${d.date || 'date not set'} · ${[d.venueName, d.venueAddr].filter(Boolean).join(' — ') || 'Same venue as Day 1'} · ${d.eventType || 'event type not set'} · ${d.patrons ? d.patrons + ' patrons' : 'patrons not set'}`)).join('') +
           acctDetailRow('Promoter', eo.promoterName) +
           acctDetailRow('Date of birth', eo.dateOfBirth) +
           acctDetailRow('Age of promoter', eo.ageOfPromoter) +
@@ -17339,6 +17361,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRow('Event name', eo.eventName);
     html += jcfd_detailRow('Date of application', eo.dateOfApplication);
     html += jcfd_detailRow('Date of event', eo.dateOfEvent);
+    (eo.eventDays || []).filter(d => d.day > 1).forEach(d => {
+      html += jcfd_detailRow(`Day ${d.day}`, `${d.eventName || eo.eventName || 'Event'} · ${d.date || 'date not set'} · ${[d.venueName, d.venueAddr].filter(Boolean).join(' — ') || 'Same venue as Day 1'} · ${d.eventType || 'event type not set'} · ${d.patrons ? d.patrons + ' patrons' : 'patrons not set'}`);
+    });
     html += jcfd_detailRow('Number of patrons expected', eo.patronsExpected);
     html += jcfd_detailRow('Promoter previously breached the Noise Abatement Act', eo.promoterBreachedNoiseAct);
     if(eo.promoterBreachedNoiseAct === 'Yes'){
@@ -18013,8 +18038,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           const flagNotes = [];
           if(jcfEntry && jcfEntry.status === 'Active' && jcfEntry.reason) flagNotes.push(`<div class="record-sub">JCF: ${acctEscapeHtml(jcfEntry.reason)}</div>`);
           if(muniFlag && muniFlag.status === 'Active' && muniFlag.reason) flagNotes.push(`<div class="record-sub">Municipal Corporation: ${acctEscapeHtml(muniFlag.reason)}</div>`);
-          html += `<div class="record-row"><div><div class="record-main">${acctEscapeHtml(subj.type)} — ${acctEscapeHtml(subj.name || 'N/A')}</div>
-            <div class="record-sub">TRN: ${acctEscapeHtml(formatTrnDisplayJcfd(subj.trn))} ${badges.join(' ')}</div>
+          html += `<div class="record-row wl-row"><div><div class="record-main">${acctEscapeHtml(subj.type)} — ${acctEscapeHtml(subj.name || 'N/A')}</div>
+            <div class="record-sub wl-trn"><span>TRN: ${acctEscapeHtml(formatTrnDisplayJcfd(subj.trn))}</span>${badges.join(' ')}</div>
             ${flagNotes.join('')}</div>
             <div class="action-btn-row">
               ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(subj.trn)})'>View JCF file</button>` : ''}
@@ -25654,6 +25679,14 @@ async function openJcfForm(){
     flierFileData,
     eventName: r.amusement.eventName || '',
     eventDate: r.amusement.eventDate || r.amusement.applicationDate || '',
+    // Multi-day events: every day (Day 1 first) with its own name, date,
+    // location, event type and patron count — the JCF form shows Day 2+ as
+    // cards under the event name. Empty for a single-day event.
+    multiDay: !!r.amusement.multiDay,
+    eventDays: r.amusement.multiDay ? (r.amusement.days || []).map(d => ({
+      day: d.day, date: d.date || '', eventName: d.eventName || '', eventType: d.eventType || '',
+      patrons: d.patrons || '', venueName: d.venueName || '', venueAddr: d.venueAddr || ''
+    })) : [],
     patrons: r.amusement.patrons || '',
     privateSecurity: r.amusement.privateSecurity || '',
     securityRecords: r.amusement.securityRecords || [],
@@ -26018,6 +26051,9 @@ function renderMmNoise(){
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>`;
   html += mmDetailRow('Type of event', eo.eventType);
   html += mmDetailRow('Date of event', eo.dateOfEvent);
+  (eo.eventDays || []).filter(d => d.day > 1).forEach(d => {
+    html += mmDetailRow(`Day ${d.day}`, `${d.eventName || eo.eventName || 'Event'} · ${d.date || 'date not set'} · ${[d.venueName, d.venueAddr].filter(Boolean).join(' — ') || 'Same venue as Day 1'} · ${d.eventType || 'event type not set'} · ${d.patrons ? d.patrons + ' patrons' : 'patrons not set'}`);
+  });
   html += mmDetailRow('Promoter', eo.promoterName);
   html += mmDetailRow('Date of birth', eo.dateOfBirth);
   html += mmDetailRow('Age of promoter', eo.ageOfPromoter);
@@ -29087,12 +29123,13 @@ function renderPendingVenues(){
     const location = [v.streetName, v.district].filter(Boolean).join(', ') || '—';
     const srcApp = v.sourceAppNumber ? applications.find(a => a.appNumber === v.sourceAppNumber) : null;
     const srcExtra = muni_extraVenueFor(srcApp, v.id);
+    const srcUse = muni_venueUseDays(srcApp, v.id);
     return `
       <tr>
         <td class="cell-primary">${muni_escapeHtml(v.name)}</td>
         <td>${muni_escapeHtml(location)}</td>
         <td>${v.maxCap || 0}</td>
-        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}${srcExtra ? `<div class="cell-sub">Multi-day — additional location, ${muni_escapeHtml(muni_extraVenueDayText(srcExtra))} (${srcExtra.days.length} ${srcExtra.days.length === 1 ? 'day' : 'days'})</div>` : ''}</td>
+        <td>${muni_escapeHtml(v.sourceAppNumber || '—')}${srcExtra ? `<div class="cell-sub">Multi-day — additional location, ${muni_escapeHtml(muni_extraVenueDayText(srcExtra))} (${srcExtra.days.length} ${srcExtra.days.length === 1 ? 'day' : 'days'})</div>` : (srcUse.days > 1 ? `<div class="cell-sub">Multi-day — main venue, used on ${srcUse.days} days</div>` : '')}</td>
         <td>
           <div class="row-actions">
             <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${JSON.stringify(v.id)})'>Accept</button>
@@ -29460,16 +29497,37 @@ function muni_extraVenueBlockers(a){
   if(rejected.length) out.push(`${rejected.length === 1 ? 'an additional location was' : rejected.length + ' additional locations were'} rejected (${rejected.map(e => e.name).join(', ')}) — reject the application or have the location changed`);
   return out;
 }
+// Multi-day applications: how many days the application's MAIN venue is used
+// on — Day 1 plus every day set to "Same venue as Day 1". 1 for a single-day
+// event and for an Annual application.
+function muni_mainVenueDayCount(a){
+  const days = a && a.raw && a.raw.amusement && Array.isArray(a.raw.amusement.days) ? a.raw.amusement.days : [];
+  if(!days.length) return 1;
+  const n = days.filter(d => d.day === 1 || d.loc === 'main').length;
+  return n > 0 ? n : 1;
+}
+// Number of days a pending venue is used on in its source application: the
+// different-location entry's days for a Day 2+ location, or the main venue's
+// days (Day 1 + "same venue" days) for the application's own venue.
+function muni_venueUseDays(a, venueId){
+  const ev = muni_extraVenueFor(a, venueId);
+  if(ev) return { days: ev.days.length, text: muni_extraVenueDayText(ev), extra: true };
+  if(a && a.venueRegistryVenueId === venueId){
+    const n = muni_mainVenueDayCount(a);
+    if(n > 1) return { days: n, text: `${n} days (Day 1 and the days at the same venue)`, extra: false };
+  }
+  return { days: 1, text: '', extra: false };
+}
 function muni_updateVenueAcceptTotal(){
   const el = document.getElementById('venueAcceptTotalHint');
   if(!el) return;
   const v = pendingVenues().find(x => x.id === acceptingVenueId);
   const sourceApp = v && v.sourceAppNumber ? applications.find(a => a.appNumber === v.sourceAppNumber) : null;
-  const ev = muni_extraVenueFor(sourceApp, acceptingVenueId);
-  if(!ev){ el.style.display = 'none'; return; }
+  const use = muni_venueUseDays(sourceApp, acceptingVenueId);
+  if(use.days < 2){ el.style.display = 'none'; return; }
   const cost = parseFloat(document.getElementById('venueAcceptCostInput').value) || 0;
   el.style.display = 'block';
-  el.textContent = `Used on ${muni_extraVenueDayText(ev)} (${ev.days.length} ${ev.days.length === 1 ? 'day' : 'days'}). Enter the cost for ONE day — if billed, the applicant is charged ${muni_formatCurrency(cost)} × ${ev.days.length} = ${muni_formatCurrency(cost * ev.days.length)}.`;
+  el.textContent = `This venue is used on ${use.extra ? use.text + ' (' + use.days + ' days)' : use.text}. Enter the cost for ONE day — if billed, the applicant is charged ${muni_formatCurrency(cost)} × ${use.days} = ${muni_formatCurrency(cost * use.days)}.`;
 }
 function openVenueAcceptModal(id){
   if(!hasPerm('manageVenues')){
@@ -29602,7 +29660,8 @@ async function submitAcceptPendingVenue(){
       await persistIfFromStorage(a);
     }
     if(billApplicant){
-      billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost, ev ? ev.days.length : 1);
+      // Billed once for every day the venue is used (see muni_venueUseDays).
+      billing = await chargeVenueCostToApplication(v.sourceAppNumber, v.name, cost, muni_venueUseDays(a, v.id).days);
     }
   }
 
@@ -29610,8 +29669,8 @@ async function submitAcceptPendingVenue(){
     : !billApplicant
       ? ` The assessed cost of ${muni_formatCurrency(cost)} has been saved to the venue database — no additional payment was charged to ${v.sourceAppNumber}.`
       : billing.additionalDue > 0
-        ? (muni_extraVenueFor(applications.find(x => x.appNumber === v.sourceAppNumber), v.id)
-          ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} (${muni_formatCurrency(cost)} per day × ${muni_extraVenueFor(applications.find(x => x.appNumber === v.sourceAppNumber), v.id).days.length} days) has been requested on ${v.sourceAppNumber}.`
+        ? (muni_venueUseDays(applications.find(x => x.appNumber === v.sourceAppNumber), v.id).days > 1
+          ? ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} (${muni_formatCurrency(cost)} per day × ${muni_venueUseDays(applications.find(x => x.appNumber === v.sourceAppNumber), v.id).days} days) has been requested on ${v.sourceAppNumber}.`
           : ` An additional payment of ${muni_formatCurrency(billing.additionalDue)} has been requested on ${v.sourceAppNumber}, on top of the ${muni_formatCurrency(billing.alreadyPaid)} inspection fee already paid.`)
         : ` No additional payment is due on ${v.sourceAppNumber}.`;
   muni_showToast(`${v.name} added to your venue database.${billedMsg}`);
@@ -33764,8 +33823,8 @@ async function renderAppDetail(){
       else if(wlEntry && wlEntry.status === 'Cleared') badges.push('<span class="badge badge-gray">Municipal Cleared</span>');
       if(!badges.length) badges.push('<span class="badge badge-gray">Not flagged</span>');
 
-      cardsHtml += `<div class="record-row"><div><div class="record-main">${muni_escapeHtml(subj.type)} — ${muni_escapeHtml(subj.name || 'N/A')}</div>
-        <div class="record-sub">TRN: ${muni_escapeHtml(subj.trn)} ${badges.join(' ')}</div>`;
+      cardsHtml += `<div class="record-row wl-row"><div><div class="record-main">${muni_escapeHtml(subj.type)} — ${muni_escapeHtml(subj.name || 'N/A')}</div>
+        <div class="record-sub wl-trn"><span>TRN: ${muni_escapeHtml(subj.trn)}</span>${badges.join(' ')}</div>`;
       if(jcfActive){
         // A JCF flag overrides a non-flagged (or cleared) Municipal
         // Corporation status for this same person — always shown regardless
@@ -40196,6 +40255,40 @@ window.jcf_ingestPayload = jcf_ingestPayload;
   }
 })();
 
+// ---- Multi-day events: Day 2+ cards on the JCF form ----------------------
+function jcf_mdFmtDate(iso){
+  if(!iso) return 'date not set';
+  const d = new Date(iso + 'T12:00:00');
+  if(isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+}
+// The extra days (Day 2 onward) of the linked application, ready to show.
+function jcf_mdExtraDays(){
+  if(!poaData || !poaData.multiDay || !Array.isArray(poaData.eventDays)) return [];
+  return poaData.eventDays.filter(d => d.day > 1).map(d => ({
+    day: d.day,
+    name: d.eventName || poaData.eventName || 'Event name not set',
+    date: jcf_mdFmtDate(d.date),
+    location: [d.venueName, d.venueAddr && d.venueAddr !== d.venueName ? d.venueAddr : ''].filter(Boolean).join(' — ') || 'Same venue as Day 1',
+    type: d.eventType || 'Event type not set',
+    patrons: d.patrons ? `${d.patrons} patrons` : 'Patron count not set'
+  }));
+}
+function jcf_renderMultiDayPanel(){
+  const panel = document.getElementById('jcfMultiDayPanel');
+  if(!panel) return;
+  const days = jcf_mdExtraDays();
+  if(!days.length){ panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+  panel.innerHTML = `<div class="jcf-md-title">This is a multiple day Event</div>
+    <div class="jcf-md-sub">Day 1 is the date and venue shown on this form. The remaining ${days.length === 1 ? 'day was' : days.length + ' days were'} entered on your Places of Amusement application.</div>` +
+    days.map(d => `<div class="jcf-md-card">
+      <div class="jcf-md-l1">Day ${d.day} — ${jcf_escapeHtml(d.name)} <span class="jcf-md-date">· ${jcf_escapeHtml(d.date)}</span></div>
+      <div class="jcf-md-l2">${jcf_escapeHtml(d.location)}</div>
+      <div class="jcf-md-l3">${jcf_escapeHtml(d.type)} · ${jcf_escapeHtml(d.patrons)}</div>
+    </div>`).join('');
+  panel.classList.remove('hidden');
+}
+
 function prefillFromPoa(){
   const banner = document.getElementById('linkedBanner');
   const bannerText = document.getElementById('linkedBannerText');
@@ -40208,6 +40301,7 @@ function prefillFromPoa(){
 
   document.getElementById('dateOfApplication').value = new Date().toISOString().slice(0,10);
 
+  jcf_renderMultiDayPanel();
   if(!poaData){
     unlinkedBanner.classList.remove('hidden');
     lockedIds.forEach(id => document.getElementById(id).removeAttribute('readonly'));
@@ -40221,6 +40315,7 @@ function prefillFromPoa(){
 
   document.getElementById('dateOfEvent').value = poaData.eventDate || '';
   document.getElementById('jcfEventName').value = poaData.eventName || '';
+  jcf_renderMultiDayPanel();
   document.getElementById('promoterName').value = poaData.applicantName || '';
   document.getElementById('promoterPhone').value = jcf_formatPhoneValue((poaData.applicantPhone || '').replace(/\D/g,''));
   document.getElementById('promoterTrn').value = jcf_formatTrnValue((poaData.applicantTrn || '').replace(/\D/g,''));
@@ -41360,6 +41455,7 @@ function jcf_goReview(){
   if(radioVal('promoterBreached') === 'Yes'){
     overview.push(['Breach details', jcf_val('promoterBreachReason')]);
   }
+  jcf_mdExtraDays().forEach(d => overview.push([`Day ${d.day}`, `${d.name} · ${d.date} · ${d.location} · ${d.type} · ${d.patrons}`]));
   document.getElementById('revOverview').innerHTML = overview.map(([l,v])=>reviewRow(l,v)).join('');
 
   const venue = [
@@ -41588,6 +41684,8 @@ async function submitJcfApp(){
       dateOfApplication: jcf_val('dateOfApplication'),
       dateOfEvent: jcf_val('dateOfEvent'),
       eventName: jcf_val('jcfEventName'),
+      // Multi-day: every day of the linked application (Day 1 first); [] for a single-day event.
+      eventDays: (poaData && poaData.multiDay && Array.isArray(poaData.eventDays)) ? poaData.eventDays : [],
       promoterName: jcf_val('promoterName'),
       aliases: jcf_val('aliases'),
       dateOfBirth: jcf_val('dateOfBirth'),
