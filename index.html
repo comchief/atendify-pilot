@@ -6239,7 +6239,7 @@
       return [Object.assign({}, base, { eventName: am.eventName || '', eventDate: am.eventDate || '', venueName: venue.name || '', venueAddress: mainAddr })];
     }
     return am.days.map(function(d, i){
-      const name = [am.eventName || '', d.eventName || ''].filter(Boolean).join(' — ');
+      const name = [am.eventName || '', d.eventType || '', d.eventName || ''].filter(Boolean).join(' — ');
       return Object.assign({}, base, {
         eventName: (name || 'Event') + ' (Day ' + (i + 1) + ' of ' + am.days.length + ')',
         eventDate: d.date || '',
@@ -6251,7 +6251,7 @@
 
   // One display line for a day of a multi-day event (callers HTML-escape it).
   window.atdEventDayLine = function(d){
-    return [d.date, d.eventName, [d.venueName, d.venueAddr].filter(Boolean).join(', '),
+    return [d.date, d.eventType, d.eventName, [d.venueName, d.venueAddr].filter(Boolean).join(', '),
       (d.patrons !== '' && d.patrons != null) ? (d.patrons + ' patrons') : ''].filter(Boolean).join(' · ');
   };
   // Label for one row of costs.dayBreakdown (callers HTML-escape it).
@@ -7102,7 +7102,7 @@
             <div class="md-total hidden"><span>Total expected patrons (all days)</span><span id="mdTotalPatrons">0</span></div>
             <input type="hidden" id="mdDaysJson">
           </div>
-          <div class="field-group">
+          <div class="field-group" id="eventTypeGroup">
             <label for="eventType">Type of event</label>
             <!-- Options populated per-municipality by populateFormElementSelects() once a municipality is selected (see loadMunicipalityFormElements) -->
             <select id="eventType">
@@ -21837,6 +21837,7 @@ function poa_goStep(n){
   currentStep = n;
   if(n === 3){ loadMunicipalityAdItems(); loadMunicipalityAdLocations(); }
   if(n === 4) loadMunicipalityVenues().then(poa_mdReapplyDay1Venue).catch(()=>{});
+  if(n === 2 && poa_mdActive()){ poa_mdRender(); updateRequiredDocs(); }
   if(n === 5) renderCosts();
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -22052,7 +22053,7 @@ function poa_mdActive(){
   return !!document.getElementById('mdYes')?.checked
     && document.querySelector('input[name="licenseType"]:checked')?.value === 'Special';
 }
-function poa_mdBlankDay(){ return { date:'', eventName:'', patrons:'', loc:'main', venueId:'', venueName:'', venueAddr:'' }; }
+function poa_mdBlankDay(){ return { date:'', eventName:'', eventType:'', patrons:'', loc:'main', venueId:'', venueName:'', venueAddr:'' }; }
 function poa_mdSyncHidden(){
   document.getElementById('mdDaysJson').value = JSON.stringify(mdDays);
   poa_mdSyncDerived();
@@ -22065,13 +22066,39 @@ function poa_mdSyncDerived(){
   if(poa_mdActive()){
     document.getElementById('patrons').value = mdDays.some(d => d.patrons !== '' && d.patrons != null) ? String(total) : '';
     document.getElementById('eventDate').value = (mdDays[0] && mdDays[0].date) || '';
+    // The single "Type of event" box is hidden for a multi-day event; keep it
+    // on Day 1's type so anything that still reads it sees a real type.
+    const et = (mdDays[0] && mdDays[0].eventType) || '';
+    const etSel = document.getElementById('eventType');
+    if(Array.from(etSel.options).some(o => o.value === et)) etSel.value = et;
   }
+}
+// Distinct event types across the days, in first-appearance order.
+function poa_mdEventTypes(){
+  const out = [];
+  mdDays.forEach(d => { if(d.eventType && out.indexOf(d.eventType) === -1) out.push(d.eventType); });
+  return out;
+}
+// Every document required by ANY day's event type, each listed once. byDoc maps
+// a document to the event types that call for it (for the note on the list).
+function poa_mdRequiredDocs(){
+  const fe = muniFormElements || defaultFormElements();
+  const docs = [], byDoc = {};
+  poa_mdEventTypes().forEach(t => {
+    const match = fe.eventTypes.find(x => x.name === t);
+    (match ? match.requiredDocuments : []).forEach(name => {
+      if(docs.indexOf(name) === -1){ docs.push(name); byDoc[name] = []; }
+      byDoc[name].push(t);
+    });
+  });
+  return { docs, byDoc };
 }
 // The days array as it should be costed/saved (trimmed, numbers parsed).
 function poa_mdDays(){
   return mdDays.map(d => ({
     date: d.date || '',
     eventName: (d.eventName || '').trim(),
+    eventType: d.eventType || '',
     patrons: parseInt(d.patrons, 10) || 0,
     loc: d.loc || 'main',
     venueId: d.venueId || '',
@@ -22134,6 +22161,11 @@ function poa_mdRender(){
         <div class="field-group"><label>Date</label>
           <input type="date" data-md="date" data-i="${i}" value="${esc(d.date)}"${minIso ? ` min="${esc(minIso)}"` : ''}>
           <div class="field-hint" data-md-hint="${i}"></div></div>
+        <div class="field-group"><label>Type of event</label>
+          <select data-md="eventType" data-i="${i}">
+            <option value="">Select an option</option>
+            ${((muniFormElements || defaultFormElements()).eventTypes || []).map(t => `<option value="${esc(t.name)}"${d.eventType === t.name ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}
+          </select></div>
         <div class="field-group"><label>Expected patrons</label>
           <input type="number" min="0" data-md="patrons" data-i="${i}" value="${esc(String(d.patrons))}"></div>
         <div class="field-group" style="grid-column:1 / -1;"><label>Event name for this day <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label>
@@ -22149,6 +22181,7 @@ function poa_mdApplyMode(){
   const on = poa_mdActive();
   document.getElementById('multiDayPanel').classList.toggle('hidden', !on);
   document.getElementById('eventDateGroup').classList.toggle('hidden', on);
+  document.getElementById('eventTypeGroup').classList.toggle('hidden', on);
   document.getElementById('patrons').readOnly = on;
   document.getElementById('patronsMdHint').classList.toggle('hidden', !on);
   document.getElementById('patronsLabel').textContent = on ? 'Total expected patrons (all days)' : 'Expected number of patrons';
@@ -22160,6 +22193,7 @@ function poa_mdApplyMode(){
       // Seed Day 1 from whatever the applicant already typed in the single-day fields.
       const d1 = poa_mdBlankDay();
       d1.date = document.getElementById('eventDate').value || '';
+      d1.eventType = document.getElementById('eventType').value || '';
       d1.patrons = document.getElementById('patrons').value || '';
       mdDays = [d1, poa_mdBlankDay()];
     }
@@ -22173,6 +22207,7 @@ function poa_mdApplyMode(){
     }
     poa_mdRender();
     poa_mdSyncHidden();
+    updateRequiredDocs();
   } else {
     // Answered "No": keep Day 1's date (and the patron total, already in the
     // box) as the single-day values, and drop the per-day rows. (Annual
@@ -22183,6 +22218,7 @@ function poa_mdApplyMode(){
       mdDays = [];
       document.getElementById('mdDaysJson').value = '';
     }
+    updateRequiredDocs();
   }
 }
 // Rehydrates from a saved draft (mdDaysJson already restored into the hidden input).
@@ -22229,6 +22265,7 @@ document.getElementById('mdDaysList').addEventListener('change', e=>{
     poa_mdRender();
   }
   poa_mdSyncHidden();
+  if(field === 'eventType') updateRequiredDocs();
   if(i === 0 && (field === 'loc' || field === 'venueId')) poa_mdPushDay1Venue();
 });
 
@@ -22278,6 +22315,7 @@ async function poa_mdValidate(){
     const d = mdDays[i];
     const n = `Day ${i + 1}`;
     if(!d.date) return `Please enter the date for ${n}.`;
+    if(!d.eventType) return `Please choose the type of event for ${n}.`;
     if(d.date < eventDateInput.min) return `${n}: the date must be on or after ${formatDisplayDate(minEventDateObj)} (10 clear working days from the application date).`;
     if(prev && d.date === prev) return `${n} has the same date as the day before it. Each day needs its own date.`;
     if(prev && d.date < prev) return `${n} is earlier than the day before it. Please enter the days in date order.`;
@@ -22595,6 +22633,7 @@ function updateRequiredDocs(){
   const licType = document.querySelector('input[name="licenseType"]:checked')?.value;
 
   let items = null;
+  let mdByDoc = null;
   let heading = 'Required documents';
   const fe = muniFormElements || defaultFormElements();
 
@@ -22604,6 +22643,16 @@ function updateRequiredDocs(){
     if(match){
       items = match.requiredDocuments;
       heading = `Required documents for ${bt}`;
+    }
+  } else if(licType === 'Special' && poa_mdActive()){
+    // Multi-day: the combined requirements of every day's event type. A
+    // document several types call for is listed (and uploaded) only once.
+    const types = poa_mdEventTypes();
+    if(types.length){
+      const req = poa_mdRequiredDocs();
+      items = req.docs;
+      mdByDoc = req.byDoc;
+      heading = `Required documents for ${types.join(', ')} (each uploaded once)`;
     }
   } else if(licType === 'Special'){
     const et = document.getElementById('eventType').value;
@@ -22621,7 +22670,7 @@ function updateRequiredDocs(){
   }
 
   title.textContent = heading;
-  list.innerHTML = items.map(doc => `<li>${poa_escapeHtml(doc)}</li>`).join('')
+  list.innerHTML = items.map(doc => `<li>${poa_escapeHtml(doc)}${mdByDoc && mdByDoc[doc] && mdByDoc[doc].length > 1 ? ` <span style="color:var(--text-muted);">— needed for ${poa_escapeHtml(mdByDoc[doc].join(' and '))}; upload once</span>` : ''}</li>`).join('')
     + `<div class="required-docs-note">No approval will be granted if the venue does not have an Amusement Licence.</div>`;
   panel.classList.remove('hidden');
 }
@@ -23537,12 +23586,12 @@ async function poa_goReview(){
           : d.loc === 'main' ? 'Same venue as Day 1'
           : d.loc === 'db' ? ((dbVenues.find(v => v.id === d.venueId) || {}).name || 'Registered venue')
           : [d.venueName, d.venueAddr].filter(Boolean).join(' — ');
-        amusement.push([`Day ${i + 1}`, [d.date, d.eventName, where, `${d.patrons} patrons`].filter(Boolean).join(' · ')]);
+        amusement.push([`Day ${i + 1}`, [d.date, d.eventType, d.eventName, where, `${d.patrons} patrons`].filter(Boolean).join(' · ')]);
       });
     } else {
       amusement.push(['Event date', poa_val('eventDate') || 'N/A']);
     }
-    amusement.push(['Type of event', poa_val('eventType') || 'N/A']);
+    amusement.push(['Type of event', (poa_mdActive() ? poa_mdEventTypes().join(', ') : poa_val('eventType')) || 'N/A']);
     amusement.push([poa_mdActive() ? 'Total patrons (all days)' : 'Patrons', poa_val('patrons') || 'N/A']);
   }
   // Private security only applies to a Special Event (see
@@ -23779,9 +23828,11 @@ async function buildApplicationRecord(appNumber){
       } else if(i > 0 && d.loc === 'manual'){
         venueName = d.venueName; venueAddr = d.venueAddr;
       }
-      return { day: i + 1, date: d.date, eventName: d.eventName, patrons: d.patrons, loc: i === 0 ? 'main' : d.loc, venueId, venueName, venueAddr, registered: i === 0 || d.loc === 'main' ? !!c.venueFromDb : inDb };
+      return { day: i + 1, date: d.date, eventName: d.eventName, eventType: d.eventType, patrons: d.patrons, loc: i === 0 ? 'main' : d.loc, venueId, venueName, venueAddr, registered: i === 0 || d.loc === 'main' ? !!c.venueFromDb : inDb };
     });
   }
+
+  const mdTypes = mdRec ? poa_mdEventTypes() : [];
 
   const adItems = [];
   if(adDisplay === 'Yes'){
@@ -23933,6 +23984,9 @@ async function buildApplicationRecord(appNumber){
     if(poa_annualApplicantCapacity() <= EMERGENCY_CONTINGENCY_CAPACITY_THRESHOLD){
       regulatoryDocList = regulatoryDocList.filter(name => name !== EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME);
     }
+  } else if(licType === 'Special' && mdRec){
+    // Multi-day: every document any day's event type requires, each once.
+    regulatoryDocList = poa_mdRequiredDocs().docs;
   } else if(licType === 'Special'){
     const et = poa_val('eventType');
     const match = fe.eventTypes.find(t => t.name === et);
@@ -24058,7 +24112,11 @@ async function buildApplicationRecord(appNumber){
       multiDay: !!mdRec,
       dayCount: mdRec ? mdRec.length : (licType === 'Special' ? 1 : 0),
       days: mdRec || [],
-      eventType: licType === 'Special' ? poa_val('eventType') : '',
+      // Multi-day: the distinct event types of the days, joined (a single type
+      // when every day is the same, so name-based checks like "Dead Yard" still
+      // work); amusement.eventTypes keeps them as a list.
+      eventType: licType === 'Special' ? (mdRec ? mdTypes.join(', ') : poa_val('eventType')) : '',
+      eventTypes: licType === 'Special' ? (mdRec ? mdTypes : (poa_val('eventType') ? [poa_val('eventType')] : [])) : [],
       patrons: licType === 'Special' ? poa_val('patrons') : '',
       applicationDate: document.getElementById('applicationDate').value,
       privateSecurity: privSec,
@@ -26691,7 +26749,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   qrTargetId = qrTargetId || 'permitQrTarget';
   const poaTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   const eventClause = (p.eventDays && p.eventDays.length > 1)
-    ? `${p.eventName ? ' with event name: <strong>' + poa_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${poa_escapeHtml(poa_formatLongDate(d.date))}</strong> at <strong>${poa_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${d.eventName ? ' (' + poa_escapeHtml(d.eventName) + ')' : ''}`).join('; ')
+    ? `${p.eventName ? ' with event name: <strong>' + poa_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${poa_escapeHtml(poa_formatLongDate(d.date))}</strong> at <strong>${poa_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${(d.eventType || d.eventName) ? ' (' + poa_escapeHtml([d.eventType, d.eventName].filter(Boolean).join(' — ')) + ')' : ''}`).join('; ')
     : p.eventName
     ? ` with event name: <strong>${poa_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${poa_escapeHtml(poa_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -34094,7 +34152,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
   qrTargetId = qrTargetId || 'permitQrTarget';
   const muniPermitTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
   const eventClause = (p.eventDays && p.eventDays.length > 1)
-    ? `${p.eventName ? ' with event name: <strong>' + muni_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${muni_escapeHtml(muni_formatLongDate(d.date))}</strong> at <strong>${muni_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${d.eventName ? ' (' + muni_escapeHtml(d.eventName) + ')' : ''}`).join('; ')
+    ? `${p.eventName ? ' with event name: <strong>' + muni_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${muni_escapeHtml(muni_formatLongDate(d.date))}</strong> at <strong>${muni_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${(d.eventType || d.eventName) ? ' (' + muni_escapeHtml([d.eventType, d.eventName].filter(Boolean).join(' — ')) + ')' : ''}`).join('; ')
     : p.eventName
     ? ` with event name: <strong>${muni_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${muni_escapeHtml(muni_formatLongDate(p.eventDate))}</strong>`
     : '';
@@ -35369,7 +35427,7 @@ function generatePermit(a){
     eventDate: isAnnual ? '' : (r && r.amusement && r.amusement.eventDate) || '',
     // Multi-day events only: every day with the venue it is held at (empty for a
     // single day), so the permit and its public verification show all of them.
-    eventDays: permitDays.map(d => ({ date: d.date, eventName: d.eventName || '', venueName: d.venueName || '', venueAddr: d.venueAddr || '' })),
+    eventDays: permitDays.map(d => ({ date: d.date, eventName: d.eventName || '', eventType: d.eventType || '', venueName: d.venueName || '', venueAddr: d.venueAddr || '' })),
     expectedPatrons: isAnnual ? ((r && r.venue && r.venue.maxCap) || 'N/A') : ((r && r.amusement && r.amusement.patrons) || 'N/A'),
     validity: isAnnual ? muni_fiscalYearLabel(today)
       : (permitDays.length > 1 ? `Valid ${muni_formatLongDate(permitDays[0].date)} to ${muni_formatLongDate(expiresIso)} (${permitDays.length} days)` : `Valid on ${muni_formatLongDate(expiresIso)}`),
