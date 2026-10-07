@@ -2645,6 +2645,31 @@
     margin-top: 6px;
     line-height: 1.5;
   }
+  /* Multi-day event days (Step 2) */
+  .md-day{
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px 6px;
+    margin-bottom: 12px;
+    background: var(--bg);
+  }
+  .md-day-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom: 10px; font-weight: 700; font-size: 14px;
+  }
+  .md-day-remove{
+    background:none; border:none; color: var(--red); cursor:pointer;
+    font-size: 12.5px; font-weight:600; padding: 2px 4px;
+  }
+  .md-grid{ display:grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .md-grid .field-group{ margin-bottom: 14px; }
+  .md-static{ font-size: 13.5px; color: var(--text-muted); padding: 10px 0; }
+  .md-hint-err{ color: var(--red); }
+  .md-total{
+    display:flex; justify-content:space-between; align-items:center;
+    font-weight:700; font-size:14px; padding: 10px 0 2px;
+  }
+  @media (max-width: 640px){ .md-grid{ grid-template-columns: 1fr; } }
   .fee-total-row{
     display:flex;
     justify-content:space-between;
@@ -6168,6 +6193,75 @@
     return record;
   };
 
+  // ---- Multi-day event helpers (shared by every portal) ----
+  // A Special Event application is either a single day (amusement.eventDate)
+  // or a multi-day event (amusement.multiDay === true with amusement.days[]).
+  // For a multi-day event amusement.eventDate is ALWAYS the first day and
+  // amusement.eventEndDate the last, so every older screen that only reads
+  // eventDate keeps working; these helpers are for the screens that show all
+  // the days. A single-day record normalizes to a one-item list.
+  window.atdEventDays = function(am){
+    if(!am) return [];
+    if(am.multiDay && Array.isArray(am.days) && am.days.length){
+      return am.days.map(function(d){ return Object.assign({}, d); });
+    }
+    return am.eventDate ? [{ date: am.eventDate, eventName: '', patrons: am.patrons || '', venueName: '', venueAddr: '' }] : [];
+  };
+  window.atdEventFirstDate = function(am){
+    const d = window.atdEventDays(am);
+    return d.length ? d[0].date : ((am && am.eventDate) || '');
+  };
+  window.atdEventLastDate = function(am){
+    const d = window.atdEventDays(am);
+    return d.length ? d[d.length - 1].date : ((am && am.eventDate) || '');
+  };
+  // "2026-12-15" for one day, "2026-12-15 to 2026-12-17 (3 days)" for several.
+  window.atdEventDateSummary = function(am){
+    const d = window.atdEventDays(am);
+    if(!d.length) return '';
+    if(d.length === 1) return d[0].date;
+    return d[0].date + ' to ' + d[d.length - 1].date + ' (' + d.length + ' days)';
+  };
+
+  // Calendar entries for one application: one per day of a multi-day event
+  // (named "<event> — <day name> (Day 2 of 3)", at that day's venue), or the
+  // single entry a one-day event always had. `r` is the application record.
+  window.atdCalendarEntries = function(r){
+    const am = (r && r.amusement) || {};
+    const venue = (r && r.venue) || {};
+    const mainAddr = [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ');
+    const base = {
+      appNumber: r.appNumber,
+      promoterName: (r.applicant && r.applicant.name) || '',
+      promoterPhone: (r.applicant && r.applicant.phone) || ''
+    };
+    if(!am.multiDay || !Array.isArray(am.days) || am.days.length < 2){
+      return [Object.assign({}, base, { eventName: am.eventName || '', eventDate: am.eventDate || '', venueName: venue.name || '', venueAddress: mainAddr })];
+    }
+    return am.days.map(function(d, i){
+      const name = [am.eventName || '', d.eventName || ''].filter(Boolean).join(' — ');
+      return Object.assign({}, base, {
+        eventName: (name || 'Event') + ' (Day ' + (i + 1) + ' of ' + am.days.length + ')',
+        eventDate: d.date || '',
+        venueName: d.venueName || venue.name || '',
+        venueAddress: d.venueAddr || mainAddr
+      });
+    });
+  };
+
+  // One display line for a day of a multi-day event (callers HTML-escape it).
+  window.atdEventDayLine = function(d){
+    return [d.date, d.eventName, [d.venueName, d.venueAddr].filter(Boolean).join(', '),
+      (d.patrons !== '' && d.patrons != null) ? (d.patrons + ' patrons') : ''].filter(Boolean).join(' · ');
+  };
+  // Label for one row of costs.dayBreakdown (callers HTML-escape it).
+  window.atdCostDayLabel = function(row, i){
+    const what = row.kind === 'registered' ? ('Permit Fee (Venue)' + (row.tierLabel ? ' — ' + row.tierLabel : ''))
+      : row.kind === 'new' ? (row.inspectionOnce ? 'Venue Inspection Fee — already charged for this location' : 'Venue Inspection Fee')
+      : 'Venue fee';
+    return 'Day ' + (i + 1) + ' · ' + row.date + ' · ' + row.venueName + ' — ' + what;
+  };
+
   // ---- Cross-portal audit log ----
   // One record per event, written by whichever portal the action happened
   // in. This is the platform-wide trail a super admin needs — logins
@@ -6985,9 +7079,28 @@
             <input type="text" id="eventName">
           </div>
           <div class="field-group">
+            <label>Is this a multi-day event?</label>
+            <div class="yesno" style="margin-bottom:0;">
+              <label><input type="radio" name="multiDay" value="No" id="mdNo" checked> No — a single day</label>
+              <label><input type="radio" name="multiDay" value="Yes" id="mdYes"> Yes — it runs on more than one day</label>
+            </div>
+          </div>
+          <div class="field-group" id="eventDateGroup">
             <label for="eventDate">Date of the event</label>
             <input type="date" id="eventDate">
             <div class="upload-sub" id="eventDateHint" style="margin-top:6px;">Must be at least 10 clear working days from the application date.</div>
+          </div>
+          <!-- Multi-day event: one row per day (date, optional event name for that
+               day, expected patrons, and the location for that day). Day 1 always
+               uses the venue chosen in the Venue step. State lives in mdDays (JS)
+               and is mirrored into the hidden mdDaysJson so a saved draft keeps it. -->
+          <div id="multiDayPanel" class="hidden">
+            <div class="section-title" style="margin-top:4px;">Event days</div>
+            <div class="field-hint" style="margin:-6px 0 14px;">Add every day of the event. Each day needs its own date and expected patrons; the event name is optional per day. For Day 1 you can pick a registered venue here (it is filled in on the Venue step for you) or choose or enter the venue on the Venue step instead; for later days you can reuse Day 1's venue, pick another registered venue, or enter a different location. The application fee and the venue fee are charged for each day.</div>
+            <div id="mdDaysList"></div>
+            <button class="btn" type="button" id="mdAddDayBtn" style="margin-bottom:6px;">+ Add another day</button>
+            <div class="md-total hidden"><span>Total expected patrons (all days)</span><span id="mdTotalPatrons">0</span></div>
+            <input type="hidden" id="mdDaysJson">
           </div>
           <div class="field-group">
             <label for="eventType">Type of event</label>
@@ -6997,8 +7110,9 @@
             </select>
           </div>
           <div class="field-group">
-            <label for="patrons">Expected number of patrons</label>
+            <label for="patrons" id="patronsLabel">Expected number of patrons</label>
             <input type="number" id="patrons" min="0">
+            <div class="field-hint hidden" id="patronsMdHint">Calculated automatically — the total of the daily patron numbers entered above.</div>
           </div>
         </div>
 
@@ -14037,7 +14151,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const today = new Date().toISOString().slice(0,10);
     const upcomingEvents = owned.filter(function(o){
       return o.type === 'poa' && o.rec.status === 'Approved' &&
-        o.rec.amusement && o.rec.amusement.eventDate && o.rec.amusement.eventDate >= today;
+        o.rec.amusement && o.rec.amusement.eventDate && window.atdEventLastDate(o.rec.amusement) >= today;
     }).sort(function(a,b){
       return (a.rec.amusement.eventDate || '').localeCompare(b.rec.amusement.eventDate || '');
     });
@@ -14063,7 +14177,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             flyerHtml +
             '<div class="acct-event-info">' +
               '<div class="acct-event-name">' + acctEscapeHtml(eventName) + '</div>' +
-              '<div class="acct-event-date">' + acctEscapeHtml(o.rec.amusement.eventDate || '') + '</div>' +
+              '<div class="acct-event-date">' + acctEscapeHtml(window.atdEventDateSummary(o.rec.amusement) || o.rec.amusement.eventDate || '') + '</div>' +
             '</div></div>';
         }).join('') +
         '</div>';
@@ -14158,9 +14272,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       document.getElementById('acct_eventModalTitle').textContent = eo.eventName || 'Event';
       document.getElementById('acct_eventModalSub').textContent = rec.municipalityName || '';
-      document.getElementById('acct_eventModalDate').textContent = eo.eventDate || 'N/A';
-      document.getElementById('acct_eventModalLocation').textContent =
-        [venue.name, venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ') || 'N/A';
+      document.getElementById('acct_eventModalDate').textContent = window.atdEventDateSummary(eo) || eo.eventDate || 'N/A';
+      document.getElementById('acct_eventModalLocation').textContent = (eo.multiDay && (eo.days || []).length > 1)
+        ? eo.days.map(function(d){ return d.date + ': ' + [d.venueName, d.venueAddr].filter(Boolean).join(', '); }).join('  |  ')
+        : ([venue.name, venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ') || 'N/A');
 
       const closeOffRow = document.getElementById('acct_eventModalCloseOffRow');
       const closeOffEl = document.getElementById('acct_eventModalCloseOff');
@@ -15817,17 +15932,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return out;
   }
 
+  // Returns an ARRAY — one entry per day of a multi-day event, otherwise one.
   function jcfd_toCalendarEvent(rec){
-    const venue = rec.venue || {};
-    return {
-      appNumber: rec.appNumber,
-      eventName: (rec.amusement && rec.amusement.eventName) || '',
-      eventDate: (rec.amusement && rec.amusement.eventDate) || '',
-      promoterName: (rec.applicant && rec.applicant.name) || '',
-      promoterPhone: (rec.applicant && rec.applicant.phone) || '',
-      venueName: venue.name || '',
-      venueAddress: [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ')
-    };
+    return window.atdCalendarEntries(rec);
   }
 
   async function jcfd_loadEventsCalendar(){
@@ -15844,7 +15951,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         }
       } catch(e){ /* treat as no JCF filing */ }
       if(jcfStatus && jcfStatus !== 'Approved') continue;
-      out.push(jcfd_toCalendarEvent(rec));
+      out.push(...jcfd_toCalendarEvent(rec));
     }
     jcfdEventsCalendar = out;
     return out;
@@ -21590,6 +21697,10 @@ async function poa_goStepSaving(n){
   // applies when actually leaving Step 2 with Yes selected and nothing added
   // yet — answering No, or not yet having reached this question at all,
   // leaves this untouched.
+  if(currentStep === 2 && poa_mdActive()){
+    const mdErr = await poa_mdValidate();
+    if(mdErr){ poa_showToast(mdErr); return; }
+  }
   if(currentStep === 2 && document.querySelector('input[name="privateSecurity"]:checked')?.value === 'Yes' && !securityRecords.length){
     poa_showToast('Please add at least one security record, or change your answer to "No", before continuing.');
     return;
@@ -21664,6 +21775,9 @@ async function poa_resumeDraft(data){
   // reordering the whole restore loop and re-derives every other
   // license-type-dependent section correctly too.
   poa_applyLicenseTypeFields(document.querySelector('input[name="licenseType"]:checked')?.value === 'Annual');
+  // Multi-day event days (see mdDays): the generic loop above restored the
+  // hidden mdDaysJson and the Yes/No radio; rebuild the day rows from them.
+  poa_mdRestoreFromDraft();
   poa_goStep(data.__step || 1);
   poa_recalcAge();
 }
@@ -21722,7 +21836,7 @@ function poa_goStep(n){
   document.getElementById('poa_progressFill').style.width = (displayNum/effSteps.length*100)+'%';
   currentStep = n;
   if(n === 3){ loadMunicipalityAdItems(); loadMunicipalityAdLocations(); }
-  if(n === 4) loadMunicipalityVenues();
+  if(n === 4) loadMunicipalityVenues().then(poa_mdReapplyDay1Venue).catch(()=>{});
   if(n === 5) renderCosts();
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -21925,6 +22039,270 @@ eventDateInput.addEventListener('change', ()=>{
   }
 });
 
+// ==================== Multi-day event (Step 2) ====================
+// mdDays[0] is Day 1 and always uses the venue chosen in the Venue step.
+// Later days each pick a location: 'main' (same venue as Day 1), 'db' (another
+// registered venue from this municipality) or 'manual' (a free-text location).
+// Fields per day: date, eventName (optional), patrons, loc, venueId,
+// venueName/venueAddr (manual only). The hidden input mdDaysJson mirrors this
+// array so poa_serializeDraftData()/poa_resumeDraft() keep it with no extra code.
+let mdDays = [];
+
+function poa_mdActive(){
+  return !!document.getElementById('mdYes')?.checked
+    && document.querySelector('input[name="licenseType"]:checked')?.value === 'Special';
+}
+function poa_mdBlankDay(){ return { date:'', eventName:'', patrons:'', loc:'main', venueId:'', venueName:'', venueAddr:'' }; }
+function poa_mdSyncHidden(){
+  document.getElementById('mdDaysJson').value = JSON.stringify(mdDays);
+  poa_mdSyncDerived();
+}
+// Keeps the standard Date / Patrons inputs meaningful for everything that
+// already reads them (validation, review, draft): Date = Day 1, Patrons = sum.
+function poa_mdSyncDerived(){
+  const total = mdDays.reduce((n, d) => n + (parseInt(d.patrons, 10) || 0), 0);
+  document.getElementById('mdTotalPatrons').textContent = String(total);
+  if(poa_mdActive()){
+    document.getElementById('patrons').value = mdDays.some(d => d.patrons !== '' && d.patrons != null) ? String(total) : '';
+    document.getElementById('eventDate').value = (mdDays[0] && mdDays[0].date) || '';
+  }
+}
+// The days array as it should be costed/saved (trimmed, numbers parsed).
+function poa_mdDays(){
+  return mdDays.map(d => ({
+    date: d.date || '',
+    eventName: (d.eventName || '').trim(),
+    patrons: parseInt(d.patrons, 10) || 0,
+    loc: d.loc || 'main',
+    venueId: d.venueId || '',
+    venueName: (d.venueName || '').trim(),
+    venueAddr: (d.venueAddr || '').trim()
+  }));
+}
+function poa_mdUsableDbVenues(){
+  return dbVenues.filter(v => v.active && !v.flagged && !v.pendingApproval && !v.rejected);
+}
+function poa_mdVenueAddress(v){
+  return [[v.streetNumber, v.streetName].filter(Boolean).join(' '), v.district].filter(Boolean).join(', ');
+}
+function poa_mdRender(){
+  const list = document.getElementById('mdDaysList');
+  if(!list) return;
+  const esc = poa_escapeHtml;
+  const minIso = eventDateInput.min || '';
+  const usable = poa_mdUsableDbVenues();
+  list.innerHTML = mdDays.map((d, i) => {
+    let loc;
+    if(i === 0){
+      const venueOpts0 = '<option value="">Select a venue</option>' + usable.map(v =>
+        `<option value="${esc(v.id)}"${d.venueId === v.id ? ' selected' : ''}>${esc(v.name)}</option>`).join('');
+      loc = `<div class="field-group"><label>Location</label>
+          <select data-md="loc" data-i="0">
+            <option value="venuestep"${d.loc !== 'db' ? ' selected' : ''}>Choose or enter it in the Venue step</option>
+            <option value="db"${d.loc === 'db' ? ' selected' : ''}>A registered venue (select it here)</option>
+          </select></div>`;
+      if(d.loc === 'db'){
+        loc += `<div class="field-group"><label>Registered venue</label>
+            <select data-md="venueId" data-i="0">${venueOpts0}</select>
+            <div class="field-hint">This venue is filled in automatically on the Venue step.</div>
+            ${usable.length ? '' : '<div class="field-hint">No registered venues are available for this municipality — choose the Venue step option instead.</div>'}</div>`;
+      }
+    } else {
+      const venueOpts = '<option value="">Select a venue</option>' + usable.map(v =>
+        `<option value="${esc(v.id)}"${d.venueId === v.id ? ' selected' : ''}>${esc(v.name)}</option>`).join('');
+      loc = `<div class="field-group"><label>Location</label>
+          <select data-md="loc" data-i="${i}">
+            <option value="main"${d.loc === 'main' ? ' selected' : ''}>Same venue as Day 1</option>
+            <option value="db"${d.loc === 'db' ? ' selected' : ''}>Another registered venue</option>
+            <option value="manual"${d.loc === 'manual' ? ' selected' : ''}>A different location (enter details)</option>
+          </select></div>`;
+      if(d.loc === 'db'){
+        loc += `<div class="field-group"><label>Registered venue</label>
+            <select data-md="venueId" data-i="${i}">${venueOpts}</select>
+            ${usable.length ? '' : '<div class="field-hint">No registered venues are available for this municipality — choose a different location instead.</div>'}</div>`;
+      } else if(d.loc === 'manual'){
+        loc += `<div class="field-group"><label>Location name</label>
+            <input type="text" data-md="venueName" data-i="${i}" value="${esc(d.venueName)}"></div>
+          <div class="field-group" style="grid-column:1 / -1;"><label>Location address</label>
+            <input type="text" data-md="venueAddr" data-i="${i}" value="${esc(d.venueAddr)}">
+            <div class="field-hint">A location that is not in the municipality's venue database is subject to the standard venue inspection fee.</div></div>`;
+      }
+    }
+    return `<div class="md-day" data-i="${i}">
+      <div class="md-day-head"><span>Day ${i + 1}</span>${mdDays.length > 2 && i > 0 ? `<button type="button" class="md-day-remove" data-md-remove="${i}">Remove day</button>` : ''}</div>
+      <div class="md-grid">
+        <div class="field-group"><label>Date</label>
+          <input type="date" data-md="date" data-i="${i}" value="${esc(d.date)}"${minIso ? ` min="${esc(minIso)}"` : ''}>
+          <div class="field-hint" data-md-hint="${i}"></div></div>
+        <div class="field-group"><label>Expected patrons</label>
+          <input type="number" min="0" data-md="patrons" data-i="${i}" value="${esc(String(d.patrons))}"></div>
+        <div class="field-group" style="grid-column:1 / -1;"><label>Event name for this day <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label>
+          <input type="text" data-md="eventName" data-i="${i}" value="${esc(d.eventName)}"></div>
+        ${loc}
+      </div>
+    </div>`;
+  }).join('');
+  poa_mdSyncDerived();
+}
+// Show/hide the multi-day panel and swap the single Date/Patrons inputs.
+function poa_mdApplyMode(){
+  const on = poa_mdActive();
+  document.getElementById('multiDayPanel').classList.toggle('hidden', !on);
+  document.getElementById('eventDateGroup').classList.toggle('hidden', on);
+  document.getElementById('patrons').readOnly = on;
+  document.getElementById('patronsMdHint').classList.toggle('hidden', !on);
+  document.getElementById('patronsLabel').textContent = on ? 'Total expected patrons (all days)' : 'Expected number of patrons';
+  if(on){
+    if(!mdDays.length){
+      try{ const saved = JSON.parse(document.getElementById('mdDaysJson').value || '[]'); if(Array.isArray(saved)) mdDays = saved; }catch(e){}
+    }
+    if(!mdDays.length){
+      // Seed Day 1 from whatever the applicant already typed in the single-day fields.
+      const d1 = poa_mdBlankDay();
+      d1.date = document.getElementById('eventDate').value || '';
+      d1.patrons = document.getElementById('patrons').value || '';
+      mdDays = [d1, poa_mdBlankDay()];
+    }
+    // Day 1's location is either picked here (a registered venue, which is then
+    // filled in on the Venue step) or chosen/entered on the Venue step itself.
+    mdDays[0].loc = mdDays[0].loc === 'db' ? 'db' : 'venuestep';
+    if(mdDays[0].loc !== 'db') mdDays[0].venueId = '';
+    // Registered venues are needed to pick a venue for a later day.
+    if(!dbVenues.length && selectedMunicipality){
+      loadMunicipalityVenues().then(()=>{ poa_mdRender(); poa_mdReapplyDay1Venue(); }).catch(()=>{});
+    }
+    poa_mdRender();
+    poa_mdSyncHidden();
+  } else {
+    // Answered "No": keep Day 1's date (and the patron total, already in the
+    // box) as the single-day values, and drop the per-day rows. (Annual
+    // temporarily makes this inactive too, but its "No" radio isn't checked
+    // then, so the rows are kept for when the applicant switches back.)
+    if(document.getElementById('mdNo').checked){
+      if(mdDays[0] && mdDays[0].date) document.getElementById('eventDate').value = mdDays[0].date;
+      mdDays = [];
+      document.getElementById('mdDaysJson').value = '';
+    }
+  }
+}
+// Rehydrates from a saved draft (mdDaysJson already restored into the hidden input).
+function poa_mdRestoreFromDraft(){
+  try{ const saved = JSON.parse(document.getElementById('mdDaysJson').value || '[]'); mdDays = Array.isArray(saved) ? saved : []; }catch(e){ mdDays = []; }
+  poa_mdApplyMode();
+}
+
+document.querySelectorAll('input[name="multiDay"]').forEach(r => r.addEventListener('change', poa_mdApplyMode));
+document.getElementById('mdAddDayBtn').addEventListener('click', ()=>{
+  mdDays.push(poa_mdBlankDay());
+  poa_mdRender(); poa_mdSyncHidden();
+});
+document.getElementById('mdDaysList').addEventListener('click', e=>{
+  const btn = e.target.closest('[data-md-remove]');
+  if(!btn) return;
+  mdDays.splice(parseInt(btn.dataset.mdRemove, 10), 1);
+  poa_mdRender(); poa_mdSyncHidden();
+});
+document.getElementById('mdDaysList').addEventListener('input', e=>{
+  const el = e.target.closest('[data-md]');
+  if(!el || el.tagName === 'SELECT' || el.type === 'date') return;
+  mdDays[parseInt(el.dataset.i, 10)][el.dataset.md] = el.value;
+  poa_mdSyncHidden();
+});
+document.getElementById('mdDaysList').addEventListener('change', e=>{
+  const el = e.target.closest('[data-md]');
+  if(!el) return;
+  const i = parseInt(el.dataset.i, 10);
+  const field = el.dataset.md;
+  if(field === 'date'){
+    const hint = document.querySelector(`[data-md-hint="${i}"]`);
+    if(el.value && el.value < eventDateInput.min){
+      if(hint){ hint.classList.add('md-hint-err'); hint.textContent = `Must be on or after ${formatDisplayDate(minEventDateObj)} (10 clear working days from the application date).`; }
+      el.value = '';
+    } else if(hint){ hint.classList.remove('md-hint-err'); hint.textContent = ''; }
+    mdDays[i].date = el.value;
+    poa_mdSyncHidden();
+    return;
+  }
+  mdDays[i][field] = el.value;
+  if(field === 'loc'){
+    mdDays[i].venueId = ''; mdDays[i].venueName = ''; mdDays[i].venueAddr = '';
+    poa_mdRender();
+  }
+  poa_mdSyncHidden();
+  if(i === 0 && (field === 'loc' || field === 'venueId')) poa_mdPushDay1Venue();
+});
+
+// Day 1's registered venue is the application's main venue: selecting it here
+// selects it on the Venue step too (and fills in that step's fields), exactly
+// as if the applicant had picked it there.
+function poa_mdPushDay1Venue(){
+  const sel = document.getElementById('venueSearch');
+  if(!sel || !poa_mdActive() || !mdDays[0]) return;
+  const want = (mdDays[0].loc === 'db' && mdDays[0].venueId) ? ('db-' + mdDays[0].venueId) : '';
+  if(want){
+    if(!Array.from(sel.options).some(o => o.value === want)) return; // venue list not loaded yet
+  } else if(String(sel.value).indexOf('db-') !== 0){
+    return; // nothing registered was selected; leave whatever the applicant entered
+  }
+  if(sel.value === want) return;
+  sel.value = want;
+  sel.dispatchEvent(new Event('change'));
+}
+// The Venue step reloads its venue list (which clears the selection) every time
+// it is opened, so re-apply Day 1's choice afterwards.
+function poa_mdReapplyDay1Venue(){
+  if(poa_mdActive() && mdDays[0] && mdDays[0].loc === 'db' && mdDays[0].venueId) poa_mdPushDay1Venue();
+}
+// ...and the other direction: choosing (or clearing) a registered venue on the
+// Venue step is reflected back as Day 1's location.
+document.getElementById('venueSearch').addEventListener('change', ()=>{
+  setTimeout(()=>{
+    if(!poa_mdActive() || !mdDays[0]) return;
+    const v = document.getElementById('venueSearch').value;
+    if(v.indexOf('db-') === 0){ mdDays[0].loc = 'db'; mdDays[0].venueId = v.slice(3); }
+    else { mdDays[0].loc = 'venuestep'; mdDays[0].venueId = ''; }
+    poa_mdSyncHidden();
+    poa_mdRender();
+  }, 0);
+});
+
+// Returns an error message when the multi-day entries aren't ready, else ''.
+async function poa_mdValidate(){
+  if(!poa_mdActive()) return '';
+  if(mdDays.length < 2) return 'A multi-day event needs at least two days. Add another day, or answer "No" to the multi-day question.';
+  if(mdDays.some(d => d.loc === 'db') && !dbVenues.length){
+    try{ await loadMunicipalityVenues(); }catch(e){}
+  }
+  let prev = '';
+  for(let i = 0; i < mdDays.length; i++){
+    const d = mdDays[i];
+    const n = `Day ${i + 1}`;
+    if(!d.date) return `Please enter the date for ${n}.`;
+    if(d.date < eventDateInput.min) return `${n}: the date must be on or after ${formatDisplayDate(minEventDateObj)} (10 clear working days from the application date).`;
+    if(prev && d.date === prev) return `${n} has the same date as the day before it. Each day needs its own date.`;
+    if(prev && d.date < prev) return `${n} is earlier than the day before it. Please enter the days in date order.`;
+    prev = d.date;
+    if(d.patrons === '' || d.patrons == null || isNaN(parseInt(d.patrons, 10)) || parseInt(d.patrons, 10) < 1) return `Please enter the expected number of patrons for ${n}.`;
+    if(i === 0 && d.loc === 'db'){
+      if(!d.venueId) return 'Please choose the registered venue for Day 1, or change its location to "Choose or enter it in the Venue step".';
+      const v0 = dbVenues.find(x => x.id === d.venueId);
+      if(!v0) return 'The venue chosen for Day 1 could not be found. Please choose it again.';
+      if(!v0.active || v0.flagged) return 'The venue chosen for Day 1 is not available right now. Please choose a different one.';
+    }
+    if(i > 0){
+      if(d.loc === 'db'){
+        if(!d.venueId) return `Please choose the registered venue for ${n}.`;
+        const v = dbVenues.find(x => x.id === d.venueId);
+        if(!v) return `The venue chosen for ${n} could not be found. Please choose it again.`;
+        if(!v.active || v.flagged) return `The venue chosen for ${n} is not available right now. Please choose a different one.`;
+      } else if(d.loc === 'manual'){
+        if(!(d.venueName || '').trim() || !(d.venueAddr || '').trim()) return `Please enter the name and address of the location for ${n}.`;
+      }
+    }
+  }
+  return '';
+}
+
 // License type toggle
 // Private security and the Event Flier upload only apply to Special Event
 // (a one-off event needing crowd control and its own promotional flier); an
@@ -21962,6 +22340,7 @@ function poa_applyLicenseTypeFields(isAnnual){
   }
   poa_applyVenueStepLicenseType(isAnnual);
   updateRequiredDocs();
+  poa_mdApplyMode();
 }
 document.getElementById('licSpecial').addEventListener('change', ()=> poa_applyLicenseTypeFields(false));
 document.getElementById('licAnnual').addEventListener('change', ()=> poa_applyLicenseTypeFields(true));
@@ -22816,6 +23195,13 @@ function computeCosts(){
 
   const venueSearchVal = poa_val('venueSearch');
   const venueNameVal = poa_val('poa_venueName');
+  // Multi-day event (Special only): the venue fee is worked out per day, from
+  // that day's venue and that day's patron count, and the application fee is
+  // charged once per day. Day 1's patron count (not the all-days total)
+  // decides Day 1's tier at the main venue.
+  const mdDaysNow = (!isAnnualLic && poa_mdActive()) ? poa_mdDays() : null;
+  const dayCount = mdDaysNow ? mdDaysNow.length : 1;
+  let mainDbVenue = null;
   let venueLabel, venueCostGross, venueIsNew;
   // Distinct from venueIsNew: venueIsNew is false both when a database venue
   // is selected AND when nothing's been selected yet, so it can't tell those
@@ -22877,11 +23263,12 @@ function computeCosts(){
     // inspection fee, since no new inspection is needed for a venue already
     // in the system. That fee can legitimately be $0 for some venues.
     const dbVenue = dbVenues.find(v => 'db-' + v.id === venueSearchVal);
+    mainDbVenue = dbVenue || null;
     // Tiered pricing charges whichever of the venue's three fixed-range
     // tiers matches the expected patron count entered on this same
     // application (see poa_resolveVenueCost's own comment on the ranges);
     // a venue without tiered pricing keeps using its single flat cost.
-    const patronsForTier = parseInt(poa_val('patrons'), 10) || 0;
+    const patronsForTier = mdDaysNow ? (mdDaysNow[0].patrons || 0) : (parseInt(poa_val('patrons'), 10) || 0);
     const fee = dbVenue ? poa_resolveVenueCost(dbVenue, patronsForTier) : 0;
     venueTierLabel = dbVenue ? poa_venueTierLabel(dbVenue, patronsForTier) : '';
     venueLabel = fee
@@ -22904,6 +23291,39 @@ function computeCosts(){
     venueCostGross = 0;
     venueIsNew = false;
     venueFromDb = false;
+  }
+
+  // Multi-day: replace the single venue line above with one line per day.
+  let dayBreakdown = [];
+  if(mdDaysNow){
+    const inspectionFee = (muniFormElements && typeof muniFormElements.venueInspectionFee === 'number') ? muniFormElements.venueInspectionFee : VENUE_INSPECTION_FEE;
+    const mainName = venueNameVal || 'Day 1 venue';
+    const day1Cost = venueCostGross;
+    const day1Kind = venueFromDb ? 'registered' : (venueIsNew ? 'new' : 'none');
+    dayBreakdown.push({ date: mdDaysNow[0].date, patrons: mdDaysNow[0].patrons, venueName: mainName, kind: day1Kind, venueCost: day1Cost, tierLabel: venueTierLabel });
+    // A different location that is not in the venue database is inspected once,
+    // however many days it is used on (an inspection is of the place, not the day).
+    const inspected = new Set();
+    for(let i = 1; i < mdDaysNow.length; i++){
+      const d = mdDaysNow[i];
+      let row;
+      if(d.loc === 'main'){
+        const cost = mainDbVenue ? poa_resolveVenueCost(mainDbVenue, d.patrons) : 0;
+        row = { date: d.date, patrons: d.patrons, venueName: mainName, kind: day1Kind, venueCost: cost, tierLabel: mainDbVenue ? poa_venueTierLabel(mainDbVenue, d.patrons) : '' };
+      } else if(d.loc === 'db'){
+        const v = dbVenues.find(x => x.id === d.venueId);
+        row = { date: d.date, patrons: d.patrons, venueName: v ? v.name : 'Registered venue', kind: 'registered', venueCost: v ? poa_resolveVenueCost(v, d.patrons) : 0, tierLabel: v ? poa_venueTierLabel(v, d.patrons) : '', venueId: d.venueId };
+      } else {
+        const key = (d.venueName + '|' + d.venueAddr).toLowerCase();
+        const first = !inspected.has(key);
+        inspected.add(key);
+        row = { date: d.date, patrons: d.patrons, venueName: d.venueName, venueAddr: d.venueAddr, kind: 'new', venueCost: first ? inspectionFee : 0, tierLabel: '', inspectionOnce: !first };
+      }
+      dayBreakdown.push(row);
+    }
+    venueCostGross = dayBreakdown.reduce((n, r) => n + r.venueCost, 0);
+    venueLabel = `Multi-day event — ${dayCount} days (venue fee charged per day)`;
+    venueTierLabel = '';
   }
 
   // Annual has no Advertisement step at all (poa_step3 is never shown on
@@ -22973,10 +23393,15 @@ function computeCosts(){
     }
   }
 
+  // Atendify's application fee is charged for every day of a multi-day event.
+  const applicationFeeBase = applicationFee;
+  applicationFee = applicationFeeBase * dayCount;
+
   const total = applicationFee + venueCost + adTotal;
 
   return {
     applicationFee,
+    applicationFeeBase, dayCount, dayBreakdown,
     isAnnual: isAnnualLic,
     venueLabel, venueCost, venueCostGross, venueIsNew, venueFromDb, venueTierLabel,
     adItems, adTotal, adTotalGross, total,
@@ -23020,7 +23445,7 @@ function renderCosts(){
   let html = '';
 
   html += `<div class="cost-group-header">Application Fee</div>`;
-  html += `<div class="cost-row"><span class="cost-label">Places of Amusement License — application fee</span><span class="cost-amount">${poa_formatCurrency(c.applicationFee)}</span></div>`;
+  html += `<div class="cost-row"><span class="cost-label">Places of Amusement License — application fee${c.dayCount > 1 ? ` (${poa_formatCurrency(c.applicationFeeBase)} × ${c.dayCount} days)` : ''}</span><span class="cost-amount">${poa_formatCurrency(c.applicationFee)}</span></div>`;
 
   if(isAnnual){
     // No Advertisement step and no venue-database/new-venue distinction on
@@ -23031,6 +23456,14 @@ function renderCosts(){
     html += `<div class="cost-row"><span class="cost-label">${poa_escapeHtml(c.venueLabel)}</span><span class="cost-amount">${poa_formatCurrency(c.venueCostGross)}</span></div>`;
   } else {
     html += `<div class="cost-group-header">Venue Cost</div>`;
+    if(c.dayBreakdown && c.dayBreakdown.length){
+      c.dayBreakdown.forEach((r, i) => {
+        const what = r.kind === 'registered' ? (r.tierLabel ? 'Permit Fee (Venue) — ' + r.tierLabel : 'Permit Fee (Venue)')
+          : r.kind === 'new' ? (r.inspectionOnce ? 'Venue Inspection Fee — already charged for this location' : 'Venue Inspection Fee')
+          : 'Venue fee';
+        html += `<div class="cost-row"><span class="cost-label">Day ${i + 1} · ${poa_escapeHtml(r.date)} · ${poa_escapeHtml(r.venueName)} — ${poa_escapeHtml(what)}</span><span class="cost-amount">${poa_formatCurrency(r.venueCost)}</span></div>`;
+      });
+    } else
     // A registered venue (picked from the municipality's own database) already
     // has an assessed fee on file — no new inspection needed, so this reads as
     // "Permit Fee (Venue)". A manually-added venue (or nothing selected yet)
@@ -23097,9 +23530,20 @@ async function poa_goReview(){
   }
   if(licType === 'Special'){
     amusement.push(['Event name', poa_val('eventName') || 'N/A']);
-    amusement.push(['Event date', poa_val('eventDate') || 'N/A']);
+    if(poa_mdActive()){
+      amusement.push(['Multi-day event', `Yes — ${mdDays.length} days`]);
+      poa_mdDays().forEach((d, i) => {
+        const where = i === 0 ? (poa_val('poa_venueName') || 'Venue selected in the Venue step')
+          : d.loc === 'main' ? 'Same venue as Day 1'
+          : d.loc === 'db' ? ((dbVenues.find(v => v.id === d.venueId) || {}).name || 'Registered venue')
+          : [d.venueName, d.venueAddr].filter(Boolean).join(' — ');
+        amusement.push([`Day ${i + 1}`, [d.date, d.eventName, where, `${d.patrons} patrons`].filter(Boolean).join(' · ')]);
+      });
+    } else {
+      amusement.push(['Event date', poa_val('eventDate') || 'N/A']);
+    }
     amusement.push(['Type of event', poa_val('eventType') || 'N/A']);
-    amusement.push(['Patrons', poa_val('patrons') || 'N/A']);
+    amusement.push([poa_mdActive() ? 'Total patrons (all days)' : 'Patrons', poa_val('patrons') || 'N/A']);
   }
   // Private security only applies to a Special Event (see
   // privateSecuritySection's default-hidden markup) — Annual never asks the
@@ -23207,11 +23651,16 @@ async function poa_goReview(){
   // Costs — mirrors renderCosts()'s own Annual/Special split (Business/
   // Venue Fee placeholder + no advertisement line for Annual).
   const c = computeCosts();
-  let costsHtml = rowHtml(['Application fee', poa_formatCurrency(c.applicationFee)]);
+  let costsHtml = rowHtml([c.dayCount > 1 ? `Application fee (${poa_formatCurrency(c.applicationFeeBase)} × ${c.dayCount} days)` : 'Application fee', poa_formatCurrency(c.applicationFee)]);
   if(isAnnualRev){
     costsHtml += rowHtml(['Business/Venue fee', poa_formatCurrency(c.venueCostGross)]);
   } else {
-    costsHtml += rowHtml(['Venue cost', poa_formatCurrency(c.venueCost)]);
+    if(c.dayBreakdown && c.dayBreakdown.length){
+      c.dayBreakdown.forEach((r, i) => {
+        costsHtml += rowHtml([`Venue fee — Day ${i + 1} (${r.date}, ${r.venueName})`, poa_formatCurrency(r.venueCost)]);
+      });
+    }
+    costsHtml += rowHtml([c.dayBreakdown && c.dayBreakdown.length ? 'Venue cost (all days)' : 'Venue cost', poa_formatCurrency(c.venueCost)]);
     if(c.adItems.length){
       c.adItems.forEach(item=>{
         costsHtml += rowHtml([`Advertisement — ${item.name} (x${item.qty})`, poa_formatCurrency(item.cost)]);
@@ -23314,6 +23763,25 @@ async function buildApplicationRecord(appNumber){
   const privSec = document.querySelector('input[name="privateSecurity"]:checked')?.value || '';
   const adDisplay = document.querySelector('input[name="adDisplay"]:checked')?.value || '';
   const c = computeCosts();
+
+  // Multi-day event: one entry per day, each with the location it takes place
+  // at (Day 1 and "same venue" days carry the main venue's name/address). null
+  // for a single-day event / Annual license.
+  let mdRec = null;
+  if(licType === 'Special' && poa_mdActive()){
+    const mainName = poa_val('poa_venueName');
+    const mainAddr = [poa_val('vAddr1'), poa_val('vAddr2'), poa_val('district')].filter(Boolean).join(', ');
+    mdRec = poa_mdDays().map((d, i) => {
+      let venueName = mainName, venueAddr = mainAddr, venueId = '', inDb = false;
+      if(i > 0 && d.loc === 'db'){
+        const v = dbVenues.find(x => x.id === d.venueId);
+        venueName = v ? v.name : d.venueName; venueAddr = v ? poa_mdVenueAddress(v) : d.venueAddr; venueId = d.venueId; inDb = true;
+      } else if(i > 0 && d.loc === 'manual'){
+        venueName = d.venueName; venueAddr = d.venueAddr;
+      }
+      return { day: i + 1, date: d.date, eventName: d.eventName, patrons: d.patrons, loc: i === 0 ? 'main' : d.loc, venueId, venueName, venueAddr, registered: i === 0 || d.loc === 'main' ? !!c.venueFromDb : inDb };
+    });
+  }
 
   const adItems = [];
   if(adDisplay === 'Yes'){
@@ -23582,7 +24050,14 @@ async function buildApplicationRecord(appNumber){
       licenseType: licType,
       businessType: licType === 'Annual' ? poa_val('poa_businessType') : '',
       eventName: licType === 'Special' ? poa_val('eventName') : '',
-      eventDate: licType === 'Special' ? poa_val('eventDate') : '',
+      // For a multi-day event eventDate is Day 1 and eventEndDate the last day,
+      // and patrons is the all-days total; amusement.days[] holds each day
+      // (see window.atdEventDays for how every screen reads it back).
+      eventDate: licType === 'Special' ? (mdRec ? mdRec[0].date : poa_val('eventDate')) : '',
+      eventEndDate: mdRec ? mdRec[mdRec.length - 1].date : '',
+      multiDay: !!mdRec,
+      dayCount: mdRec ? mdRec.length : (licType === 'Special' ? 1 : 0),
+      days: mdRec || [],
       eventType: licType === 'Special' ? poa_val('eventType') : '',
       patrons: licType === 'Special' ? poa_val('patrons') : '',
       applicationDate: document.getElementById('applicationDate').value,
@@ -23626,6 +24101,12 @@ async function buildApplicationRecord(appNumber){
     })(),
     costs: {
       applicationFee: c.applicationFee,
+      // Per-day breakdown of a multi-day event (empty for a single day): the
+      // application fee above is applicationFeeBase x dayCount, and venueCost
+      // is the sum of the per-day venue fees listed here.
+      applicationFeeBase: c.applicationFeeBase,
+      dayCount: c.dayCount,
+      dayBreakdown: c.dayBreakdown || [],
       venueCost: c.venueCost,
       venueLabel: c.venueLabel,
       venueIsNew: c.venueIsNew,
@@ -25159,9 +25640,14 @@ function renderMmSummary(){
     html += mmDetailRow('Type of business', r.amusement.businessType);
   } else {
     html += mmDetailRow('Event name', r.amusement.eventName);
-    html += mmDetailRow('Event date', r.amusement.eventDate);
+    if(r.amusement.multiDay){
+      html += mmDetailRow('Event dates', window.atdEventDateSummary(r.amusement));
+      window.atdEventDays(r.amusement).forEach((d, i) => { html += mmDetailRow('Day ' + (i + 1), window.atdEventDayLine(d)); });
+    } else {
+      html += mmDetailRow('Event date', r.amusement.eventDate);
+    }
     html += mmDetailRow('Type of event', r.amusement.eventType);
-    html += mmDetailRow('Expected patrons', r.amusement.patrons);
+    html += mmDetailRow(r.amusement.multiDay ? 'Expected patrons (all days)' : 'Expected patrons', r.amusement.patrons);
   }
   html += `</div>`;
 
@@ -25188,7 +25674,7 @@ function renderMmSummary(){
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Application Costs</div>`;
-  html += `<div class="review-row"><div class="rr-label">Application fee</div><div class="rr-value">${poa_formatCurrency(r.costs.applicationFee)}${r.applicationFeePaid ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>' : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>'}</div></div>`;
+  html += `<div class="review-row"><div class="rr-label">Application fee${r.costs.dayCount > 1 ? ` (${poa_formatCurrency(r.costs.applicationFeeBase)} × ${r.costs.dayCount} days)` : ''}</div><div class="rr-value">${poa_formatCurrency(r.costs.applicationFee)}${r.applicationFeePaid ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>' : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>'}</div></div>`;
   // Annual has no Advertisement step at all (see poa_goStepSaving's
   // step-skipping) and bills a single Business/Venue fee line instead of a
   // separate venue cost — mirrors the Municipal officer's own application
@@ -25197,7 +25683,12 @@ function renderMmSummary(){
   if(isAnnual){
     html += mmDetailRow(r.costs.venueLabel || 'Business/Venue Fee', poa_formatCurrency(r.costs.venueCost));
   } else {
-    html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
+    if(r.costs.dayBreakdown && r.costs.dayBreakdown.length){
+      r.costs.dayBreakdown.forEach((row, i) => { html += mmDetailRow(window.atdCostDayLabel(row, i), poa_formatCurrency(row.venueCost)); });
+      html += mmDetailRow('Venue Cost (all days)', poa_formatCurrency(r.costs.venueCost));
+    } else {
+      html += mmDetailRow(r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', poa_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
+    }
     html += mmDetailRow('Advertisement total', poa_formatCurrency(r.costs.adTotal));
   }
   // Municipal portion (everything except the Atendify application fee) gets
@@ -25571,7 +26062,7 @@ async function printPaymentAdvice(previewRecord){
   const r = previewRecord || currentAppRecord;
   const isAnnual = r.amusement.licenseType === 'Annual';
   const eventName = isAnnual ? (r.amusement.businessType || 'N/A') : (r.amusement.eventName || 'N/A');
-  const eventDate = isAnnual ? 'N/A (Annual License)' : (r.amusement.eventDate || 'N/A');
+  const eventDate = isAnnual ? 'N/A (Annual License)' : (window.atdEventDateSummary(r.amusement) || 'N/A');
   // Admin-editable (Admin > Platform > Application Forms) — see
   // window.atdLoadFormTemplates in the shared shim. Everything else on this
   // slip is this specific application's own data and is untouched.
@@ -25604,7 +26095,10 @@ async function printPaymentAdvice(previewRecord){
       <div class="doc-breakdown-row" style="color:#666;"><span>Service Fee (paid online to Atendify — not due at cashier):</span><span>${poa_formatCurrency(r.costs.applicationFee)}</span></div>
       ${isAnnual
         ? `<div class="doc-breakdown-row"><span>${poa_escapeHtml(r.costs.venueLabel || 'Business/Venue Fee')}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>`
-        : `<div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}${r.costs.venueTierLabel ? ' (' + poa_escapeHtml(r.costs.venueTierLabel) + ')' : ''}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>
+        : (r.costs.dayBreakdown && r.costs.dayBreakdown.length
+          ? r.costs.dayBreakdown.map((row, i) => `<div class="doc-breakdown-row"><span>${poa_escapeHtml(window.atdCostDayLabel(row, i))}:</span><span>${poa_formatCurrency(row.venueCost)}</span></div>`).join('')
+          : `<div class="doc-breakdown-row"><span>${r.costs.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost'}${r.costs.venueTierLabel ? ' (' + poa_escapeHtml(r.costs.venueTierLabel) + ')' : ''}:</span><span>${poa_formatCurrency(r.costs.venueCost)}</span></div>`)
+      + `
       <div class="doc-breakdown-row"><span>Advertisement Costs:</span><span>${poa_formatCurrency(r.costs.adTotal)}</span></div>`
       }
       <div class="doc-breakdown-row total"><span>TOTAL DUE AT ${poa_escapeHtml((r.municipalityName || 'MUNICIPAL CORPORATION').toUpperCase())}:</span><span>${poa_formatCurrency(r.costs.total - (r.costs.applicationFee || 0))}</span></div>
@@ -25680,8 +26174,13 @@ async function printNoticeOfApplication(previewRecord){
   const r = previewRecord || currentAppRecord;
   const isAnnual = r.amusement.licenseType === 'Annual';
   const eventName = isAnnual ? (r.amusement.businessType || 'N/A') : (r.amusement.eventName || 'N/A');
-  const eventDate = isAnnual ? 'N/A (Annual License)' : (r.amusement.eventDate || 'N/A');
+  const eventDate = isAnnual ? 'N/A (Annual License)' : (window.atdEventDateSummary(r.amusement) || 'N/A');
   const patrons = isAnnual ? 'N/A' : (r.amusement.patrons || 'N/A');
+  // Multi-day: say where it is held on each day instead of "at <venue> on <date>".
+  const isMultiDayNotice = !isAnnual && !!r.amusement.multiDay && (r.amusement.days || []).length > 1;
+  const heldClause = isMultiDayNotice
+    ? 'to be held over ' + r.amusement.days.length + ' days (' + r.amusement.days.map(d => d.date + ' at ' + (d.venueName || 'N/A')).join('; ') + ')'
+    : 'to be held at ' + (r.venue.name || 'N/A') + ' on ' + eventDate;
   const docList = r.regulatoryDocList || [];
   const signature = await fetchMuniSignature(r.muniId);
   const logo = await window.fetchMuniLogo(r.muniId);
@@ -25713,7 +26212,7 @@ async function printNoticeOfApplication(previewRecord){
 
       <div class="nl-heading">NOTICE OF APPLICATION</div>
 
-      <p>${poa_escapeHtml(r.municipalityName)} has received a Places of Amusement application with assigned application number <strong>${poa_escapeHtml(r.appNumber)}</strong> on <strong>${poa_escapeHtml(r.submittedDate)}</strong> from <strong>${poa_escapeHtml(r.applicant.name)}</strong> for <strong>${poa_escapeHtml(eventName)}</strong> to be held at <strong>${poa_escapeHtml(r.venue.name || 'N/A')}</strong> on <strong>${poa_escapeHtml(eventDate)}</strong> for approximately <strong>${poa_escapeHtml(String(patrons))}</strong> to be in attendance.</p>
+      <p>${poa_escapeHtml(r.municipalityName)} has received a Places of Amusement application with assigned application number <strong>${poa_escapeHtml(r.appNumber)}</strong> on <strong>${poa_escapeHtml(r.submittedDate)}</strong> from <strong>${poa_escapeHtml(r.applicant.name)}</strong> for <strong>${poa_escapeHtml(eventName)}</strong> <strong>${poa_escapeHtml(heldClause)}</strong> for approximately <strong>${poa_escapeHtml(String(patrons))}</strong> to be in attendance.</p>
 
       <p>The tracking code above can be used to view the details of your application online.</p>
 
@@ -26191,7 +26690,9 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
   if(p && p.permitTypeLabel === 'ANNUAL') return poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl);
   qrTargetId = qrTargetId || 'permitQrTarget';
   const poaTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
-  const eventClause = p.eventName
+  const eventClause = (p.eventDays && p.eventDays.length > 1)
+    ? `${p.eventName ? ' with event name: <strong>' + poa_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${poa_escapeHtml(poa_formatLongDate(d.date))}</strong> at <strong>${poa_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${d.eventName ? ' (' + poa_escapeHtml(d.eventName) + ')' : ''}`).join('; ')
+    : p.eventName
     ? ` with event name: <strong>${poa_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${poa_escapeHtml(poa_formatLongDate(p.eventDate))}</strong>`
     : '';
 
@@ -26224,7 +26725,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
 
       <p class="permit-doc-body">This License is hereby granted by the ${poa_escapeHtml(p.municipalityName)},
       to: <strong>${poa_escapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${poa_escapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>. For the use of Buildings, and or Grounds
-      located at: <strong>${poa_escapeHtml((p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${poa_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${poa_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${poa_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
+      located at: <strong>${poa_escapeHtml((p.eventDays && p.eventDays.length > 1) ? 'THE VENUES NAMED BELOW' : (p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${poa_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${poa_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${poa_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
 
       <p class="permit-doc-body">${poa_escapeHtml(poaTemplates.poaPermitRevocationText || '')}</p>
 
@@ -28528,9 +29029,25 @@ async function deleteVenue(id){
   if(!(await window.atdConfirm(`Remove "${v.name}" from your registered venues database? Applicants will no longer be able to select it.`))) return;
 
   if(window.storage){
-    try{ await window.storage.delete(v._storageKey || `venue:${v.id}`, true); } catch(err){ /* ignore */ }
+    const venueKey = v._storageKey || `venue:${v.id}`;
+    try{ await window.storage.delete(venueKey, true); } catch(err){ /* checked below */ }
+    // storage.delete() never reports failure (a database permission refusal is
+    // swallowed), and the National Venue Registry reads this same record, so
+    // confirm it is really gone before telling the officer it was removed.
+    let stillThere = false;
+    try{
+      const check = await window.storage.get(venueKey, true);
+      stillThere = !!(check && check.value);
+    }catch(err){ /* a failed read is treated as gone */ }
+    if(stillThere){
+      muni_showToast(`${v.name} could not be removed right now, so it is still in the venue database and the National Venue Registry. Please try again, or contact your administrator.`);
+      return;
+    }
   }
   venues = venues.filter(x => x.id !== id);
+  if(window.atdLogAudit && currentUser){
+    window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'venue.deleted', details: `Deleted venue "${v.name}" from the venue database (and the National Venue Registry).`, muniId: currentUser.muniId });
+  }
   muni_showToast(`${v.name} removed.`);
   renderVenues();
 }
@@ -29673,18 +30190,10 @@ function eventsCalendar_startOfWeek(dateStr){
   return d;
 }
 
+// Returns an ARRAY — one entry per day of a multi-day event, otherwise one.
 function muni_toCalendarEvent(a){
-  const r = a.raw || {};
-  const venue = r.venue || {};
-  return {
-    appNumber: a.appNumber,
-    eventName: (r.amusement && r.amusement.eventName) || '',
-    eventDate: (r.amusement && r.amusement.eventDate) || '',
-    promoterName: (r.applicant && r.applicant.name) || '',
-    promoterPhone: (r.applicant && r.applicant.phone) || '',
-    venueName: venue.name || '',
-    venueAddress: [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ')
-  };
+  const r = Object.assign({}, a.raw || {}, { appNumber: a.appNumber });
+  return window.atdCalendarEntries(r);
 }
 
 async function loadEventsCalendar(){
@@ -29694,7 +30203,7 @@ async function loadEventsCalendar(){
     let jcfApp = null;
     try{ jcfApp = await muni_findLinkedJcfApplication(a.appNumber); } catch(err){ /* treat as no JCF filing */ }
     if(jcfApp && jcfApp.status !== 'Approved') continue;
-    out.push(muni_toCalendarEvent(a));
+    out.push(...muni_toCalendarEvent(a));
   }
   eventsCalendar = out;
   return out;
@@ -31551,7 +32060,7 @@ function muni_renderApplications(){
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
         <td>${muni_escapeHtml(a.businessOrEvent)}</td>
-        <td>${a.date}</td>
+        <td>${a.date}${a.dayCount > 1 ? `<div class="cell-sub">to ${muni_escapeHtml(a.endDate)} (${a.dayCount} days)</div>` : ''}</td>
         <td>${a.submitted}</td>
         <td>${muni_statusBadge(a.status)}</td>
         <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
@@ -32559,9 +33068,19 @@ function renderSubmissionColumn(a){
     html += detailRow('Type of business', r.amusement.businessType);
   } else {
     html += detailRow('Event name', r.amusement.eventName);
-    html += detailRow('Event date', r.amusement.eventDate);
+    if(r.amusement.multiDay){
+      html += detailRow('Event dates', window.atdEventDateSummary(r.amusement));
+      window.atdEventDays(r.amusement).forEach((d, i) => {
+        // A later day held somewhere that is not in the venue database has not
+        // been inspected or approved yet — flag it so the officer can follow up.
+        const flag = (d.loc === 'manual') ? ' — not in the venue database (inspection required)' : '';
+        html += detailRow('Day ' + (i + 1), muni_escapeHtml(window.atdEventDayLine(d)) + muni_escapeHtml(flag));
+      });
+    } else {
+      html += detailRow('Event date', r.amusement.eventDate);
+    }
     html += detailRow('Type of event', r.amusement.eventType);
-    html += detailRow('Expected patrons', r.amusement.patrons);
+    html += detailRow(r.amusement.multiDay ? 'Expected patrons (all days)' : 'Expected patrons', r.amusement.patrons);
   }
   html += `</div>`;
 
@@ -32790,7 +33309,7 @@ function renderSubmissionColumn(a){
     ? '<span class="badge badge-green" style="margin-left:8px;">Paid</span>'
     : '<span class="badge badge-red" style="margin-left:8px;">Unpaid</span>';
   html += `<div class="panel"><div class="detail-section-title">Application Costs</div>`;
-  html += `<div class="detail-row"><div class="dr-label">Application fee <span style="font-weight:400;">(payable to Atendify)</span></div><div class="dr-value">${muni_formatCurrency(r.costs.applicationFee)}${appFeeTag}</div></div>`;
+  html += `<div class="detail-row"><div class="dr-label">Application fee${r.costs.dayCount > 1 ? ` (${muni_formatCurrency(r.costs.applicationFeeBase)} × ${r.costs.dayCount} days)` : ''} <span style="font-weight:400;">(payable to Atendify)</span></div><div class="dr-value">${muni_formatCurrency(r.costs.applicationFee)}${appFeeTag}</div></div>`;
   // The venue on this application was either picked from this municipality's
   // own registered venues (an already-assessed "Venue Cost") or typed in
   // manually by the applicant — in which case this line is the flat,
@@ -32806,7 +33325,12 @@ function renderSubmissionColumn(a){
     // placeholder line until the CEO's Annual fee rules exist.
     html += detailRow(r.costs.venueLabel || 'Business/Venue Fee', muni_formatCurrency(r.costs.venueCost));
   } else {
-    html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
+    if(r.costs.dayBreakdown && r.costs.dayBreakdown.length){
+      r.costs.dayBreakdown.forEach((row, i) => { html += detailRow(muni_escapeHtml(window.atdCostDayLabel(row, i)), muni_formatCurrency(row.venueCost)); });
+      html += detailRow('Venue Cost (all days)', muni_formatCurrency(r.costs.venueCost));
+    } else {
+      html += detailRow(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', muni_formatCurrency(r.costs.venueCost) + (r.costs.venueTierLabel ? ' — ' + r.costs.venueTierLabel : ''));
+    }
     if(a.venueIsNew){
       const registryLabel = a.venueRegistryStatus === 'accepted'
         ? 'Accepted into the venue database — its own cost was billed separately (see Additional Payments below)'
@@ -33569,7 +34093,9 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
   if(p && p.permitTypeLabel === 'ANNUAL') return muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId);
   qrTargetId = qrTargetId || 'permitQrTarget';
   const muniPermitTemplates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
-  const eventClause = p.eventName
+  const eventClause = (p.eventDays && p.eventDays.length > 1)
+    ? `${p.eventName ? ' with event name: <strong>' + muni_escapeHtml(p.eventName.toUpperCase()) + '</strong>' : ''}, to be held over ${p.eventDays.length} days: ` + p.eventDays.map(d => `<strong>${muni_escapeHtml(muni_formatLongDate(d.date))}</strong> at <strong>${muni_escapeHtml((d.venueName || p.venueName || 'N/A').toUpperCase())}</strong>${d.eventName ? ' (' + muni_escapeHtml(d.eventName) + ')' : ''}`).join('; ')
+    : p.eventName
     ? ` with event name: <strong>${muni_escapeHtml(p.eventName.toUpperCase())}</strong> on the <strong>${muni_escapeHtml(muni_formatLongDate(p.eventDate))}</strong>`
     : '';
 
@@ -33599,7 +34125,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
 
       <p class="permit-doc-body">This License is hereby granted by the ${muni_escapeHtml(p.municipalityName)},
       to: <strong>${muni_escapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${muni_escapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>. For the use of Buildings, and or Grounds
-      located at: <strong>${muni_escapeHtml((p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${muni_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${muni_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${muni_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
+      located at: <strong>${muni_escapeHtml((p.eventDays && p.eventDays.length > 1) ? 'THE VENUES NAMED BELOW' : (p.venueName || 'N/A').toUpperCase())}</strong> in the Parish of ${muni_escapeHtml(p.parish || 'N/A')}, for the following type of amusement, namely: <strong>${muni_escapeHtml((p.amusementType || 'N/A').toUpperCase())}</strong> for approximately <strong>${muni_escapeHtml(String(p.expectedPatrons))}</strong> patrons${eventClause}.</p>
 
       <p class="permit-doc-body">${muni_escapeHtml(muniPermitTemplates.poaPermitRevocationText || '')}</p>
 
@@ -34813,7 +35339,9 @@ function generatePermit(a){
   // same fiscal year therefore expires on the SAME date, unlike the old
   // addOneYearIso behavior where each permit's expiration drifted with
   // whenever the CEO happened to sign off.
-  const expiresIso = isAnnual ? muni_fiscalYearEndIso(today) : (r && r.amusement && r.amusement.eventDate) || today;
+  // A multi-day event's permit stays valid through its LAST day.
+  const expiresIso = isAnnual ? muni_fiscalYearEndIso(today) : (r && r.amusement && (window.atdEventLastDate(r.amusement) || r.amusement.eventDate)) || today;
+  const permitDays = (!isAnnual && r && r.amusement && r.amusement.multiDay) ? window.atdEventDays(r.amusement) : [];
 
   const permit = {
     number: generatePermitNumber(a.appNumber),
@@ -34839,8 +35367,12 @@ function generatePermit(a){
     amusementType: isAnnual ? (r && r.amusement && r.amusement.businessType) : (r && r.amusement && r.amusement.eventType),
     eventName: isAnnual ? '' : (r && r.amusement && r.amusement.eventName) || '',
     eventDate: isAnnual ? '' : (r && r.amusement && r.amusement.eventDate) || '',
+    // Multi-day events only: every day with the venue it is held at (empty for a
+    // single day), so the permit and its public verification show all of them.
+    eventDays: permitDays.map(d => ({ date: d.date, eventName: d.eventName || '', venueName: d.venueName || '', venueAddr: d.venueAddr || '' })),
     expectedPatrons: isAnnual ? ((r && r.venue && r.venue.maxCap) || 'N/A') : ((r && r.amusement && r.amusement.patrons) || 'N/A'),
-    validity: isAnnual ? muni_fiscalYearLabel(today) : `Valid on ${muni_formatLongDate(expiresIso)}`,
+    validity: isAnnual ? muni_fiscalYearLabel(today)
+      : (permitDays.length > 1 ? `Valid ${muni_formatLongDate(permitDays[0].date)} to ${muni_formatLongDate(expiresIso)} (${permitDays.length} days)` : `Valid on ${muni_formatLongDate(expiresIso)}`),
     subject: a.businessOrEvent,
     sentTo: (r && r.applicant && r.applicant.email) || '',
     qrData: window.atdVerifyUrl(a.appNumber)
@@ -35066,6 +35598,9 @@ async function loadSubmittedApplications(silent, btnId){
         licenseType: (rec.amusement && rec.amusement.licenseType) || '',
         businessOrEvent: isAnnual ? (rec.amusement.businessType || '') : (rec.amusement.eventType || ''),
         date: isAnnual ? (rec.amusement.applicationDate || '') : (rec.amusement.eventDate || ''),
+        // Multi-day events: last day and number of days (date above is Day 1).
+        endDate: isAnnual ? '' : (window.atdEventLastDate(rec.amusement) || rec.amusement.eventDate || ''),
+        dayCount: isAnnual ? 0 : (rec.amusement.dayCount || 1),
         status: rec.status || 'Submitted',
         submitted: rec.submittedDate || '',
         paymentAmount: (rec.costs && rec.costs.total) || 0,
@@ -35623,6 +36158,9 @@ async function admin_loadApplications(){
           licenseType: (rec.amusement && rec.amusement.licenseType) || '',
           businessOrEvent: isAnnual ? (rec.amusement.businessType || '') : (rec.amusement.eventType || ''),
           date: isAnnual ? (rec.amusement.applicationDate || '') : (rec.amusement.eventDate || ''),
+        // Multi-day events: last day and number of days (date above is Day 1).
+        endDate: isAnnual ? '' : (window.atdEventLastDate(rec.amusement) || rec.amusement.eventDate || ''),
+        dayCount: isAnnual ? 0 : (rec.amusement.dayCount || 1),
           status: rec.status || 'Submitted',
           submitted: rec.submittedDate || '',
           paymentAmount: (rec.costs && rec.costs.total) || 0,
@@ -35714,6 +36252,10 @@ async function admin_loadVenues(){
         const result = await window.storage.get(key);
         if(!result || !result.value) continue;
         const rec = JSON.parse(result.value);
+        // A venue its municipality rejected is not part of the National
+        // Venue Registry: it is never listed, counted, or written to from
+        // here. (The municipality keeps its own record of the rejection.)
+        if(rec && rec.rejected) continue;
         out.push(Object.assign({ _storageKey: key }, rec));
       }catch(e){ /* skip unreadable record */ }
     }
@@ -35872,7 +36414,11 @@ window.admin_approveAccountDeletion = admin_approveAccountDeletion;
 function admin_venuePreviousEvents(v){
   const name = (v.name || '').trim().toLowerCase();
   if(!name) return [];
-  return applications.filter(a => a.muniId === v.muniId && a.raw && a.raw.venue && (a.raw.venue.name || '').trim().toLowerCase() === name);
+  // A multi-day event counts for every venue it is held at, not just Day 1's.
+  return applications.filter(a => a.muniId === v.muniId && a.raw && (
+    (a.raw.venue && (a.raw.venue.name || '').trim().toLowerCase() === name) ||
+    (a.raw.amusement && a.raw.amusement.multiDay && (a.raw.amusement.days || []).some(d => (d.venueName || '').trim().toLowerCase() === name))
+  ));
 }
 
 // Mirrors persistIfFromStorage() in the Municipal officer portal: mutate the
@@ -36224,6 +36770,10 @@ function admin_goPage(page){
   document.getElementById('admin_topbarTitle').textContent = titles[page];
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
+  // The National Venue Registry is shared with every municipality, which can
+  // delete or reject venues at any time. Re-read it each time this page is
+  // opened so a venue a municipality has deleted never lingers here.
+  if(page === 'venueregistry') admin_loadVenues().then(renderVenueRegistry).catch(()=>{});
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -36292,7 +36842,7 @@ function admin_isExpired(a){
   if(a.status === 'Expired') return true;
   if(a.status === 'Approved' || a.status === 'Rejected' || a.status === 'Withdrawn') return false;
   if(a.licenseType !== 'Special' || !a.date) return false;
-  return a.date < admin_todayIso();
+  return (a.endDate || a.date) < admin_todayIso();
 }
 
 // Money genuinely still owed by the applicant right now, against a given
@@ -36745,7 +37295,7 @@ function admin_renderApplications(){
       <td>${admin_escapeHtml(a.applicant)}</td>
       <td>${a.licenseType}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
-      <td>${admin_escapeHtml(a.businessOrEvent)}<div class="cell-sub">${a.date}</div></td>
+      <td>${admin_escapeHtml(a.businessOrEvent)}<div class="cell-sub">${a.date}${a.dayCount > 1 ? ' to ' + admin_escapeHtml(a.endDate) + ' (' + a.dayCount + ' days)' : ''}</div></td>
       <td>${a.submitted}</td>
       <td>${admin_statusBadge(a.status)}</td>
       <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">View</button></td>
@@ -37332,7 +37882,7 @@ function admin_openAppModal(id){
     ['Applicant', a.applicant],
     ['License type', a.licenseType],
     ['Business / Event type', a.businessOrEvent],
-    ['Event / Effective date', a.date],
+    ['Event / Effective date', a.dayCount > 1 ? (a.date + ' to ' + a.endDate + ' (' + a.dayCount + ' days)') : a.date],
     ['Municipality', agencyNameByMuniId(a.muniId)],
     ['Submitted', a.submitted],
     ['Fee', admin_formatCurrency(a.paymentAmount)],
@@ -37351,7 +37901,7 @@ function admin_openAppModal(id){
   // tab) — Admin finalizes it, but can't withdraw an application unasked.
   const todayIso = new Date().toISOString().slice(0,10);
   const isAnnual = a.licenseType === 'Annual';
-  const relevantExpiryDate = isAnnual ? ((a.raw && a.raw.permit && a.raw.permit.expiresDate) || '') : (a.date || '');
+  const relevantExpiryDate = isAnnual ? ((a.raw && a.raw.permit && a.raw.permit.expiresDate) || '') : (a.endDate || a.date || '');
   const canMarkExpired = !!relevantExpiryDate && relevantExpiryDate < todayIso;
   const cancellationRequested = !!(a.raw && a.raw.cancellationRequested);
   const canMarkWithdrawn = cancellationRequested && a.status !== 'Withdrawn';
@@ -37847,7 +38397,7 @@ async function saveAppStatus(){
   // option's disabled attribute is a UI nicety, not the actual guard.
   const todayIso = new Date().toISOString().slice(0,10);
   const isAnnual = a.licenseType === 'Annual';
-  const relevantExpiryDate = isAnnual ? ((a.raw && a.raw.permit && a.raw.permit.expiresDate) || '') : (a.date || '');
+  const relevantExpiryDate = isAnnual ? ((a.raw && a.raw.permit && a.raw.permit.expiresDate) || '') : (a.endDate || a.date || '');
   if(chosen === 'Expired' && !(relevantExpiryDate && relevantExpiryDate < todayIso)){
     admin_showToast(isAnnual ? 'Cannot mark Expired — the issued permit has not reached its expiry date yet.' : 'Cannot mark Expired — the event date has not passed yet.');
     return;
@@ -38032,9 +38582,29 @@ function admin_renderVenueViolations(v){
 // municipality's own save flow merges whatever is already on the record
 // into memory and only overwrites the specific fields its own form edits,
 // so these admin fields survive a later edit made in that portal.
+// Admin writes back to the same `venue:<id>` row the municipality owns, and a
+// plain write would silently RE-CREATE a venue the municipality has deleted
+// since this page last loaded. Check the row still exists (and was not
+// rejected) first; if not, drop it from the registry instead of saving.
+async function admin_venueStillInRegistry(v){
+  const key = v._storageKey || ('venue:' + v.id);
+  let current = null;
+  try{
+    const r = await window.storage.get(key);
+    current = (r && r.value) ? JSON.parse(r.value) : null;
+  }catch(e){ return true; /* can't tell (offline): don't block */ }
+  if(current && !current.rejected) return true;
+  venues = venues.filter(x => x.id !== v.id);
+  closeVenueRegistryModal();
+  renderVenueRegistry();
+  admin_showToast(current ? 'That venue was rejected by its municipality and is no longer in the registry.' : 'That venue was deleted by its municipality and has been removed from the registry.');
+  return false;
+}
+
 async function admin_saveVenueOverlay(){
   const v = venues.find(v => v.id === activeVenueId);
   if(!v || !window.storage) return;
+  if(!(await admin_venueStillInRegistry(v))) return;
   v.plusCode = document.getElementById('venueFormPlusCode').value.trim();
   v.indoorOutdoor = document.getElementById('venueFormIndoorOutdoor').value;
   v.fireCertification = document.getElementById('venueFormFireCert').value;
@@ -38058,6 +38628,7 @@ async function admin_saveVenueOverlay(){
 async function admin_addVenueViolation(){
   const v = venues.find(v => v.id === activeVenueId);
   if(!v || !window.storage) return;
+  if(!(await admin_venueStillInRegistry(v))) return;
   const date = document.getElementById('venueFormViolationDate').value;
   const severity = document.getElementById('venueFormViolationSeverity').value;
   const description = document.getElementById('venueFormViolationDesc').value.trim();
