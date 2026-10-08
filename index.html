@@ -3686,7 +3686,7 @@
     // section (Section 4's "existing Noise Abatement Notices/conditions"
     // upload) — same flat top-level shape as the five fields already here,
     // so it needs no special handling beyond being named in this list.
-    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData', 'jamsFileData', 'jcapFileData', 'noiseNoticeFileData']
+    jcfApplicationFiles: ['photoIdFileData', 'flyerFileData', 'permissionLetterFileData', 'jamsFileData', 'jcapFileData', 'noiseNoticeFileData', 'spiritLicenseFileData']
   };
   var OFFLOAD_THRESHOLD_BYTES = 100 * 1024;
 
@@ -6277,6 +6277,55 @@
       : 'Venue fee';
     return 'Day ' + (i + 1) + ' · ' + row.date + ' · ' + row.venueName + ' — ' + what;
   };
+
+  // ---- Platform-wide auto-capitalisation ----
+  // Every free-text field (text inputs and text areas, in all portals) turns
+  // the first letter of each word into a capital as the person types or
+  // pastes — "st. thomas parish" becomes "St. Thomas Parish". Only the first
+  // letter of a word is touched (the rest is left exactly as typed), and a
+  // word starts after whitespace, a hyphen, a slash or an opening bracket, so
+  // "don't" stays "Don't". It listens once on the whole document in the
+  // CAPTURE phase, so the corrected value is already in place by the time any
+  // field's own oninput handler (word counters, validators…) reads it.
+  //
+  // NOT applied to: email addresses, passwords, search boxes, and anything
+  // case-sensitive or machine-read — codes (promo, tracking, plus codes),
+  // reference/receipt/ID/permit numbers, URLs/links, tokens, and the admin's
+  // template/footer editors (their wording is saved exactly as written).
+  // Add data-no-capitalize to any future field that must keep its case.
+  (function(){
+    var SKIP_TYPES = { email:1, password:1, number:1, tel:1, url:1, search:1, date:1, time:1, 'datetime-local':1, month:1, week:1, file:1, hidden:1, checkbox:1, radio:1, range:1, color:1, button:1, submit:1, reset:1, image:1 };
+    var SKIP_NAME = /e-?mail|\bpass(word)?\b|pwd|token|\botp|code|search|\burl|\blink\b|\bref(erence)?\b|receipt|number|\bid\b|^id|plus|admin_formtpl_|admin_footer_|\bapi\b|secret|\bkey\b|^trackcode/i;
+    var WORD_START = /(^|[\s\-\/(])(\p{Ll})/gu;
+    function eligible(el){
+      if(!el || el.disabled || el.readOnly) return false;
+      var tag = el.tagName;
+      if(tag === 'TEXTAREA'){ /* ok */ }
+      else if(tag === 'INPUT'){ if(SKIP_TYPES[(el.type || 'text').toLowerCase()]) return false; }
+      else return false;
+      if(el.hasAttribute('data-no-capitalize')) return false;
+      var ac = (el.getAttribute('autocomplete') || '').toLowerCase();
+      if(/email|username|password|one-time-code|url/.test(ac)) return false;
+      var im = (el.getAttribute('inputmode') || '').toLowerCase();
+      if(/email|url|numeric|decimal|tel/.test(im)) return false;
+      var hint = [el.id, el.name, el.getAttribute('aria-label'), el.getAttribute('placeholder')].join(' ');
+      if(SKIP_NAME.test(hint)) return false;
+      return true;
+    }
+    document.addEventListener('input', function(e){
+      if(e.isComposing) return;
+      var el = e.target;
+      if(!eligible(el)) return;
+      var v = el.value;
+      if(!v) return;
+      var nv = v.replace(WORD_START, function(m, pre, ch){ return pre + ch.toUpperCase(); });
+      if(nv === v) return;
+      var a = null, b = null, d = null;
+      try{ a = el.selectionStart; b = el.selectionEnd; d = el.selectionDirection; }catch(err){}
+      el.value = nv; // same length — only case changes — so the caret can go straight back
+      try{ if(a != null) el.setSelectionRange(a, b, d || 'none'); }catch(err){}
+    }, true);
+  })();
 
   // ---- Cross-portal audit log ----
   // One record per event, written by whichever portal the action happened
@@ -11556,9 +11605,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <div class="section-title">Is there a valid spirit license in place?</div>
         <div class="radio-cards-row tri">
-          <label class="radio-card"><input type="radio" name="spiritLicense" value="Yes"><div class="rc-title">Yes</div></label>
-          <label class="radio-card"><input type="radio" name="spiritLicense" value="No"><div class="rc-title">No</div></label>
-          <label class="radio-card"><input type="radio" name="spiritLicense" value="Not Applicable"><div class="rc-title">Not Applicable</div></label>
+          <label class="radio-card"><input type="radio" name="spiritLicense" value="Yes" onchange="toggleSpiritLicenseUpload()"><div class="rc-title">Yes</div></label>
+          <label class="radio-card"><input type="radio" name="spiritLicense" value="No" onchange="toggleSpiritLicenseUpload()"><div class="rc-title">No</div></label>
+          <label class="radio-card"><input type="radio" name="spiritLicense" value="Not Applicable" onchange="toggleSpiritLicenseUpload()"><div class="rc-title">Not Applicable</div></label>
+        </div>
+        <!-- Shown only when the answer above is Yes: the applicant must attach
+             evidence of the licence, which the reviewing JCF officer can open
+             and approve/reject (see jcfd_openDocModal, kind 'spiritLicense'). -->
+        <div id="spiritLicenseUploadWrap" class="hidden" style="margin-bottom:18px;">
+          <div class="id-flyer-box-title">Evidence of the spirit licence <span class="required-mark">*</span></div>
+          <div class="field-hint" style="margin-bottom:8px;">Upload a copy of the valid spirit licence for this venue (image or PDF).</div>
+          <div class="flyer-upload-box" id="spiritLicenseBox" onclick="document.getElementById('spiritLicenseFile').click()">
+            <div id="spiritLicensePreviewWrap">
+              <div class="fu-icon">⤒</div>
+              <div class="fu-label">Upload spirit licence</div>
+            </div>
+            <input type="file" id="spiritLicenseFile" accept="image/*,.pdf" style="display:none;" aria-required="true" onchange="spiritLicenseFileChosen(this)">
+          </div>
         </div>
 
         <div class="section-title">Arrangements made with community members?</div>
@@ -17393,6 +17456,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     html += jcfd_detailRow('Type of business', vi.businessType);
     html += jcfd_detailRow('Valid spirit license', vi.validSpiritLicense);
+    if(vi.validSpiritLicense === 'Yes'){
+      html += jcfd_detailRowDoc('Spirit licence evidence', vi.spiritLicenseFileName, vi.spiritLicenseStatus, 'spiritLicense');
+    }
     html += jcfd_detailRow('Community arrangements made', vi.communityArrangements);
     html += jcfd_detailRow('Parking arrangements made', vi.parkingArrangements);
     html += jcfd_detailRow('Security arrangements made', vi.securityArrangements);
@@ -19328,7 +19394,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // JCFD_OTHER_LICENSE_LABELS (defined a little further down) is the single
   // source of truth for the six otherLicense_<key> kind strings, so this
   // list can never drift out of sync with it.
-  const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'jams', 'jcap', 'noiseNotice', 'signature']
+  const JCFD_REVIEWABLE_DOC_KINDS = ['photoId', 'permissionLetter', 'spiritLicense', 'jams', 'jcap', 'noiseNotice', 'signature']
     .concat(Object.keys(JCFD_OTHER_LICENSE_LABELS).map(k => 'otherLicense_' + k));
   let jcfdActiveDocKind = null;
   // Backing state for the Download button in the document modal — kept
@@ -19355,6 +19421,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(window.atdLogAudit && jcfdCurrentUser){
       const docLabel = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
         : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
+        : kind === 'spiritLicense' ? 'Spirit licence evidence'
         : kind === 'jams' ? 'JAMMS Approval' : kind === 'jcap' ? 'JCAP Approval'
         : kind === 'logo' ? 'Company Logo' : kind === 'bizRegistration' ? 'Business Registration Document'
         : kind === 'signature' ? 'Signature on File' : kind;
@@ -19418,9 +19485,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         status = olItem.status || (fileName ? 'Submitted' : 'Not Uploaded');
         officerNote = olItem.officerNote || '';
       }
-    } else if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'jams' || kind === 'jcap'){
+    } else if(kind === 'photoId' || kind === 'flyer' || kind === 'permissionLetter' || kind === 'spiritLicense' || kind === 'jams' || kind === 'jcap'){
       title = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer'
         : kind === 'permissionLetter' ? "Proof of Ownership/Authorization"
+        : kind === 'spiritLicense' ? 'Spirit licence evidence'
         : kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
 
       if(kind === 'jams' || kind === 'jcap'){
@@ -19464,6 +19532,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           const files = (r && r.value) ? JSON.parse(r.value) : {};
           dataUrl = kind === 'photoId' ? files.photoIdFileData
             : kind === 'flyer' ? files.flyerFileData
+            : kind === 'spiritLicense' ? files.spiritLicenseFileData
             : files.permissionLetterFileData;
         } catch(e){ /* leave dataUrl empty */ }
         if(kind === 'photoId'){
@@ -19472,6 +19541,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           officerNote = (rec.eventOverview && rec.eventOverview.photoIdOfficerNote) || '';
         } else if(kind === 'flyer'){
           fileName = (rec.briefings && rec.briefings.eventFlyerFileName) || '';
+        } else if(kind === 'spiritLicense'){
+          fileName = (rec.venueInfo && rec.venueInfo.spiritLicenseFileName) || '';
+          status = (rec.venueInfo && rec.venueInfo.spiritLicenseStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+          officerNote = (rec.venueInfo && rec.venueInfo.spiritLicenseOfficerNote) || '';
         } else {
           fileName = (rec.venueInfo && rec.venueInfo.permissionLetterFileName) || '';
           status = (rec.venueInfo && rec.venueInfo.permissionLetterStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
@@ -19600,7 +19673,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return rec.ownerEmail || null;
   }
 
-  const JCFD_DOC_REVIEW_LABELS = { photoId: 'Photo ID', permissionLetter: 'Proof of Ownership/Authorization', jams: 'JAMMS Approval', jcap: 'JCAP Approval', noiseNotice: 'Noise Abatement Notice/Conditions Documentation', signature: 'Signature on File' };
+  const JCFD_DOC_REVIEW_LABELS = { photoId: 'Photo ID', permissionLetter: 'Proof of Ownership/Authorization', spiritLicense: 'Spirit licence evidence', jams: 'JAMMS Approval', jcap: 'JCAP Approval', noiseNotice: 'Noise Abatement Notice/Conditions Documentation', signature: 'Signature on File' };
 
   // Shared save path for Approve/Reject/Save-note-only on any of
   // JCFD_REVIEWABLE_DOC_KINDS. JAMMS/JCAP live on the linked POA
@@ -19658,8 +19731,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       await jcfd_saveActiveApp(rec);
     } else {
       const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
-      const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
-      const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
+      const statusKey = kind === 'photoId' ? 'photoIdStatus' : kind === 'spiritLicense' ? 'spiritLicenseStatus' : 'permissionLetterStatus';
+      const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : kind === 'spiritLicense' ? 'spiritLicenseOfficerNote' : 'permissionLetterOfficerNote';
       rec[section] = rec[section] || {};
       rec[section][statusKey] = newStatus;
       rec[section][noteKey] = note;
@@ -26101,18 +26174,29 @@ window.renderMmNoise = renderMmNoise;
 // currentAppRecord.
 const MM_NOISE_DOC_KINDS = [
   { kind: 'photoId', label: 'Photo ID' },
-  { kind: 'permissionLetter', label: 'Proof of Ownership/Authorization' }
+  { kind: 'permissionLetter', label: 'Proof of Ownership/Authorization' },
+  // Only listed when the filing answered "Yes" to a valid spirit licence.
+  { kind: 'spiritLicense', label: 'Spirit licence evidence' }
 ];
+// Where each document's file name / review status / officer note / file blob
+// live on the JCF filing record and its companion jcfApplicationFiles record.
+const MM_NOISE_DOC_FIELDS = {
+  photoId: { section: 'eventOverview', name: 'photoIdFileName', status: 'photoIdStatus', note: 'photoIdOfficerNote', data: 'photoIdFileData' },
+  permissionLetter: { section: 'venueInfo', name: 'permissionLetterFileName', status: 'permissionLetterStatus', note: 'permissionLetterOfficerNote', data: 'permissionLetterFileData' },
+  spiritLicense: { section: 'venueInfo', name: 'spiritLicenseFileName', status: 'spiritLicenseStatus', note: 'spiritLicenseOfficerNote', data: 'spiritLicenseFileData' }
+};
 function renderMmNoiseDocuments(){
   const jcfApp = currentLinkedJcfApp;
   const grid = document.getElementById('mmNoiseDocGrid');
   if(!grid || !jcfApp) return;
   const eo = jcfApp.eventOverview || {}, vi = jcfApp.venueInfo || {};
 
-  grid.innerHTML = MM_NOISE_DOC_KINDS.map(({ kind, label }, i) => {
-    const fileName = kind === 'photoId' ? eo.photoIdFileName : vi.permissionLetterFileName;
-    const officerNote = kind === 'photoId' ? eo.photoIdOfficerNote : vi.permissionLetterOfficerNote;
-    const rawStatus = kind === 'photoId' ? eo.photoIdStatus : vi.permissionLetterStatus;
+  grid.innerHTML = MM_NOISE_DOC_KINDS.filter(d => d.kind !== 'spiritLicense' || vi.validSpiritLicense === 'Yes').map(({ kind, label }, i) => {
+    const f = MM_NOISE_DOC_FIELDS[kind];
+    const src = f.section === 'eventOverview' ? eo : vi;
+    const fileName = src[f.name];
+    const officerNote = src[f.note];
+    const rawStatus = src[f.status];
     const status = rawStatus || (fileName ? 'Submitted' : 'Not Uploaded');
     const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
     const icon = status === 'Rejected'
@@ -26162,11 +26246,12 @@ async function mmNoiseDocFileChosen(kind, label, input){
     poa_showToast(`Could not upload "${file.name}" for ${label} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
     return;
   }
-  const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
-  const fileNameKey = kind === 'photoId' ? 'photoIdFileName' : 'permissionLetterFileName';
-  const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
-  const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
-  const fileDataKey = kind === 'photoId' ? 'photoIdFileData' : 'permissionLetterFileData';
+  const docFields = MM_NOISE_DOC_FIELDS[kind];
+  const section = docFields.section;
+  const fileNameKey = docFields.name;
+  const statusKey = docFields.status;
+  const noteKey = docFields.note;
+  const fileDataKey = docFields.data;
   // Captured before being overwritten below — see mmDocFileChosen's own
   // matching comment: the JCF branch bell notification only fires for an
   // actual REJECTED -> re-uploaded transition, not a first-time upload.
@@ -40790,6 +40875,10 @@ async function continueFromStep2(){
     jcf_showToast('Please upload Proof of Ownership/Authorization before continuing.');
     return;
   }
+  if(radioVal('spiritLicense') === 'Yes' && !spiritLicenseFileData){
+    jcf_showToast('Please upload evidence of the valid spirit licence before continuing.');
+    return;
+  }
   // JAMMS/JCAP Approval are required before SUBMITTING (see submitJcfApp's
   // own safety-net check further down, which is the real gate for these)
   // but only ever arrive carried over from the applicant's linked Places of
@@ -41105,6 +41194,39 @@ function renderPermissionLetterPreview(){
 }
 window.permissionLetterFileChosen = permissionLetterFileChosen;
 
+// ==================== Spirit licence evidence ====================
+// Required only when "Is there a valid spirit license in place?" is Yes.
+let spiritLicenseFileName = '';
+let spiritLicenseFileData = null;
+function toggleSpiritLicenseUpload(){
+  const wrap = document.getElementById('spiritLicenseUploadWrap');
+  if(wrap) wrap.classList.toggle('hidden', radioVal('spiritLicense') !== 'Yes');
+}
+async function spiritLicenseFileChosen(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const fileData = await jcf_readFileAsDataUrl(file);
+  if(!fileData){
+    input.value = '';
+    jcf_showToast(`Could not upload "${file.name}" — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB).`);
+    return;
+  }
+  spiritLicenseFileName = file.name;
+  spiritLicenseFileData = fileData;
+  renderSpiritLicensePreview();
+}
+function renderSpiritLicensePreview(){
+  const wrap = document.getElementById('spiritLicensePreviewWrap');
+  if(!wrap) return;
+  if(spiritLicenseFileData){
+    wrap.innerHTML = `<div class="fu-icon">✓</div><div class="fu-label">${jcf_escapeHtml(spiritLicenseFileName)}</div>`;
+  } else {
+    wrap.innerHTML = `<div class="fu-icon">⤒</div><div class="fu-label">Upload spirit licence</div>`;
+  }
+}
+window.toggleSpiritLicenseUpload = toggleSpiritLicenseUpload;
+window.spiritLicenseFileChosen = spiritLicenseFileChosen;
+
 // ==================== JAMMS/JCAP Approval ====================
 // Can arrive two ways: carried over from the linked POA application's Main
 // Menu (see JCF_REQUIRED_DOC_LIST/renderMmJcfDocuments() in atendify.html,
@@ -41419,7 +41541,8 @@ function jcf_previewUpload(kind){
   const CONFIG = {
     photoId: { title: 'Photo ID', data: photoIdFileData, name: photoIdFileName },
     flyer: { title: 'Event Flyer', data: flyerFileData, name: flyerFileName },
-    permissionLetter: { title: 'Proof of Ownership/Authorization', data: permissionLetterFileData, name: permissionLetterFileName }
+    permissionLetter: { title: 'Proof of Ownership/Authorization', data: permissionLetterFileData, name: permissionLetterFileName },
+    spiritLicense: { title: 'Spirit licence evidence', data: spiritLicenseFileData, name: spiritLicenseFileName }
   };
   const cfg = CONFIG[kind];
   if(!cfg || !window.atdOpenFilePreview) return;
@@ -41455,7 +41578,12 @@ function jcf_goReview(){
   if(radioVal('promoterBreached') === 'Yes'){
     overview.push(['Breach details', jcf_val('promoterBreachReason')]);
   }
-  jcf_mdExtraDays().forEach(d => overview.push([`Day ${d.day}`, `${d.name} · ${d.date} · ${d.location} · ${d.type} · ${d.patrons}`]));
+  // Multi-day events: Day 2+ sit directly under the Event Name row.
+  const mdReviewRows = jcf_mdExtraDays().map(d => [`Day ${d.day}`, `${d.name} · ${d.date} · ${d.location} · ${d.type} · ${d.patrons}`]);
+  if(mdReviewRows.length){
+    const nameIdx = overview.findIndex(r => r[0] === 'Event Name');
+    overview.splice(nameIdx < 0 ? overview.length : nameIdx + 1, 0, ...mdReviewRows);
+  }
   document.getElementById('revOverview').innerHTML = overview.map(([l,v])=>reviewRow(l,v)).join('');
 
   const venue = [
@@ -41472,6 +41600,7 @@ function jcf_goReview(){
   venue.push(
     ['Type of business conducted at venue', jcf_val('jcf_businessType')],
     ['Valid spirit license in place?', radioVal('spiritLicense')],
+    ...(radioVal('spiritLicense') === 'Yes' ? [['Spirit licence evidence', spiritLicenseFileName || 'Not uploaded']] : []),
     ['Arrangements with community members?', radioVal('communityArrangements')],
     ['Arrangements for parking?', radioVal('parkingArrangements')],
     ['Arrangements for security?', radioVal('securityArrangements')]
@@ -41503,7 +41632,8 @@ function jcf_goReview(){
   document.getElementById('jcf_revUploads').innerHTML =
     jcf_uploadRowHtml('Photo ID', 'photoId', !!photoIdFileData) +
     jcf_uploadRowHtml('Event Flyer', 'flyer', !!flyerFileData) +
-    jcf_uploadRowHtml('Proof of Ownership/Authorization', 'permissionLetter', !!permissionLetterFileData);
+    jcf_uploadRowHtml('Proof of Ownership/Authorization', 'permissionLetter', !!permissionLetterFileData) +
+    (radioVal('spiritLicense') === 'Yes' ? jcf_uploadRowHtml('Spirit licence evidence', 'spiritLicense', !!spiritLicenseFileData) : '');
 
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -41561,6 +41691,11 @@ async function submitJcfApp(){
   // that actually has a linked POA application to have carried them from.
   if(!permissionLetterFileData){
     errorBox.textContent = 'Please upload Proof of Ownership/Authorization before submitting.';
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  if(radioVal('spiritLicense') === 'Yes' && !spiritLicenseFileData){
+    errorBox.textContent = 'Please upload evidence of the valid spirit licence before submitting.';
     errorBox.classList.remove('hidden');
     return;
   }
@@ -41657,6 +41792,9 @@ async function submitJcfApp(){
   const watchlistRejectionMessage = watchlistHit
     ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
 
+  // Spirit licence evidence only counts when the licence answer is Yes.
+  const spiritLicenseEvidenceData = radioVal('spiritLicense') === 'Yes' ? spiritLicenseFileData : null;
+
   const record = {
     jcfAppNumber: number,
     poaAppNumber: poaData ? poaData.appNumber : null,
@@ -41727,7 +41865,12 @@ async function submitJcfApp(){
       // Officer document review status — see the matching photoIdStatus
       // note above; permissionLetterFileData is likewise hard-required
       // above, so this always starts at 'Submitted' too.
-      permissionLetterStatus: 'Submitted', permissionLetterOfficerNote: ''
+      permissionLetterStatus: 'Submitted', permissionLetterOfficerNote: '',
+      // Evidence of the spirit licence — only present when the answer above is
+      // Yes. The file itself is stored under jcfApplicationFiles (below).
+      spiritLicenseFileName: spiritLicenseEvidenceData ? spiritLicenseFileName : '',
+      spiritLicenseStatus: spiritLicenseEvidenceData ? 'Submitted' : 'Not Uploaded',
+      spiritLicenseOfficerNote: ''
     },
     djs,
     soundSystems,
@@ -41759,7 +41902,7 @@ async function submitJcfApp(){
       // under their own key instead, best-effort.
       if(photoIdFileData || flyerFileData || permissionLetterFileData || jamsFileData || jcapFileData){
         try{
-          await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify({ photoIdFileData, flyerFileData, permissionLetterFileData, jamsFileData, jcapFileData }), true);
+          await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify({ photoIdFileData, flyerFileData, permissionLetterFileData, jamsFileData, jcapFileData, spiritLicenseFileData: spiritLicenseEvidenceData }), true);
         } catch(fileErr){
           // non-critical — the JCF application itself was submitted fine
         }
