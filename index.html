@@ -3471,6 +3471,814 @@
     a.click();
     document.body.removeChild(a);
   };
+
+  // ==================== Application PDF export engine (shared) ====================
+  // Turns a plain "document model" (cover facts, parts, blocks) into one PDF
+  // file using pdf-lib. Text is drawn as real vector text (searchable,
+  // selectable, small), the Official Use cards / timeline / permits are drawn
+  // natively rather than screenshotted, and every uploaded attachment is
+  // converted into pages of the same file (images are placed on a page, PDFs
+  // have each of their pages placed on a page of ours). The portal scripts
+  // (Municipal, JCF) only build the model; everything about how it looks
+  // lives here. pdf-lib is fetched on demand the first time someone exports.
+  (function(){
+    var PDF_LIB_URLS = [
+      'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'
+    ];
+    var C = {
+      ink: '#1a1d24', muted: '#6b7280', border: '#e2e5ea', surface: '#f7f8fa',
+      brand: '#4338ca', brandTint: '#eef1ff',
+      good: '#15803d', goodTint: '#eafaf0', bad: '#b91c1c', badTint: '#fdecea',
+      warn: '#b45309', warnTint: '#fef6e7', info: '#1d4ed8', infoTint: '#eaf1ff'
+    };
+    var A4W = 595.28, A4H = 841.89;
+
+    function loadScript(url){
+      return new Promise(function(resolve, reject){
+        var s = document.createElement('script');
+        s.src = url; s.async = true;
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ reject(new Error('Could not load ' + url)); };
+        document.head.appendChild(s);
+      });
+    }
+    async function ensureLib(){
+      if(window.PDFLib) return window.PDFLib;
+      var lastErr = null;
+      for(var i = 0; i < PDF_LIB_URLS.length; i++){
+        try{ await loadScript(PDF_LIB_URLS[i]); if(window.PDFLib) return window.PDFLib; }
+        catch(e){ lastErr = e; }
+      }
+      throw lastErr || new Error('PDF library unavailable');
+    }
+
+    // ---- text helpers ----
+    var WINANSI_EXTRA = {
+      0x2013:1,0x2014:1,0x2018:1,0x2019:1,0x201A:1,0x201C:1,0x201D:1,0x201E:1,0x2022:1,0x2026:1,
+      0x20AC:1,0x2122:1,0x2020:1,0x2021:1,0x0152:1,0x0153:1,0x0160:1,0x0161:1,0x017D:1,0x017E:1,
+      0x0178:1,0x0192:1,0x02C6:1,0x02DC:1,0x2030:1,0x2039:1,0x203A:1
+    };
+    function clean(s){
+      s = (s == null) ? '' : String(s);
+      s = s.replace(/→/g, '->').replace(/←/g, '<-').replace(/[✓✔]/g, 'Yes').replace(/[✗✘]/g, 'No')
+           .replace(/ /g, ' ').replace(/\t/g, ' ').replace(/\r/g, '');
+      var out = '';
+      for(var i = 0; i < s.length; i++){
+        var c = s.charCodeAt(i);
+        if(c === 10) out += '\n';
+        else if(c < 32) out += ' ';
+        else if(c <= 0xFF || WINANSI_EXTRA[c]) out += s.charAt(i);
+        else out += '?';
+      }
+      return out;
+    }
+    function hex(h){
+      var n = parseInt(h.slice(1), 16);
+      return window.PDFLib.rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+    }
+    var TONE = {
+      good: { fg: C.good, bg: C.goodTint }, bad: { fg: C.bad, bg: C.badTint },
+      warn: { fg: C.warn, bg: C.warnTint }, info: { fg: C.info, bg: C.infoTint },
+      neutral: { fg: C.muted, bg: C.surface }
+    };
+
+    // ---- image helpers ----
+    function dataUrlToBytes(dataUrl){
+      var i = dataUrl.indexOf(',');
+      var bin = atob(dataUrl.slice(i + 1));
+      var out = new Uint8Array(bin.length);
+      for(var k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k);
+      return out;
+    }
+    function mimeOf(dataUrl){
+      var m = /^data:([^;,]+)/.exec(dataUrl || '');
+      return m ? m[1].toLowerCase() : '';
+    }
+    function loadImage(src){
+      return new Promise(function(resolve, reject){
+        var img = new Image();
+        img.onload = function(){ resolve(img); };
+        img.onerror = function(){ reject(new Error('image load failed')); };
+        img.src = src;
+      });
+    }
+    // Everything goes through a canvas so EXIF rotation is applied, WebP/GIF/
+    // SVG become something pdf-lib can embed, and big phone photos are shrunk.
+    async function rasterize(dataUrl, opts){
+      opts = opts || {};
+      var img = await loadImage(dataUrl);
+      var w = img.naturalWidth || img.width || 300, h = img.naturalHeight || img.height || 150;
+      var maxDim = opts.maxDim || 1800;
+      var scale = Math.min(1, maxDim / Math.max(w, h));
+      var cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+      var cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      var ctx = cv.getContext('2d');
+      var keepAlpha = !!opts.keepAlpha;
+      if(!keepAlpha){ ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cw, ch); }
+      ctx.drawImage(img, 0, 0, cw, ch);
+      var out = keepAlpha ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', opts.quality || 0.86);
+      return { bytes: dataUrlToBytes(out), type: keepAlpha ? 'png' : 'jpg', w: cw, h: ch };
+    }
+    function svgToDataUrl(svgEl){
+      var s = new XMLSerializer().serializeToString(svgEl);
+      if(!/xmlns=/.test(s)) s = s.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+    }
+
+    // ---- the page writer ----
+    function Writer(PDFLib, pdfDoc, fonts, opts){
+      this.L = PDFLib; this.doc = pdfDoc; this.f = fonts; this.o = opts || {};
+      this.M = { l: 48, r: 48, t: 66, b: 56 };
+      this.page = null; this.y = 0; this.hdr = '';
+      this.frame = false; this.bar = null;
+      this.patches = []; this.refs = {}; this.pageCount = 0;
+      this.imgCache = {};
+    }
+    var W = Writer.prototype;
+    W.cw = function(){ return A4W - this.M.l - this.M.r; };
+    W.pageNo = function(){ return this.doc.getPageCount(); };
+    W.newPage = function(hdr, noHeader){
+      if(this.bar) this.flushBar(this.y);
+      if(hdr !== undefined && hdr !== null) this.hdr = hdr;
+      this.page = this.doc.addPage([A4W, A4H]);
+      this.y = A4H - this.M.t;
+      if(this.frame){
+        this.page.drawRectangle({ x: 34, y: 44, width: A4W - 68, height: A4H - 78, borderColor: hex(C.brand), borderWidth: 1.6 });
+        this.page.drawRectangle({ x: 40, y: 50, width: A4W - 80, height: A4H - 90, borderColor: hex(C.brand), borderWidth: 0.5 });
+      } else if(!noHeader && this.hdr){
+        this.page.drawText(clean(this.hdr), { x: this.M.l, y: A4H - 36, size: 8, font: this.f.reg, color: hex(C.muted) });
+        this.page.drawLine({ start: { x: this.M.l, y: A4H - 44 }, end: { x: A4W - this.M.r, y: A4H - 44 }, thickness: 0.5, color: hex(C.border) });
+      }
+      if(this.bar){ this.bar.startY = this.y + 4; }
+      return this.page;
+    };
+    W.ensure = function(h){ if(this.y - h < this.M.b) this.newPage(); };
+    W.flushBar = function(endY){
+      var b = this.bar; if(!b) return;
+      var top = b.startY, bottom = Math.max(endY, this.M.b - 6);
+      if(top > bottom) this.page.drawRectangle({ x: b.x, y: bottom, width: 2.2, height: top - bottom, color: hex(b.color) });
+    };
+    W.openBar = function(color, x){ this.bar = { x: x, color: color, startY: this.y + 2 }; };
+    W.closeBar = function(){ if(this.bar){ this.flushBar(this.y + 2); this.bar = null; } };
+
+    W.measure = function(font, size, str){ return font.widthOfTextAtSize(str, size); };
+    // Greedy wrap of plain text into lines no wider than maxW.
+    W.wrap = function(text, font, size, maxW){
+      var lines = [];
+      var paras = clean(text).split('\n');
+      var self = this;
+      paras.forEach(function(p){
+        if(p === ''){ lines.push(''); return; }
+        var words = p.split(' '), cur = '';
+        words.forEach(function(w){
+          // hard-break a single word that is wider than the column
+          while(self.measure(font, size, w) > maxW && w.length > 1){
+            var cut = w.length;
+            while(cut > 1 && self.measure(font, size, w.slice(0, cut)) > maxW) cut--;
+            if(cur){ lines.push(cur); cur = ''; }
+            lines.push(w.slice(0, cut)); w = w.slice(cut);
+          }
+          var t = cur ? cur + ' ' + w : w;
+          if(cur && self.measure(font, size, t) > maxW){ lines.push(cur); cur = w; } else cur = t;
+        });
+        lines.push(cur);
+      });
+      return lines;
+    };
+    // Draws text lines one at a time so a long value can run across pages.
+    W.lines = function(lines, x, size, font, color, lh){
+      for(var i = 0; i < lines.length; i++){
+        this.ensure(lh);
+        if(lines[i]) this.page.drawText(lines[i], { x: x, y: this.y - size, size: size, font: font, color: hex(color) });
+        this.y -= lh;
+      }
+    };
+    // Rich paragraph: runs = [{t, b}] (b = bold), supports \n, left/center/right.
+    W.runs = function(runs, o){
+      o = o || {};
+      var size = o.size || 10, lh = o.lh || size * 1.45, x0 = o.x != null ? o.x : this.M.l;
+      var maxW = o.w != null ? o.w : (A4W - this.M.r - x0), align = o.align || 'left';
+      var color = o.color || C.ink, self = this, f = this.f;
+      var toks = [];
+      runs.forEach(function(r){
+        var font = (r.b || o.bold) ? f.bold : (o.italic ? f.ital : f.reg);
+        var parts = clean(r.t).split('\n');
+        parts.forEach(function(part, pi){
+          if(pi > 0) toks.push({ nl: true });
+          part.split(/( +)/).forEach(function(s){
+            if(s === '') return;
+            toks.push({ t: s, font: font, sp: /^ +$/.test(s), w: self.measure(font, size, s), color: r.color });
+          });
+        });
+      });
+      var lns = [], cur = [], cw = 0;
+      toks.forEach(function(tk){
+        if(tk.nl){ lns.push({ toks: cur, w: cw }); cur = []; cw = 0; return; }
+        if(tk.sp){ if(cur.length){ cur.push(tk); cw += tk.w; } return; }
+        if(cw + tk.w > maxW && cur.length){
+          while(cur.length && cur[cur.length - 1].sp){ cw -= cur.pop().w; }
+          lns.push({ toks: cur, w: cw }); cur = []; cw = 0;
+        }
+        cur.push(tk); cw += tk.w;
+      });
+      while(cur.length && cur[cur.length - 1].sp){ cw -= cur.pop().w; }
+      lns.push({ toks: cur, w: cw });
+      lns.forEach(function(ln){
+        self.ensure(lh);
+        var x = x0;
+        if(align === 'center') x = x0 + (maxW - ln.w) / 2; else if(align === 'right') x = x0 + maxW - ln.w;
+        ln.toks.forEach(function(tk){
+          if(!tk.sp) self.page.drawText(tk.t, { x: x, y: self.y - size, size: size, font: tk.font, color: hex(tk.color || color) });
+          x += tk.w;
+        });
+        self.y -= lh;
+      });
+    };
+
+    W.embedImage = async function(dataUrl, opts){
+      var key = (opts && opts.keepAlpha ? 'a:' : 'j:') + dataUrl.length + ':' + dataUrl.slice(-64);
+      if(this.imgCache[key]) return this.imgCache[key];
+      var r = await rasterize(dataUrl, opts);
+      var emb = r.type === 'png' ? await this.doc.embedPng(r.bytes) : await this.doc.embedJpg(r.bytes);
+      var res = { img: emb, w: r.w, h: r.h };
+      this.imgCache[key] = res;
+      return res;
+    };
+
+    // ---------------------------------------------------------------- blocks
+    W.b_h2 = function(b){
+      this.ensure(84);
+      this.y -= 6;
+      this.page.drawText(clean(b.text), { x: this.M.l, y: this.y - 12, size: 12, font: this.f.bold, color: hex(C.brand) });
+      this.y -= 18;
+      this.page.drawLine({ start: { x: this.M.l, y: this.y }, end: { x: A4W - this.M.r, y: this.y }, thickness: 0.8, color: hex(C.brand) });
+      this.y -= 8;
+    };
+    W.b_h3 = function(b){
+      this.ensure(30);
+      this.y -= 4;
+      this.page.drawText(clean(b.text), { x: this.M.l, y: this.y - 10, size: 10.5, font: this.f.bold, color: hex(C.ink) });
+      this.y -= 18;
+    };
+    W.b_p = function(b){
+      this.runs(b.runs || [{ t: b.text, b: b.bold }], { size: b.size || 9.5, color: b.color || C.ink, italic: b.italic, align: b.align, x: b.x });
+      this.y -= (b.gap != null ? b.gap : 4);
+    };
+    W.b_spacer = function(b){ this.y -= (b.h || 8); };
+    W.b_pagebreak = function(){ this.newPage(); };
+    W.b_rows = function(b){
+      var lw = b.labelW || 168, gap = 12, vx = this.M.l + lw + gap, vw = A4W - this.M.r - vx;
+      var self = this;
+      (b.rows || []).forEach(function(row){
+        var label = clean(row[0]), val = (row[1] == null || row[1] === '') ? '—' : String(row[1]), tone = row[2];
+        var lLines = self.wrap(label, self.f.reg, 8.5, lw);
+        var vLines = self.wrap(val, tone ? self.f.bold : self.f.reg, 9.5, vw);
+        var first = Math.max(lLines.length * 11.5, 13) + 6;
+        self.ensure(Math.min(first + (vLines.length > 1 ? 13 : 0), 70));
+        var top = self.y;
+        lLines.forEach(function(l, i){
+          self.page.drawText(l, { x: self.M.l, y: top - 9 - i * 11.5, size: 8.5, font: self.f.reg, color: hex(C.muted) });
+        });
+        var col = tone && TONE[tone] ? TONE[tone].fg : C.ink;
+        var vfont = tone ? self.f.bold : self.f.reg;
+        var consumed = 0;
+        for(var i = 0; i < vLines.length; i++){
+          if(self.y - 13 < self.M.b){ self.newPage(); top = self.y; }
+          if(vLines[i]) self.page.drawText(vLines[i], { x: vx, y: self.y - 10, size: 9.5, font: vfont, color: hex(col) });
+          self.y -= 13; consumed++;
+        }
+        var labelH = lLines.length * 11.5;
+        if(consumed * 13 < labelH) self.y -= (labelH - consumed * 13);
+        self.y -= 3;
+        self.page.drawLine({ start: { x: self.M.l, y: self.y }, end: { x: A4W - self.M.r, y: self.y }, thickness: 0.4, color: hex(C.border) });
+        self.y -= 3;
+      });
+      this.y -= 6;
+    };
+    W.b_note = function(b){
+      var t = TONE[b.tone || 'neutral'], pad = 8;
+      var lines = this.wrap(b.text, this.f.reg, 9.5, this.cw() - pad * 2 - 6);
+      var h = lines.length * 13 + pad * 2 - 2;
+      this.ensure(Math.min(h, 120));
+      var self = this;
+      if(this.y - h < this.M.b){
+        // too tall for the rest of this page: draw as plain lines instead of a box
+        this.lines(lines, this.M.l + 4, 9.5, this.f.reg, t.fg, 13); this.y -= 6; return;
+      }
+      this.page.drawRectangle({ x: this.M.l, y: this.y - h, width: this.cw(), height: h, color: hex(t.bg) });
+      this.page.drawRectangle({ x: this.M.l, y: this.y - h, width: 3, height: h, color: hex(t.fg) });
+      lines.forEach(function(l, i){
+        if(l) self.page.drawText(l, { x: self.M.l + pad + 4, y: self.y - pad - 8 - i * 13 + 2, size: 9.5, font: self.f.reg, color: hex(t.fg) });
+      });
+      this.y -= h + 8;
+    };
+    W.b_checks = function(b){
+      var self = this;
+      (b.items || []).forEach(function(it){
+        var w = self.cw() - 22;
+        var lLines = self.wrap(it.label, self.f.bold, 9.5, w);
+        var sLines = it.sub ? self.wrap(it.sub, self.f.reg, 8.5, w) : [];
+        var h = lLines.length * 12.5 + sLines.length * 11 + 6;
+        self.ensure(Math.min(h, 90));
+        var top = self.y;
+        var bx = self.M.l, by = top - 11;
+        self.page.drawRectangle({ x: bx, y: by, width: 10, height: 10, borderColor: hex(it.checked ? C.good : C.muted), borderWidth: 1, color: hex(it.checked ? C.goodTint : '#ffffff') });
+        if(it.checked){
+          self.page.drawLine({ start: { x: bx + 2, y: by + 5 }, end: { x: bx + 4.3, y: by + 2.4 }, thickness: 1.5, color: hex(C.good) });
+          self.page.drawLine({ start: { x: bx + 4.3, y: by + 2.4 }, end: { x: bx + 8.3, y: by + 8 }, thickness: 1.5, color: hex(C.good) });
+        } else {
+          self.page.drawLine({ start: { x: bx + 2.5, y: by + 2.5 }, end: { x: bx + 7.5, y: by + 7.5 }, thickness: 1, color: hex(C.bad) });
+          self.page.drawLine({ start: { x: bx + 2.5, y: by + 7.5 }, end: { x: bx + 7.5, y: by + 2.5 }, thickness: 1, color: hex(C.bad) });
+        }
+        self.lines(lLines, self.M.l + 18, 9.5, self.f.bold, C.ink, 12.5);
+        if(sLines.length) self.lines(sLines, self.M.l + 18, 8.5, self.f.reg, C.muted, 11);
+        self.y -= 4;
+      });
+      this.y -= 4;
+    };
+    W.b_card = async function(b){
+      this.ensure(60);
+      var tone = TONE[b.tone || 'neutral'];
+      var th = 20;
+      this.page.drawRectangle({ x: this.M.l, y: this.y - th, width: this.cw(), height: th, color: hex(C.surface), borderColor: hex(C.border), borderWidth: 0.6 });
+      this.page.drawText(clean(b.title), { x: this.M.l + 8, y: this.y - 14, size: 10.5, font: this.f.bold, color: hex(C.ink) });
+      if(b.badge){
+        var bt = TONE[b.badge.tone || 'neutral'], bw = this.measure(this.f.bold, 8, clean(b.badge.text)) + 12;
+        this.page.drawRectangle({ x: A4W - this.M.r - bw - 6, y: this.y - 16, width: bw, height: 13, color: hex(bt.bg) });
+        this.page.drawText(clean(b.badge.text), { x: A4W - this.M.r - bw, y: this.y - 13, size: 8, font: this.f.bold, color: hex(bt.fg) });
+      }
+      this.y -= th + 6;
+      this.openBar(b.barColor || C.border, this.M.l);
+      var oldL = this.M.l; this.M.l += 10;
+      for(var i = 0; i < (b.blocks || []).length; i++) await this.block(b.blocks[i]);
+      this.M.l = oldL;
+      this.closeBar();
+      this.y -= 8;
+    };
+    W.b_timeline = function(b){
+      var self = this, ents = b.entries || [];
+      if(!ents.length){ this.b_p({ text: 'No timestamped activity is on file for this application.', italic: true, color: C.muted }); return; }
+      var tx = this.M.l + 20, tw = A4W - this.M.r - tx;
+      ents.forEach(function(e, idx){
+        var dl = self.wrap(e.text, self.f.reg, 9.5, tw);
+        var h = 12 + 11 + dl.length * 12.5 + 10;
+        self.ensure(Math.min(h, 80));
+        var top = self.y;
+        var pg = self.page;
+        pg.drawCircle({ x: self.M.l + 6, y: top - 6, size: 3.6, color: hex(e.tone ? TONE[e.tone].fg : C.brand) });
+        self.page.drawText(clean(e.when), { x: tx, y: top - 9, size: 8.5, font: self.f.bold, color: hex(C.ink) });
+        self.page.drawText(clean(e.office).toUpperCase(), { x: tx, y: top - 20, size: 7.2, font: self.f.bold, color: hex(C.muted) });
+        self.y -= 25;
+        var startPage = self.page, startY = top - 11;
+        self.lines(dl, tx, 9.5, self.f.reg, C.ink, 12.5);
+        self.y -= 8;
+        if(idx < ents.length - 1 && self.page === startPage){
+          startPage.drawLine({ start: { x: self.M.l + 6, y: startY }, end: { x: self.M.l + 6, y: self.y + 2 }, thickness: 0.8, color: hex(C.border) });
+        }
+      });
+      this.y -= 6;
+    };
+    // Reserves the "page" cell for later (filled in once every page exists).
+    W.patchPage = function(page, x, y, size, key, align, bold){
+      this.patches.push({ page: page, x: x, y: y, size: size, key: key, align: align || 'right', bold: !!bold });
+    };
+
+    // ---- attachments ----
+    W.b_attachments = async function(b){
+      var items = b.items || [], self = this;
+      this.b_h2({ text: b.heading || 'Attachment Index' });
+      if(b.intro) this.b_p({ text: b.intro, color: C.muted, size: 9 });
+      // index table
+      var cols = { n: this.M.l, name: this.M.l + 26, status: this.M.l + 300, pg: A4W - this.M.r };
+      this.ensure(30);
+      this.page.drawText('No.', { x: cols.n, y: this.y - 9, size: 8, font: this.f.bold, color: hex(C.muted) });
+      this.page.drawText('Document', { x: cols.name, y: this.y - 9, size: 8, font: this.f.bold, color: hex(C.muted) });
+      this.page.drawText('Status', { x: cols.status, y: this.y - 9, size: 8, font: this.f.bold, color: hex(C.muted) });
+      this.page.drawText('Page', { x: cols.pg - this.measure(this.f.bold, 8, 'Page'), y: this.y - 9, size: 8, font: this.f.bold, color: hex(C.muted) });
+      this.y -= 14;
+      this.page.drawLine({ start: { x: this.M.l, y: this.y }, end: { x: A4W - this.M.r, y: this.y }, thickness: 0.6, color: hex(C.border) });
+      this.y -= 3;
+      items.forEach(function(it, i){
+        var key = 'att:' + (b.keyPrefix || '') + i;
+        var nameLines = self.wrap(it.label + (it.fileName ? ' — ' + it.fileName : ''), self.f.reg, 9, 265);
+        var statusTxt = it.statusLabel || it.status || '';
+        var h = Math.max(nameLines.length * 11.5, 12) + 6;
+        self.ensure(h);
+        var top = self.y;
+        self.page.drawText(String(i + 1), { x: cols.n, y: top - 10, size: 9, font: self.f.reg, color: hex(C.muted) });
+        nameLines.forEach(function(l, li){ self.page.drawText(l, { x: cols.name, y: top - 10 - li * 11.5, size: 9, font: self.f.reg, color: hex(C.ink) }); });
+        var tone = it.included ? (it.status === 'Rejected' ? 'bad' : 'neutral') : 'warn';
+        self.page.drawText(clean(statusTxt + (it.included ? '' : (statusTxt ? ' · ' : '') + 'not included')), { x: cols.status, y: top - 10, size: 8.5, font: self.f.bold, color: hex(TONE[tone].fg) });
+        if(it.included) self.patchPage(self.page, cols.pg, top - 10, 9, key, 'right');
+        self.y -= h;
+        self.page.drawLine({ start: { x: self.M.l, y: self.y }, end: { x: A4W - self.M.r, y: self.y }, thickness: 0.3, color: hex(C.border) });
+      });
+      this.y -= 10;
+      var missing = items.filter(function(i){ return !i.included; });
+      if(missing.length){
+        this.b_note({ tone: 'warn', text: 'Some documents are listed but not included as pages: ' + missing.map(function(m){ return m.label + (m.reason ? ' (' + m.reason + ')' : ''); }).join('; ') + '.' });
+      }
+      // the attachment pages themselves
+      for(var i = 0; i < items.length; i++){
+        if(items[i].included) await this.attachmentPages(items[i], i, items.length, b.keyPrefix || '');
+      }
+    };
+    W.attachmentPages = async function(it, idx, total, keyPrefix){
+      var L = this.L, self = this;
+      var head = 'Attachment ' + (idx + 1) + ' of ' + total;
+      var firstPage = true;
+      function begin(pageLabel){
+        self.newPage(self.hdr);
+        if(firstPage){ self.refs['att:' + keyPrefix + idx] = self.pageNo(); firstPage = false; }
+        var pg = self.page;
+        pg.drawText(clean(head + (it.group ? ' · ' + it.group : '')).toUpperCase(), { x: self.M.l, y: self.y - 8, size: 7.5, font: self.f.bold, color: hex(C.brand) });
+        self.y -= 14;
+        var t = clean(it.label + (pageLabel ? '  —  ' + pageLabel : ''));
+        pg.drawText(t, { x: self.M.l, y: self.y - 12, size: 13, font: self.f.bold, color: hex(C.ink) });
+        self.y -= 19;
+        var meta = [it.fileName, it.status ? 'Status: ' + it.status : '', it.note].filter(Boolean).join('   ·   ');
+        var ml = self.wrap(meta, self.f.reg, 8.5, self.cw());
+        ml.slice(0, 2).forEach(function(l){ pg.drawText(l, { x: self.M.l, y: self.y - 8, size: 8.5, font: self.f.reg, color: hex(C.muted) }); self.y -= 11; });
+        pg.drawLine({ start: { x: self.M.l, y: self.y - 2 }, end: { x: A4W - self.M.r, y: self.y - 2 }, thickness: 0.5, color: hex(C.border) });
+        self.y -= 10;
+        return { x: self.M.l, y: self.M.b, w: self.cw(), h: self.y - self.M.b };
+      }
+      try{
+        if(it.mime === 'application/pdf'){
+          var src = await L.PDFDocument.load(dataUrlToBytes(it.dataUrl), { ignoreEncryption: true });
+          var n = src.getPageCount();
+          var embedded = await this.doc.embedPdf(src, Array.from({ length: n }, function(_, i){ return i; }));
+          for(var p = 0; p < n; p++){
+            var area = begin(n > 1 ? 'page ' + (p + 1) + ' of ' + n : '');
+            var e = embedded[p];
+            var s = Math.min(area.w / e.width, area.h / e.height);
+            var dw = e.width * s, dh = e.height * s;
+            this.page.drawRectangle({ x: area.x + (area.w - dw) / 2 - 0.5, y: area.y + area.h - dh - 0.5, width: dw + 1, height: dh + 1, borderColor: hex(C.border), borderWidth: 0.6 });
+            this.page.drawPage(e, { x: area.x + (area.w - dw) / 2, y: area.y + area.h - dh, width: dw, height: dh });
+          }
+        } else {
+          var area2 = begin('');
+          var im = await this.embedImage(it.dataUrl, { maxDim: 1800, quality: 0.86 });
+          var s2 = Math.min(area2.w / im.w, area2.h / im.h);
+          var w2 = im.w * s2, h2 = im.h * s2;
+          this.page.drawRectangle({ x: area2.x + (area2.w - w2) / 2 - 0.5, y: area2.y + area2.h - h2 - 0.5, width: w2 + 1, height: h2 + 1, borderColor: hex(C.border), borderWidth: 0.6 });
+          this.page.drawImage(im.img, { x: area2.x + (area2.w - w2) / 2, y: area2.y + area2.h - h2, width: w2, height: h2 });
+        }
+      } catch(err){
+        if(firstPage) begin('');
+        this.b_note({ tone: 'bad', text: 'This file could not be converted into pages (' + (err && err.message ? err.message : 'unsupported content') + '). Download the original file from the application to view it.' });
+      }
+      this.y = this.M.b; // next block starts on a fresh page
+    };
+
+    // ---- permits ----
+    // Reads an issued-permit HTML fragment (the same builders the permit
+    // preview/print use, so wording and templates can never drift) and draws
+    // it as a framed certificate page.
+    function runsOf(el, out, bold){
+      out = out || [];
+      el.childNodes.forEach(function(n){
+        if(n.nodeType === 3){ if(n.nodeValue) out.push({ t: n.nodeValue.replace(/\s+/g, ' '), b: bold }); }
+        else if(n.nodeType === 1){
+          var tag = n.tagName.toLowerCase();
+          if(tag === 'br') out.push({ t: '\n', b: bold });
+          else if(tag === 'img' || tag === 'svg') return;
+          else runsOf(n, out, bold || tag === 'strong' || tag === 'b');
+        }
+      });
+      return out;
+    }
+    function trimRuns(runs){
+      if(runs.length) runs[0].t = runs[0].t.replace(/^\s+/, '');
+      if(runs.length) runs[runs.length - 1].t = runs[runs.length - 1].t.replace(/\s+$/, '');
+      return runs.filter(function(r){ return r.t !== ''; });
+    }
+    function imgSrc(el){
+      if(!el) return '';
+      if(el.tagName.toLowerCase() === 'svg') return svgToDataUrl(el);
+      return el.getAttribute('src') || '';
+    }
+    async function qrDataUrl(text){
+      if(typeof QRCode === 'undefined' || !text) return '';
+      var host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;';
+      document.body.appendChild(host);
+      try{
+        new QRCode(host, { text: text, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+        var cv = host.querySelector('canvas');
+        if(cv) return cv.toDataURL('image/png');
+        var im = host.querySelector('img');
+        return im ? im.src : '';
+      } catch(e){ return ''; }
+      finally { document.body.removeChild(host); }
+    }
+    W.b_permit = async function(b){
+      var host = document.createElement('div');
+      host.innerHTML = b.html;
+      var root = host.querySelector('.permit-doc');
+      if(!root) return;
+      var annual = root.classList.contains('permit-doc-annual');
+      var qr = await qrDataUrl(b.qrText);
+      var oldM = { l: this.M.l, r: this.M.r, t: this.M.t, b: this.M.b };
+      this.M = { l: 66, r: 66, t: 70, b: 70 };
+      this.frame = true;
+      this.newPage(this.hdr);
+      this.refs['permit:' + b.id] = this.pageNo();
+      if(this.pendingBanner){
+        this.refs[this.pendingBanner.ref] = this.pageNo();
+        this.runs([{ t: this.pendingBanner.title, b: true }], { size: 11, align: 'center', color: C.brand });
+        this.y -= 2;
+        this.pendingBanner = null;
+      }
+      if(b.caption){
+        this.runs([{ t: b.caption, b: true }], { size: 8, align: 'center', color: C.muted });
+        this.y -= 8;
+      }
+      var kids = Array.prototype.slice.call(root.children), self = this;
+      for(var i = 0; i < kids.length; i++){
+        var el = kids[i], cls = el.className || '';
+        if(/permit-doc-top\b/.test(cls)){
+          var imgs = Array.prototype.slice.call(el.querySelectorAll('img'));
+          var leftEl = imgs.filter(function(im){ return /pd-logo\b/.test(im.className) && !/pd-logo-agency/.test(im.className); })[0];
+          var agencyEl = imgs.filter(function(im){ return /pd-logo-agency/.test(im.className); })[0];
+          var blk = el.querySelector('.permit-doc-muniblock');
+          var crestEl = blk ? (blk.querySelector('img') || blk.querySelector('svg')) : null;
+          var topY = this.y, rowH = 62, cw = this.cw();
+          if(leftEl && imgSrc(leftEl)){
+            try{
+              var li = await this.embedImage(imgSrc(leftEl), { keepAlpha: true, maxDim: 600 });
+              var lh = 46, lw = li.w * lh / li.h; if(lw > 110){ lw = 110; lh = li.h * lw / li.w; }
+              this.page.drawImage(li.img, { x: this.M.l, y: topY - lh, width: lw, height: lh });
+            } catch(e){}
+          }
+          var cxCenter = this.M.l + cw / 2, cy = topY;
+          var centreImg = agencyEl || crestEl;
+          if(centreImg && imgSrc(centreImg)){
+            try{
+              var ci = await this.embedImage(imgSrc(centreImg), { keepAlpha: true, maxDim: 500 });
+              var ch = agencyEl ? 56 : 44, cwid = ci.w * ch / ci.h; if(cwid > 100){ cwid = 100; ch = ci.h * cwid / ci.w; }
+              this.page.drawImage(ci.img, { x: cxCenter - cwid / 2, y: cy - ch, width: cwid, height: ch });
+              cy -= ch + 3;
+            } catch(e){}
+          }
+          if(blk){
+            var nm = blk.querySelector('.permit-doc-muniname'), rg = blk.querySelector('.permit-doc-reg');
+            if(nm){ this.y = cy; this.runs([{ t: nm.textContent.trim(), b: true }], { size: 11, align: 'center', x: this.M.l + 120, w: cw - 240 }); cy = this.y; }
+            if(rg){ this.y = cy; this.runs([{ t: rg.textContent.trim(), b: true }], { size: 8, align: 'center', color: C.muted, x: this.M.l + 120, w: cw - 240 }); cy = this.y; }
+          }
+          if(qr){
+            try{
+              var qi = await this.embedImage(qr, { keepAlpha: true, maxDim: 400 });
+              this.page.drawImage(qi.img, { x: A4W - this.M.r - 62, y: topY - 62, width: 62, height: 62 });
+              var sl = 'SCAN ME', sw = this.measure(this.f.bold, 7, sl);
+              this.page.drawText(sl, { x: A4W - this.M.r - 31 - sw / 2, y: topY - 72, size: 7, font: this.f.bold, color: hex(C.muted) });
+            } catch(e){}
+          }
+          this.y = Math.min(cy, topY - 76) - 6;
+        } else if(/permit-doc-title-box/.test(cls)){
+          var tt = clean(el.textContent.trim()), size = annual ? 22 : 19;
+          var tw = this.measure(this.f.bold, size, tt), bw = Math.min(this.cw(), tw + 56);
+          this.ensure(size + 30);
+          this.page.drawRectangle({ x: this.M.l + (this.cw() - bw) / 2, y: this.y - size - 16, width: bw, height: size + 16, borderColor: hex(C.ink), borderWidth: 1.4 });
+          this.page.drawText(tt, { x: this.M.l + (this.cw() - tw) / 2, y: this.y - size - 8, size: size, font: this.f.bold, color: hex(C.ink) });
+          this.y -= size + 28;
+        } else if(/permit-doc-grid/.test(cls)){
+          var cells = Array.prototype.slice.call(el.children).map(function(c){
+            var v = c.querySelector('.pdg-value'), l = c.querySelector('.pdg-label');
+            return [v ? v.textContent.trim() : '', l ? l.textContent.trim() : ''];
+          });
+          var colW = this.cw() / 3;
+          for(var r = 0; r < cells.length; r += 3){
+            this.ensure(40);
+            for(var c = 0; c < 3 && r + c < cells.length; c++){
+              var vv = this.wrap(cells[r + c][0], this.f.bold, 10.5, colW - 10), cx = this.M.l + c * colW + colW / 2;
+              vv.slice(0, 2).forEach(function(l, k){
+                self.page.drawText(l, { x: cx - self.measure(self.f.bold, 10.5, l) / 2, y: self.y - 11 - k * 12, size: 10.5, font: self.f.bold, color: hex(C.ink) });
+              });
+              var lb = clean(cells[r + c][1]);
+              this.page.drawText(lb, { x: cx - this.measure(this.f.reg, 7.5, lb) / 2, y: this.y - 14 - (vv.length > 1 ? 12 : 0) - 8, size: 7.5, font: this.f.reg, color: hex(C.muted) });
+            }
+            this.y -= 44;
+          }
+          this.y -= 4;
+        } else if(/permit-doc-signature/.test(cls)){
+          var sg = el.querySelector('img');
+          this.ensure(64);
+          if(sg && imgSrc(sg)){
+            try{
+              var si = await this.embedImage(imgSrc(sg), { keepAlpha: true, maxDim: 700 });
+              var sh = 44, sw2 = si.w * sh / si.h; if(sw2 > 170){ sw2 = 170; sh = si.h * sw2 / si.w; }
+              this.page.drawImage(si.img, { x: annual ? this.M.l + (this.cw() - sw2) / 2 : this.M.l, y: this.y - sh, width: sw2, height: sh });
+              this.y -= sh + 4;
+            } catch(e){ this.y -= 30; }
+          } else {
+            this.page.drawLine({ start: { x: this.M.l, y: this.y - 34 }, end: { x: this.M.l + 190, y: this.y - 34 }, thickness: 0.8, color: hex(C.ink) });
+            this.y -= 42;
+          }
+        } else if(el.tagName.toLowerCase() === 'ol'){
+          var items = Array.prototype.slice.call(el.querySelectorAll('li'));
+          items.forEach(function(li, k){
+            self.ensure(16);
+            self.page.drawText((k + 1) + '.', { x: self.M.l + 4, y: self.y - 10, size: 9.5, font: self.f.reg, color: hex(C.ink) });
+            self.runs(trimRuns(runsOf(li, [], false)), { size: 9.5, x: self.M.l + 22, lh: 13 });
+            self.y -= 2;
+          });
+          this.y -= 4;
+        } else if(/permit-doc-efile/.test(cls)){
+          this.y -= 6;
+          this.runs([{ t: el.textContent.trim(), b: true }], { size: 9, align: 'right', color: C.muted });
+        } else if(/permit-doc-cfo/.test(cls)){
+          this.runs(trimRuns(runsOf(el, [], false)), { size: 10, align: annual ? 'center' : 'left', lh: 14 });
+          this.y -= 4;
+        } else if(/permit-doc-reg|permit-doc-annual-schedule|permit-doc-muniblock|permit-doc-muniname/.test(cls)){
+          var rr = trimRuns(runsOf(el, [], true));
+          this.runs(rr, { size: /muni/.test(cls) ? 12 : 10, align: 'center', lh: 15 });
+          this.y -= 4;
+        } else if(/permit-doc-annual-meta/.test(cls)){
+          var kidsMeta = Array.prototype.slice.call(el.children).map(function(k){ return k.textContent.trim().replace(/\s+/g, ' '); });
+          this.runs([{ t: kidsMeta.join('        '), b: true }], { size: 10, align: 'center' });
+          this.y -= 6;
+        } else if(/conditions-title/.test(cls)){
+          this.y -= 4;
+          this.runs(trimRuns(runsOf(el, [], true)), { size: 10, bold: true, align: annual ? 'center' : 'left' });
+        } else {
+          var rn = trimRuns(runsOf(el, [], false));
+          if(rn.length){
+            this.runs(rn, { size: 10, lh: 14.5, align: annual ? 'center' : 'left' });
+            this.y -= 7;
+          }
+        }
+      }
+      this.frame = false;
+      this.M = oldM;
+      this.y = this.M.b; // next block begins on a fresh page
+    };
+
+    W.block = async function(b){
+      var fn = this['b_' + b.t];
+      if(fn) await fn.call(this, b);
+    };
+
+    // ------------------------------------------------------------- the cover
+    W.drawCover = async function(model){
+      var cv = model.cover || {};
+      this.newPage('', true);
+      var pg = this.page, L = this.M.l;
+      pg.drawRectangle({ x: 0, y: A4H - 8, width: A4W, height: 8, color: hex(C.brand) });
+      var y = A4H - 56;
+      if(model.brand && model.brand.logo){
+        try{
+          var li = await this.embedImage(model.brand.logo, { keepAlpha: true, maxDim: 600 });
+          var lh = 38, lw = li.w * lh / li.h; if(lw > 130){ lw = 130; lh = li.h * lw / li.w; }
+          pg.drawImage(li.img, { x: L, y: y - lh, width: lw, height: lh });
+        } catch(e){}
+      }
+      if(model.brand && model.brand.orgName){
+        var on = clean(model.brand.orgName), ow = this.measure(this.f.bold, 10, on);
+        pg.drawText(on, { x: A4W - this.M.r - ow, y: y - 14, size: 10, font: this.f.bold, color: hex(C.ink) });
+      }
+      y -= 78;
+      pg.drawText(clean(cv.eyebrow || 'APPLICATION FILE').toUpperCase(), { x: L, y: y, size: 9, font: this.f.bold, color: hex(C.brand) });
+      y -= 34;
+      pg.drawText(clean(cv.title || ''), { x: L, y: y, size: 28, font: this.f.bold, color: hex(C.ink) });
+      y -= 22;
+      if(cv.subtitle){
+        var sl = this.wrap(cv.subtitle, this.f.reg, 11.5, this.cw());
+        sl.forEach(function(l){ pg.drawText(l, { x: L, y: y, size: 11.5, font: this.f.reg, color: hex(C.muted) }); y -= 16; }, this);
+      }
+      y -= 6;
+      if(cv.status){
+        var tn = TONE[cv.status.tone || 'neutral'], st = clean(cv.status.text).toUpperCase();
+        var sw = this.measure(this.f.bold, 12, st) + 28;
+        pg.drawRectangle({ x: L, y: y - 26, width: sw, height: 28, color: hex(tn.bg), borderColor: hex(tn.fg), borderWidth: 1.4 });
+        pg.drawText(st, { x: L + 14, y: y - 17, size: 12, font: this.f.bold, color: hex(tn.fg) });
+        if(cv.status.sub){
+          pg.drawText(clean(cv.status.sub), { x: L + sw + 12, y: y - 17, size: 9.5, font: this.f.reg, color: hex(C.muted) });
+        }
+        y -= 46;
+      }
+      // facts
+      var facts = cv.facts || [];
+      pg.drawLine({ start: { x: L, y: y + 6 }, end: { x: A4W - this.M.r, y: y + 6 }, thickness: 0.8, color: hex(C.border) });
+      var colW = this.cw() / 2, fx = 0;
+      for(var i = 0; i < facts.length; i += 2){
+        var rowH = 0;
+        for(var c = 0; c < 2 && i + c < facts.length; c++){
+          var f2 = facts[i + c], x = L + c * colW;
+          pg.drawText(clean(f2[0]).toUpperCase(), { x: x, y: y - 10, size: 7, font: this.f.bold, color: hex(C.muted) });
+          var vl = this.wrap(String(f2[1] == null || f2[1] === '' ? '—' : f2[1]), this.f.reg, 10.5, colW - 16).slice(0, 3);
+          vl.forEach(function(l, k){ pg.drawText(l, { x: x, y: y - 24 - k * 13, size: 10.5, font: this.f.reg, color: hex(C.ink) }); }, this);
+          rowH = Math.max(rowH, 30 + vl.length * 13);
+        }
+        y -= rowH;
+      }
+      y -= 14;
+      // contents
+      pg.drawText('CONTENTS', { x: L, y: y, size: 9, font: this.f.bold, color: hex(C.brand) });
+      y -= 8;
+      pg.drawLine({ start: { x: L, y: y }, end: { x: A4W - this.M.r, y: y }, thickness: 0.8, color: hex(C.brand) });
+      y -= 16;
+      var self = this;
+      (model.parts || []).forEach(function(part, i){
+        var key = 'part:' + part.id;
+        pg.drawText(clean(part.tocLabel || part.title), { x: L, y: y, size: 10.5, font: self.f.bold, color: hex(C.ink) });
+        self.patchPage(pg, A4W - self.M.r, y, 10.5, key, 'right', true);
+        y -= 14;
+        (part.tocSub || []).forEach(function(s){
+          pg.drawText(clean(s.label), { x: L + 14, y: y, size: 9, font: self.f.reg, color: hex(C.muted) });
+          if(s.key) self.patchPage(pg, A4W - self.M.r, y, 9, s.key, 'right');
+          y -= 12.5;
+        });
+        y -= 3;
+      });
+      if(cv.note){
+        var nl = this.wrap(cv.note, this.f.ital, 8.5, this.cw());
+        var ny = 86;
+        nl.forEach(function(l){ pg.drawText(l, { x: L, y: ny, size: 8.5, font: self.f.ital, color: hex(C.muted) }); ny -= 11.5; });
+      }
+    };
+
+    // ------------------------------------------------------------- the build
+    async function build(model){
+      var L = await ensureLib();
+      var pdfDoc = await L.PDFDocument.create();
+      var fonts = {
+        reg: await pdfDoc.embedFont(L.StandardFonts.Helvetica),
+        bold: await pdfDoc.embedFont(L.StandardFonts.HelveticaBold),
+        ital: await pdfDoc.embedFont(L.StandardFonts.HelveticaOblique)
+      };
+      pdfDoc.setTitle(clean(model.meta && model.meta.title || 'Application'));
+      pdfDoc.setAuthor(clean(model.meta && model.meta.author || 'Atendify'));
+      pdfDoc.setSubject(clean(model.meta && model.meta.subject || ''));
+      pdfDoc.setCreator('Atendify'); pdfDoc.setProducer('Atendify PDF export');
+      pdfDoc.setCreationDate(new Date());
+      var w = new Writer(L, pdfDoc, fonts, {});
+      w.hdr = (model.meta && model.meta.header) || '';
+      await w.drawCover(model);
+      var parts = model.parts || [];
+      for(var i = 0; i < parts.length; i++){
+        var part = parts[i];
+        if(part.blocks && part.blocks[0] && part.blocks[0].t === 'permit'){
+          // a permit is a framed certificate page of its own: the part title
+          // rides on that page instead of getting a mostly-empty page first
+          w.hdr = (model.meta && model.meta.header ? model.meta.header + '   |   ' : '') + part.title;
+          w.pendingBanner = { ref: 'part:' + part.id, title: part.title };
+          for(var q = 0; q < part.blocks.length; q++) await w.block(part.blocks[q]);
+          continue;
+        }
+        w.newPage((model.meta && model.meta.header ? model.meta.header + '   |   ' : '') + part.title);
+        w.refs['part:' + part.id] = w.pageNo();
+        // part banner
+        w.page.drawRectangle({ x: w.M.l, y: w.y - 34, width: w.cw(), height: 34, color: hex(C.brandTint) });
+        w.page.drawRectangle({ x: w.M.l, y: w.y - 34, width: 4, height: 34, color: hex(C.brand) });
+        w.page.drawText(clean(part.title), { x: w.M.l + 16, y: w.y - 22, size: 15, font: fonts.bold, color: hex(C.brand) });
+        w.y -= 46;
+        if(part.intro){ w.b_p({ text: part.intro, color: C.muted, size: 9 }); }
+        for(var j = 0; j < (part.blocks || []).length; j++) await w.block(part.blocks[j]);
+      }
+      // resolve page-number cells
+      w.patches.forEach(function(p){
+        var n = w.refs[p.key]; if(!n) return;
+        var s = String(n), font = p.bold ? fonts.bold : fonts.reg;
+        var x = p.align === 'right' ? p.x - font.widthOfTextAtSize(s, p.size) : p.x;
+        p.page.drawText(s, { x: x, y: p.y, size: p.size, font: font, color: hex(C.ink) });
+      });
+      // footer on every page
+      var pages = pdfDoc.getPages(), total = pages.length;
+      var left = clean((model.meta && model.meta.footer) || 'Atendify');
+      pages.forEach(function(pg, idx){
+        pg.drawText(left, { x: 48, y: 24, size: 7.5, font: fonts.reg, color: hex(C.muted) });
+        var t = 'Page ' + (idx + 1) + ' of ' + total, tw = fonts.reg.widthOfTextAtSize(t, 7.5);
+        pg.drawText(t, { x: A4W - 48 - tw, y: 24, size: 7.5, font: fonts.reg, color: hex(C.muted) });
+      });
+      return await pdfDoc.save();
+    }
+
+    function download(bytes, fileName){
+      var blob = new Blob([bytes], { type: 'application/pdf' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    }
+
+    // Normalises an uploaded file's data URL into an attachment item the
+    // writer can place: PDFs and images are included, anything else is only
+    // listed (with the reason) rather than silently dropped.
+    function attachmentItem(label, fileName, status, dataUrl, extra){
+      var it = Object.assign({ label: label, fileName: fileName || '', status: status || '', dataUrl: dataUrl || '', mime: mimeOf(dataUrl), included: false, reason: '' }, extra || {});
+      if(!dataUrl){ it.reason = fileName ? 'file data not available to this account' : 'not uploaded'; return it; }
+      if(it.mime === 'application/pdf' || /^image\//.test(it.mime)) it.included = true;
+      else it.reason = 'file type ' + (it.mime || 'unknown') + ' cannot be converted';
+      return it;
+    }
+
+    window.atdPdf = {
+      build: build, download: download, ensureLib: ensureLib, attachmentItem: attachmentItem,
+      clean: clean, mimeOf: mimeOf, C: C
+    };
+  })();
 </script>
 <script>
   // ---- Shared "Active sessions" panel (acct/Muni/JCF/Admin Profile & Settings) ----
@@ -8631,7 +9439,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <h2 id="detailAppNumber" style="font-size:20px;">—</h2>
             <div class="cell-sub" id="detailAppSub" style="margin-top:4px;"></div>
           </div>
-          <span id="detailStatusBadge"></span>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+            <span id="muni_exportPdfHint" class="cell-sub"></span>
+            <button class="btn btn-sm" id="muni_exportPdfBtn" onclick="muni_exportApplicationPdf()" disabled>&#11015; Export as PDF</button>
+            <span id="detailStatusBadge"></span>
+          </div>
         </div>
         <div class="status-stepper" id="statusStepper"></div>
       </div>
@@ -16942,19 +17754,26 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // every call.
   window.jcfd_renderApplicationsDebounced = window.atdDebounce(jcfd_renderApplications, 300);
 
-  // ---- 5-minute platform auto-refresh (JCF Division portal) ----
+  // ---- Platform auto-refresh, every 60 seconds + on returning to the tab (JCF Division portal) ----
   // Both of these already read live from storage on every call (no cached
   // array to go stale), so a background refresh is just re-calling them
   // periodically while someone is actually signed in and viewing this
   // portal — the same "new applications show up without a manual reload"
   // fix applied to the Municipal officer and National Admin portals.
-  setInterval(() => {
+  // Every 60 seconds, and again as soon as the officer returns to this tab;
+  // both share one throttle so they never double-load.
+  let jcfdLastAutoRefresh = 0;
+  function jcfd_autoRefreshNow(){
     const shell = document.getElementById('shell-jcfd');
-    if(jcfdCurrentUser && shell && !shell.classList.contains('hidden')){
-      jcfd_renderDashboard();
-      jcfd_renderApplications();
-    }
-  }, 5 * 60 * 1000);
+    if(!(jcfdCurrentUser && shell && !shell.classList.contains('hidden'))) return;
+    if(Date.now() - jcfdLastAutoRefresh < 15000) return;
+    jcfdLastAutoRefresh = Date.now();
+    jcfd_renderDashboard();
+    jcfd_renderApplications();
+  }
+  setInterval(() => { if(document.visibilityState === 'visible') jcfd_autoRefreshNow(); }, 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') jcfd_autoRefreshNow(); });
+  window.addEventListener('focus', jcfd_autoRefreshNow);
 
   // ==================== Manual (walk-in) application intake ====================
   // Police Supervisor only (see jcfdManualAppCta's role gate in
@@ -17711,6 +18530,261 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     col.innerHTML = html;
   }
+
+  // ==================== Export model (PDF) ====================
+  // Builds the JCF filing's share of the combined "application file" PDF as
+  // plain data (blocks + attachment items) for the shared window.atdPdf
+  // writer — see the Municipal portal's muni_exportApplicationPdf(). Mirrors
+  // what jcfd_renderSubmissionColumn / jcfd_renderAnnualSubmissionColumn and
+  // the Official Use cards show on screen, but reads the stored record only
+  // (never jcfdCurrentUser/jcfdCurrentBranch), so it works when the caller is
+  // signed in to a different portal. opts.lookupFlags(trnDigits) may supply
+  // {jcf, muni} watch-list entries; without it, this scope's own copies of
+  // those lookups are used.
+  async function jcfd_buildExportModel(rec, opts){
+    opts = opts || {};
+    const eo = rec.eventOverview || {}, vi = rec.venueInfo || {}, briefings = rec.briefings || {};
+    const isAnnual = rec.formVariant === 'Annual';
+    const toneOfStatus = s => s === 'Approved' ? 'good' : s === 'Rejected' ? 'bad' : (s === 'Submitted' || s === 'Not Uploaded') ? 'neutral' : undefined;
+    const R = (l, v, t) => [l, (v == null) ? '' : String(v), t];
+    const layout = [];
+    const section = (title, rows) => { layout.push({ t: 'h2', text: title }, { t: 'rows', rows: rows }); };
+    const docRow = (label, fileName, status, officerNote) => {
+      const has = !!fileName;
+      const st = has ? (status || 'Submitted') : 'Not Uploaded';
+      return R(label, has ? `${fileName} — ${st}${officerNote ? ' — Officer note: ' + officerNote : ''}` : 'Not uploaded', has ? toneOfStatus(st) : undefined);
+    };
+    const attachments = [];
+    const addAttachment = (label, fileName, status, dataUrl, extra) => {
+      if(!fileName && !dataUrl) return;
+      attachments.push(window.atdPdf.attachmentItem(label, fileName, status, dataUrl, extra));
+    };
+
+    // stored file blobs (may be unreadable to the signed-in role — handled)
+    let files = {}, filesReadable = true;
+    if(window.storage && rec.jcfAppNumber){
+      try{
+        const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+        files = (r && r.value) ? JSON.parse(r.value) : {};
+      } catch(e){ filesReadable = false; }
+    }
+    const live = await jcfd_getLiveJcfDocuments(rec);
+    const fileNote = filesReadable ? '' : 'file data could not be read by this account';
+
+    // ---------- the filing as submitted ----------
+    if(!isAnnual){
+      const dayRows = (eo.eventDays || []).filter(d => d.day > 1).map(d => R(`Day ${d.day}`,
+        `${d.eventName || eo.eventName || 'Event'} · ${d.date || 'date not set'} · ${[d.venueName, d.venueAddr].filter(Boolean).join(' — ') || 'Same venue as Day 1'} · ${d.eventType || 'event type not set'} · ${d.patrons ? d.patrons + ' patrons' : 'patrons not set'}`));
+      section('Event Overview', [
+        R('Type of event', eo.eventType), R('Event name', eo.eventName), R('Date of application', eo.dateOfApplication),
+        R('Date of event', eo.dateOfEvent), ...dayRows,
+        R('Number of patrons expected', eo.patronsExpected),
+        R('Promoter previously breached the Noise Abatement Act', eo.promoterBreachedNoiseAct),
+        ...(eo.promoterBreachedNoiseAct === 'Yes' ? [R('Breach details', eo.promoterBreachReason)] : [])
+      ]);
+      section('Promoter Information', [
+        R('Name', eo.promoterName), R('Aliases', eo.aliases), R('Date of birth', eo.dateOfBirth), R('Age', eo.ageOfPromoter),
+        R('Phone', eo.phoneNumber), R('TRN', eo.trn), R('Address', [eo.addr1, eo.addr2, eo.district, eo.parish].filter(Boolean).join(', '))
+      ]);
+      section('Venue Information', [
+        R('Venue name', vi.venueName),
+        R('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', ')),
+        R("Venue's owner", vi.venueOwner), R('Owner contact', vi.ownerContact),
+        R("Owner's address", vi.ownerAddress || [vi.ownerAddr1, vi.ownerAddr2, vi.ownerDistrict, vi.ownerParish].filter(Boolean).join(', ')),
+        R('Owner previously breached the Noise Abatement Act', vi.ownerBreachedNoiseAct),
+        ...(vi.ownerBreachedNoiseAct === 'Yes' ? [R('Breach details', vi.ownerBreachReason)] : []),
+        R('Type of business', vi.businessType), R('Valid spirit license', vi.validSpiritLicense),
+        ...(vi.validSpiritLicense === 'Yes' ? [docRow('Spirit licence evidence', vi.spiritLicenseFileName, vi.spiritLicenseStatus, vi.spiritLicenseOfficerNote)] : []),
+        R('Community arrangements made', vi.communityArrangements), R('Parking arrangements made', vi.parkingArrangements),
+        R('Security arrangements made', vi.securityArrangements),
+        ...((vi.securityCompaniesFromPoa || []).map(s => R(`Security company — ${s.company}`, [s.guards ? s.guards + ' guard(s)' : '', s.phone].filter(Boolean).join(' · '))))
+      ]);
+      const ent = [];
+      if((rec.djs || []).length) rec.djs.forEach(d => ent.push(R(`DJ — ${d.name}${d.alias ? ' "' + d.alias + '"' : ''}`, [d.trn ? 'TRN: ' + d.trn : '', d.contact, [d.addr1, d.addr2, d.district, d.parish].filter(Boolean).join(', ')].filter(Boolean).join(' · '))));
+      else ent.push(R('DJs', 'None listed'));
+      if((rec.soundSystems || []).length) rec.soundSystems.forEach(s => ent.push(R(`Sound System — ${s.name}`, [s.trn ? 'TRN: ' + s.trn : '', s.ownerName ? 'Owner: ' + s.ownerName : '', s.contact, [s.addr1, s.addr2, s.district, s.parish].filter(Boolean).join(', ')].filter(Boolean).join(' · '))));
+      else ent.push(R('Sound Systems', 'None listed'));
+      section('Entertainment Details', ent);
+      const { jams, jcap, poaEventType } = live;
+      section('Briefing & Documents', [
+        R('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete'),
+        R('Event flyer', briefings.eventFlyerFileName || 'Not uploaded'),
+        docRow('Photo ID', eo.photoIdFileName, eo.photoIdStatus, eo.photoIdOfficerNote),
+        docRow('Proof of Ownership/Authorization', vi.permissionLetterFileName, vi.permissionLetterStatus, vi.permissionLetterOfficerNote),
+        ...(poaEventType === 'Dead Yard'
+          ? [R('JAMMS Approval', 'Not required for Dead Yard events'), R('JCAP Approval', 'Not required for Dead Yard events')]
+          : [docRow('JAMMS Approval', jams && jams.fileName, jams && jams.status, jams && jams.officerNote), docRow('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, jcap && jcap.officerNote)]),
+        R('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No')
+      ]);
+
+      addAttachment('Photo ID', eo.photoIdFileName, eo.photoIdStatus || 'Submitted', files.photoIdFileData, { reason: fileNote });
+      addAttachment('Proof of Ownership/Authorization', vi.permissionLetterFileName, vi.permissionLetterStatus || 'Submitted', files.permissionLetterFileData, { reason: fileNote });
+      addAttachment('Event Flyer', briefings.eventFlyerFileName, '', files.flyerFileData, { reason: fileNote });
+      if(vi.validSpiritLicense === 'Yes') addAttachment('Spirit licence evidence', vi.spiritLicenseFileName, vi.spiritLicenseStatus || 'Submitted', files.spiritLicenseFileData, { reason: fileNote });
+      if(poaEventType !== 'Dead Yard'){
+        if(jams) addAttachment('JAMMS Approval', jams.fileName, jams.status || 'Submitted', jams.fileData || files.jamsFileData);
+        if(jcap) addAttachment('JCAP Approval', jcap.fileName, jcap.status || 'Submitted', jcap.fileData || files.jcapFileData);
+      }
+    } else {
+      const ai = rec.applicantInfo || {}, pi = rec.premisesInfo || {}, ent = rec.entertainment || {}, ci = rec.communityImpact || {}, ol = rec.otherLicenses || {};
+      const isCompany = ai.applicantType === 'Company';
+      const cap = await jcfd_getLivePoaVenueCapacity(rec);
+      section('Applicant Information', [
+        R('Licence period', rec.fiscalYearLabel), R('Application type', ai.applicationType), R('Applicant type', ai.applicantType),
+        R(isCompany ? 'Company name' : 'Full name', ai.name), R('Phone', ai.phone), R('TRN', ai.trn),
+        R('Address', [ai.addr1, ai.addr2, ai.district, ai.parish].filter(Boolean).join(', ')),
+        ...(isCompany ? ((ai.directors || []).length ? ai.directors.map(d => R('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '))) : [R('Company Directors', 'None on file')]) : [])
+      ]);
+      const grounds = pi.registrationOfUse === 'Grounds Only' || pi.registrationOfUse === 'Grounds and Building';
+      const building = pi.registrationOfUse === 'Building Only' || pi.registrationOfUse === 'Grounds and Building';
+      section('Premises Information', [
+        R('Type of business', pi.businessType), R('Registration of use', pi.registrationOfUse), R('Name of business', pi.businessName),
+        R('Business address', pi.businessAddress),
+        ...(grounds ? [R('Venue capacity', cap.maxCap), R('Max parking capacity', cap.maxParking)] : []),
+        ...(building ? [R('Total building capacity', cap.totalBuildingCap), R('Number of Buildings', cap.numBuildings)] : []),
+        R('Ownership status', pi.ownershipStatus),
+        R('Registered property owner', (pi.propertyOwner && (pi.propertyOwner.name || pi.propertyOwner.phone || pi.propertyOwner.email)) ? [pi.propertyOwner.name, pi.propertyOwner.phone, pi.propertyOwner.email].filter(Boolean).join(' · ') : 'Not provided')
+      ]);
+      const entRows = [
+        R('Activities', (ent.activities || []).concat(ent.otherActivityText ? [`Other: ${ent.otherActivityText}`] : []).join(', ') || 'None selected'),
+        R('Frequency of amplified/live entertainment', ent.frequency), R('Engages a Primary DJ or Sound System', ent.hasDjOrSound)
+      ];
+      (rec.djs || []).forEach(d => entRows.push(R(`DJ — ${d.name}${d.alias ? ' "' + d.alias + '"' : ''}`, [d.trn ? 'TRN: ' + d.trn : '', d.contact].filter(Boolean).join(' · '))));
+      (rec.soundSystems || []).forEach(s => entRows.push(R(`Sound System — ${s.name}`, [s.trn ? 'TRN: ' + s.trn : '', s.ownerName ? 'Owner: ' + s.ownerName : '', s.contact].filter(Boolean).join(' · '))));
+      entRows.push(R('Venue rented to promoters for events', ent.rentToPromoters));
+      if(ent.rentToPromoters === 'Yes') entRows.push(R('Premises ID', ent.premisesId || 'Will be assigned once the linked Places of Amusement application registers this venue'));
+      section('Entertainment Activities', entRows);
+      section('Community Impact', [
+        R('Nearby', (ci.nearby || []).join(', ') || 'None selected'),
+        R('Residential premises within immediate vicinity', ci.residentialVicinity),
+        R('Noise complaints in past 12 months', ci.noiseComplaints12mo),
+        ...(ci.noiseComplaints12mo === 'Yes' ? [R('Number of complaints', ci.complaintsCount), R('Source of complaints', (ci.complaintSources || []).join(', ') || 'N/A')] : []),
+        R('Existing Noise Abatement Notices/conditions', ci.existingNotices),
+        ...(ci.existingNotices === 'Yes' ? [docRow('Documentation', ci.noiseNoticeFileName, ci.noiseNoticeStatus, ci.noiseNoticeOfficerNote)] : [])
+      ]);
+      const fixed = await jcfd_getLivePoaFixedDocs(rec);
+      const docRows = [];
+      if(isCompany) docRows.push(docRow('Company Logo (held on the Places of Amusement application)', fixed.logo && fixed.logo.fileName, fixed.logo && fixed.logo.status));
+      docRows.push(docRow('Business Registration Document (held on the Places of Amusement application)', fixed.bizReg && fixed.bizReg.fileName, fixed.bizReg && fixed.bizReg.status));
+      docRows.push(docRow('JAMMS Approval', live.jams && live.jams.fileName, live.jams && live.jams.status, live.jams && live.jams.officerNote));
+      docRows.push(docRow('JCAP Approval', live.jcap && live.jcap.fileName, live.jcap && live.jcap.status, live.jcap && live.jcap.officerNote));
+      section('Documents', docRows);
+      const olRows = [];
+      if(ol.poa && ol.poa.checked) olRows.push(R('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || rec.poaAppNumber || 'N/A'}`));
+      const olKeys = Object.keys(JCFD_OTHER_LICENSE_LABELS).filter(k => k !== 'jamms' && k !== 'jacap');
+      olKeys.forEach(key => {
+        const item = ol[key]; if(!item || !item.checked) return;
+        olRows.push(R(JCFD_OTHER_LICENSE_LABELS[key], `Licence # ${item.licenceNumber || 'N/A'} · Expires ${item.expiryDate || 'N/A'}`));
+        olRows.push(docRow(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName, item.status, item.officerNote));
+        const f = files.otherLicenseFiles && files.otherLicenseFiles[key];
+        addAttachment(`${JCFD_OTHER_LICENSE_LABELS[key]} document`, item.fileName, item.status || 'Submitted', f && f.fileData, { reason: fileNote });
+      });
+      if(!olRows.length) olRows.push(R('Licenses/approvals on file', 'None declared'));
+      section('Other Licenses & Approvals', olRows);
+      if(ci.existingNotices === 'Yes') addAttachment('Noise Abatement notice/conditions', ci.noiseNoticeFileName, ci.noiseNoticeStatus || 'Submitted', files.noiseNoticeFileData, { reason: fileNote });
+      if(live.jams) addAttachment('JAMMS Approval', live.jams.fileName, live.jams.status || 'Submitted', live.jams.fileData || files.jamsFileData);
+      if(live.jcap) addAttachment('JCAP Approval', live.jcap.fileName, live.jcap.status || 'Submitted', live.jcap.fileData || files.jcapFileData);
+      const sigName = rec.signature ? (rec.signature.type === 'text' ? (rec.signature.value ? 'Typed signature' : '') : (rec.signature.fileName || (rec.signature.value ? 'Drawn signature' : ''))) : '';
+      section('Declaration', [docRow('Signature on file', sigName, rec.signature && rec.signature.status, rec.signature && rec.signature.officerNote)]);
+    }
+    // a drawn/uploaded signature image rides along as an attachment too
+    if(rec.signature && rec.signature.type !== 'text' && rec.signature.value && /^data:/.test(rec.signature.value)){
+      addAttachment('Signature on file', rec.signature.fileName || 'Signature', rec.signature.status || 'Submitted', rec.signature.value);
+    }
+
+    // ---------- Official Use, as completed ----------
+    const official = [];
+    const auto = isAnnual ? await jcfd_computeAnnualChecklistAutoFields(rec) : await jcfd_computeChecklistAutoFields(rec);
+    const cl = rec.officialChecklist || {};
+    // assignment
+    if(!isAnnual){
+      official.push({ t: 'card', title: 'Assignment', blocks: [{ t: 'rows', rows: [
+        R('Assigned to', rec.assignedOfficerName || 'Unassigned'), R('Assigned on', rec.assignedAt ? new Date(rec.assignedAt).toLocaleString() : '')
+      ] }] });
+    }
+    // checklist
+    const checks = [];
+    if(!isAnnual){
+      checks.push({ checked: auto.requiredDocsUploaded, label: 'Required Documents Uploaded', sub: 'Photo ID, Proof of Ownership/Authorization, JAMMS Approval and JCAP Approval uploaded.' });
+      checks.push({ checked: auto.promoterIdentityVerified, label: 'Promoter Identity Verified', sub: 'Photo ID approved by the officer.' });
+      checks.push({ checked: !!cl.eventVenueSatisfactory, label: 'Event Venue Satisfactory', sub: 'Confirmed by a Police Supervisor.' });
+      checks.push({ checked: auto.promoterBriefedNoiseAct, label: 'Promoter Briefed on Noise Abatement Act', sub: 'Briefing videos watched — all three.' });
+      checks.push({ checked: auto.proofOfOwnershipSubmitted, label: 'Proof of Ownership/Authorization Submitted', sub: 'Document approved by the officer.' });
+    } else {
+      checks.push({ checked: !!cl.applicantIdentityVerified, label: 'Applicant Identity Verified', sub: 'Confirmed by a Police Supervisor.' });
+      checks.push({ checked: !!cl.premisesInformationVerified, label: 'Premises Information Verified', sub: 'Confirmed by a Police Supervisor.' });
+      checks.push({ checked: auto.promoterBriefedNoiseAct, label: 'Applicant Briefed on Noise Abatement Act', sub: 'Briefing videos watched — all three.' });
+      checks.push({ checked: auto.requiredDocsUploaded, label: 'Required Documents Uploaded', sub: 'JAMMS/JCAP uploaded and every uploaded document on the filing Approved.' });
+    }
+    const clBlocks = [{ t: 'checks', items: checks }];
+    if(cl.updatedBy) clBlocks.push({ t: 'p', text: `Last updated by ${cl.updatedBy}${cl.updatedDate ? ' on ' + cl.updatedDate : ''}.`, color: '#6b7280', size: 8.5 });
+    official.push({ t: 'card', title: 'Official Use Checklist', blocks: clBlocks });
+
+    // watch list
+    const norm = jcfd_normalizeTrn;
+    const subjects = [];
+    if(isAnnual){
+      const ai = rec.applicantInfo || {};
+      if(ai.trn) subjects.push({ type: ai.applicantType === 'Company' ? 'Company' : 'Applicant', name: ai.name, trn: norm(ai.trn) });
+      if(ai.applicantType === 'Company') (ai.directors || []).forEach(d => { if(d.trn) subjects.push({ type: 'Director', name: d.name, trn: norm(d.trn) }); });
+    } else {
+      if(eo.trn) subjects.push({ type: 'Promoter', name: eo.promoterName, trn: norm(eo.trn) });
+      (rec.djs || []).forEach(d => { if(d.trn) subjects.push({ type: 'DJ', name: d.name, trn: norm(d.trn) }); });
+      (rec.soundSystems || []).forEach(s => { if(s.trn) subjects.push({ type: 'Sound System', name: s.name, trn: norm(s.trn) }); });
+    }
+    const wlRows = [];
+    for(const s of subjects){
+      let flags = { jcf: null, muni: null };
+      try{
+        flags = opts.lookupFlags ? await opts.lookupFlags(s.trn) : { jcf: jcfd_findWatchlistEntryAll(s.trn), muni: await jcfd_muniFlagForTrn(s.trn) };
+      } catch(e){}
+      const parts = [];
+      if(flags.jcf && flags.jcf.status === 'Active') parts.push('JCF flagged' + (flags.jcf.reason ? ': ' + flags.jcf.reason : ''));
+      else if(flags.jcf) parts.push('JCF cleared');
+      if(flags.muni && flags.muni.status === 'Active') parts.push('Municipal Corporation flagged' + (flags.muni.reason ? ': ' + flags.muni.reason : ''));
+      else if(flags.muni) parts.push('Municipal cleared');
+      const active = (flags.jcf && flags.jcf.status === 'Active') || (flags.muni && flags.muni.status === 'Active');
+      wlRows.push(R(`${s.type} — ${s.name || 'N/A'}`, `TRN ${formatTrnDisplayJcfd(s.trn)} · ${parts.length ? parts.join(' · ') : 'Not flagged'}`, active ? 'bad' : undefined));
+    }
+    official.push({ t: 'card', title: 'Watch List', blocks: [{ t: 'rows', rows: wlRows.length ? wlRows : [R('Subjects', 'No TRNs on file to check against the watch lists.')] }] });
+
+    // comments
+    const comments = rec.comments || [];
+    official.push({ t: 'card', title: 'Comments', blocks: comments.length
+      ? [{ t: 'rows', rows: comments.map(c => R(`${c.by}${c.role ? ' (' + c.role + ')' : ''}`, `${c.text}${c.date ? '\n' + c.date : ''}`)) }]
+      : [{ t: 'p', text: 'No comments were recorded.', italic: true, color: '#6b7280' }] });
+
+    // recommendation
+    const recRows = [];
+    if(rec.recommendation){
+      recRows.push(R('Recommendation', rec.recommendation, /^Recommend Approv/.test(rec.recommendation) ? 'good' : (rec.recommendation === 'Needs More Information' ? 'warn' : 'bad')));
+      if(rec.recommendedBy) recRows.push(R('Recommended by', rec.recommendedBy));
+      if(rec.recommendedAt) recRows.push(R('Recommended on', new Date(rec.recommendedAt).toLocaleString()));
+      if(rec.recommendationNotes) recRows.push(R('Notes', rec.recommendationNotes));
+    } else {
+      recRows.push(R('Recommendation', 'None recorded'));
+    }
+    if(rec.recommendationWithdrawalRequested) recRows.push(R('Withdrawal requested', `${rec.recommendationWithdrawalRequestedBy || ''}${rec.recommendationWithdrawalRequestedDate ? ' on ' + rec.recommendationWithdrawalRequestedDate : ''} — awaiting Chief approval`, 'warn'));
+    if(rec.recommendationChiefRejectionReason) recRows.push(R('Previous recommendation rejected by the Chief', `${rec.recommendationChiefRejectionReason}${rec.recommendationChiefRejectedDate ? ' (' + rec.recommendationChiefRejectedDate + ')' : ''}`, 'warn'));
+    official.push({ t: 'card', title: 'Review & Recommendation', blocks: [{ t: 'rows', rows: recRows }] });
+
+    // final decision
+    const decided = rec.status === 'Approved' || rec.status === 'Rejected';
+    const fdRows = [R('Status', rec.status, rec.status === 'Approved' ? 'good' : rec.status === 'Rejected' ? 'bad' : undefined)];
+    if(rec.decidedAt) fdRows.push(R('Decision recorded', new Date(rec.decidedAt).toLocaleString()));
+    if(rec.finalDecision) fdRows.push(R('Decision', rec.finalDecision));
+    if(rec.permitGenerated && rec.permit) fdRows.push(R('Permit', `${rec.permit.number} · issued ${rec.permit.issuedDate || ''}${rec.permit.expiresDate ? ' · expires ' + rec.permit.expiresDate : ''}${rec.permit.expiresTime12 ? ' at ' + rec.permit.expiresTime12 : ''}`));
+    official.push({ t: 'card', title: 'Final Decision', badge: decided ? { text: rec.status, tone: rec.status === 'Approved' ? 'good' : 'bad' } : undefined, blocks: [{ t: 'rows', rows: fdRows }] });
+
+    return {
+      layout: layout, official: official, attachments: attachments, filesReadable: filesReadable,
+      summary: {
+        appNumber: rec.jcfAppNumber, status: rec.status, decidedAt: rec.decidedAt, finalDecision: rec.finalDecision || '',
+        permitGenerated: !!(rec.permitGenerated && rec.permit), isAnnual: isAnnual
+      }
+    };
+  }
+  window.jcfd_buildExportModel = jcfd_buildExportModel;
 
   // Same as jcfd_detailRow() but with a "View" button in the value cell that
   // opens jcfd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
@@ -25061,7 +26135,7 @@ async function mmPersist(){
   }
 }
 
-async function mmGoView(view){
+async function mmGoView(view, opts){
   document.querySelectorAll('.mm-nav-item').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.view === view);
   });
@@ -25111,8 +26185,75 @@ async function mmGoView(view){
   if(view === 'permit') renderMmPermit();
   if(view === 'payment') renderMmPaymentStage();
   if(view === 'noise') renderMmNoise();
-  window.scrollTo({top:0, behavior:'smooth'});
+  // A quiet (background) refresh re-draws the view in place — it must not
+  // yank the applicant back to the top of the page.
+  if(!(opts && opts.quiet)) window.scrollTo({top:0, behavior:'smooth'});
 }
+
+// ==================== Quiet refresh of the Main Menu ====================
+// While an applicant has their application open, check for changes made by
+// the municipality / JCF — a rejected document, a new additional-payment
+// request, a status change — every 60 seconds, and again whenever they come
+// back to this browser tab. If something changed, the open view is redrawn in
+// place and a short toast says so. It never redraws while the applicant is
+// busy: typing in or focused on a field, a file picked but not yet uploaded,
+// a popup open, or any click/keypress in the last 5 seconds. The new data is
+// held back and shown on the next check instead, so nothing they are typing
+// or uploading is ever wiped.
+let mmLastInteraction = 0, mmQuietBusy = false, mmLastQuietRefresh = 0;
+['pointerdown', 'keydown', 'change'].forEach(evt => document.addEventListener(evt, () => { mmLastInteraction = Date.now(); }, true));
+
+function mmSafeToRerender(view){
+  if(Date.now() - mmLastInteraction < 5000) return false;
+  const page = document.getElementById('mainMenuPage');
+  const ae = document.activeElement;
+  if(ae && page && page.contains(ae) && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+  if(page && Array.from(page.querySelectorAll('input[type="file"]')).some(f => f.files && f.files.length)) return false;
+  const viewEl = document.getElementById('mmView-' + view);
+  if(viewEl && Array.from(viewEl.querySelectorAll('input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea')).some(i => i.value && i.value.trim())) return false;
+  if(document.querySelector('.modal-overlay:not(.hidden)')) return false;
+  return true;
+}
+function mmCountRejected(json){ return (json.match(/"[A-Za-z]*[sS]tatus":"Rejected"/g) || []).length; }
+
+async function mmQuietRefresh(){
+  if(mmQuietBusy) return;
+  const page = document.getElementById('mainMenuPage');
+  if(!page || page.classList.contains('hidden') || document.visibilityState !== 'visible') return;
+  if(!currentAppRecord || !currentAppKey || !window.storage) return;
+  if(Date.now() - mmLastQuietRefresh < 15000) return; // shared throttle: timer + tab-return
+  mmQuietBusy = true; mmLastQuietRefresh = Date.now();
+  try{
+    const r = await window.storage.get(currentAppKey, true);
+    if(!r || !r.value) return;
+    const fresh = JSON.parse(r.value);
+    const freshJcf = await poa_findLinkedJcfApplication(fresh.appNumber);
+    const oldJson = JSON.stringify([currentAppRecord, currentLinkedJcfApp]);
+    const newJson = JSON.stringify([fresh, freshJcf]);
+    if(oldJson === newJson) return;
+    const activeBtn = document.querySelector('.mm-nav-item.active');
+    const view = activeBtn ? activeBtn.dataset.view : 'payment';
+    if(!mmSafeToRerender(view)) return; // try again at the next check
+    // What changed, in words, for the toast.
+    const notes = [];
+    if((fresh.status || '') !== (currentAppRecord.status || '')) notes.push(`status is now "${fresh.status}"`);
+    const pend = x => ((x && x.additionalPaymentRequests) || []).filter(q => q.status === 'Pending').length;
+    if(pend(fresh) > pend(currentAppRecord)) notes.push('a new additional payment was requested');
+    if(mmCountRejected(newJson) > mmCountRejected(oldJson)) notes.push('a document was rejected');
+    currentAppRecord = fresh;
+    currentLinkedJcfApp = freshJcf;
+    await mmGoView(view, { quiet: true });
+    poa_showToast(notes.length ? `Your application was updated — ${notes.join('; ')}.` : 'Your application was updated.');
+  } catch(err){
+    /* quiet by design — try again next time */
+  } finally {
+    mmQuietBusy = false;
+  }
+}
+window.mmQuietRefresh = mmQuietRefresh;
+setInterval(() => { if(document.visibilityState === 'visible') mmQuietRefresh(); }, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') mmQuietRefresh(); });
+window.addEventListener('focus', mmQuietRefresh);
 
 // ==================== Application Payment (staged) ====================
 const ATENDIFY_BANK_INFO = {
@@ -33814,6 +34955,7 @@ async function renderAppDetail(){
   document.getElementById('detailAppNumber').innerHTML = muni_escapeHtml(a.appNumber) + (isManualEntry ? ' <span class="badge-manual-entry" title="Created by a Supervisor on behalf of a walk-in customer">Manual Entry</span>' : '');
   document.getElementById('detailAppSub').textContent = `${a.applicant} · Submitted ${a.submitted} · Tracking Code: ${a.trackingCode || '—'}`;
   document.getElementById('detailStatusBadge').innerHTML = muni_statusBadge(a.status);
+  muni_refreshExportButton(a);
   // Keep the reference number visible in the sticky topbar too, so it
   // stays on screen even after the officer scrolls down into the
   // Official Use cards while reviewing. The tracking code rides along here
@@ -35898,6 +37040,423 @@ async function muni_autoRejectLinkedJcfIfEnabled(a){
   }
 }
 
+// ==================== Export application as PDF ====================
+// One PDF holding the whole application file: the Places of Amusement
+// application as submitted, the Official Use section as it was completed,
+// the linked JCF Noise Abatement filing (with its own Official Use), the
+// combined activity timeline, every permit issued, and every uploaded
+// attachment converted into pages. Only offered once a final decision has
+// been made (Approved or Rejected). The drawing itself is the shared
+// window.atdPdf writer; this section only gathers and orders the data.
+function muni_plainText(html){
+  const d = document.createElement('div');
+  d.innerHTML = String(html == null ? '' : html);
+  return (d.textContent || '').replace(/\s+/g, ' ').trim();
+}
+function muni_pdfWhen(iso){
+  const w = muni_timelineDateTime(iso);
+  return w.date + (w.time ? ' · ' + w.time : '');
+}
+function muni_canExportPdf(a){
+  return !!a && (a.status === 'Approved' || a.status === 'Rejected');
+}
+// Keeps the header button in step with the open application.
+function muni_refreshExportButton(a){
+  const btn = document.getElementById('muni_exportPdfBtn');
+  const hint = document.getElementById('muni_exportPdfHint');
+  if(!btn) return;
+  const ok = muni_canExportPdf(a);
+  btn.disabled = !ok || !!window.__muniPdfBusy;
+  btn.title = ok ? 'Download the whole application file as one PDF' : 'Available once the application has been approved or denied';
+  if(hint) hint.textContent = ok ? '' : 'Available after a decision';
+}
+
+async function muni_fetchStoredFile(key){
+  if(!window.storage || !key) return null;
+  try{
+    const r = await window.storage.get(key, true);
+    if(r && r.value) return JSON.parse(r.value).fileData || null;
+  } catch(e){}
+  return null;
+}
+
+async function muni_buildExportModel(a, progress){
+  progress = progress || function(){};
+  const r = a.raw || {};
+  const am = r.amusement || {}, ap = r.applicant || {}, venue = r.venue || {};
+  const isAnnual = am.licenseType === 'Annual' || a.licenseType === 'Annual';
+  const isCompany = ap.type === 'Company';
+  const decided = a.status;
+  const T = (l, v, t) => [l, (v == null) ? '' : String(v), t];
+  const fmtMoney = v => muni_formatCurrency(v || 0);
+  const toneOfDoc = s => s === 'Approved' ? 'good' : s === 'Rejected' ? 'bad' : s === 'Not Applicable' ? 'warn' : undefined;
+
+  // The linked JCF filing is looked up fresh, so the file reflects what is on
+  // record now rather than whatever the detail screen last happened to load.
+  progress('Loading the linked JCF filing…');
+  let jcfApp = a._linkedJcfApp || null;
+  if(!jcfApp){ try{ jcfApp = await muni_findLinkedJcfApplication(a.appNumber); } catch(e){} }
+
+  // ---------- Part A: the application as submitted ----------
+  const A = [];
+  const sec = (title, rows) => { A.push({ t: 'h2', text: title }, { t: 'rows', rows: rows }); };
+  sec('Applicant Information', [
+    T('Account type', ap.type), T(isCompany ? 'Company name' : 'Full name', ap.name), T('Phone number', ap.phone),
+    T('Home', ap.home), T('Email', ap.email), T('TRN', ap.trn),
+    ...(!isCompany ? [T('Age', ap.age), T('Gender', ap.gender)] : []),
+    T('Address', [ap.addr1, ap.addr2, ap.district, ap.parish].filter(Boolean).join(', ')),
+    ...(isCompany ? ((ap.directors && ap.directors.length) ? ap.directors.map(d => T('Director', [d.name, d.title, d.phone, d.trn ? 'TRN ' + d.trn : ''].filter(Boolean).join(' · '))) : [T('Company Directors', 'None on file')]) : [])
+  ]);
+  const amRows = [T('Application date', am.applicationDate), T('License type', am.licenseType)];
+  if(isAnnual){
+    amRows.push(T('Type of business', am.businessType));
+  } else {
+    amRows.push(T('Event name', am.eventName));
+    if(am.multiDay){
+      amRows.push(T('Event dates', window.atdEventDateSummary(am)));
+      window.atdEventDays(am).forEach((d, i) => {
+        amRows.push(T('Day ' + (i + 1), window.atdEventDayLine(d) + (d.loc === 'manual' ? ' — not in the venue database (inspection required)' : '')));
+      });
+    } else {
+      amRows.push(T('Event date', am.eventDate));
+    }
+    amRows.push(T('Type of event', am.eventType), T(am.multiDay ? 'Expected patrons (all days)' : 'Expected patrons', am.patrons));
+  }
+  sec('Amusement Information', amRows);
+  const groundsCap = !isAnnual || venue.useOfVenue === 'Grounds Only' || venue.useOfVenue === 'Grounds and Building';
+  const buildingCap = isAnnual && (venue.useOfVenue === 'Building Only' || venue.useOfVenue === 'Grounds and Building');
+  sec('Venue Information', [
+    T(isAnnual ? 'Business name' : 'Venue name', venue.name),
+    T('Address', [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ')),
+    ...(groundsCap ? [T(isAnnual ? 'Venue capacity' : 'Max capacity', venue.maxCap), T('Max parking capacity', venue.maxParking)] : []),
+    ...(buildingCap ? [T('Total building capacity', venue.totalBuildingCap), T('Number of Buildings', venue.numBuildings)] : []),
+    T(isAnnual ? 'Registration of use' : 'Use of venue', venue.useOfVenue),
+    ...((venue.additionalParking || []).map(p => T(`Additional parking — ${p.name}`, `Capacity: ${p.capacity}${p.cost ? ' · ' + fmtMoney(p.cost) : ''}`))),
+    ...(venue.name && a.venueRegistryVenueId ? [T('Venue Premises ID', a.venueRegistryVenueId)] : [])
+  ]);
+  if(isAnnual){
+    sec('Advertisement Information', [T('Advertisement', 'Not applicable — Annual license')]);
+  } else {
+    const adRows = [T('Displaying Advertisement at/leading up to event', r.advertisement && r.advertisement.hasAds ? 'Yes' : 'No')];
+    if(r.advertisement && r.advertisement.hasAds && r.advertisement.items){
+      r.advertisement.items.forEach(item => {
+        let value = fmtMoney(item.cost);
+        if(item.locations && item.locations.length){
+          value += ' — ' + item.locations.map((l, idx) => (l || '(unassigned)') + ((item.startDates && item.startDates[idx]) ? ` (from ${item.startDates[idx]})` : '')).join(', ');
+        }
+        adRows.push(T(`${item.name} (x${item.qty})`, value));
+      });
+    }
+    sec('Advertisement Information', adRows);
+    const secRows = [T('Private security', am.privateSecurity || 'No')];
+    if(am.privateSecurity === 'Yes') (am.securityRecords || []).forEach(s => secRows.push(T(s.company, [s.guards ? `${s.guards} guard(s)` : '', s.phone].filter(Boolean).join(' · '))));
+    sec('Private Security Information', secRows);
+  }
+  // documents list (names, status, officer notes)
+  const docRows = [];
+  const attachments = [];
+  progress('Collecting uploaded documents…');
+  const addPoaAttachment = (label, fileName, status, dataUrl, extra) => {
+    if(!fileName && !dataUrl) return;
+    attachments.push(window.atdPdf.attachmentItem(label, fileName, status, dataUrl, extra));
+  };
+  const fixedKeys = [];
+  if(!isCompany) fixedKeys.push('photoId');
+  fixedKeys.push(isAnnual ? 'bizRegistration' : 'flier');
+  if(isCompany) fixedKeys.push('logo');
+  if(!isAnnual) fixedKeys.push('ownership');
+  for(const key of fixedKeys){
+    const meta = MUNI_FIXED_DOC_META[key];
+    const d = muni_fixedDoc(r, key);
+    const fileName = meta.fileNameOf(r);
+    docRows.push(T(meta.label, d.uploaded ? `${fileName || 'Uploaded file'} — ${d.status}${d.officerNote ? ' — Officer note: ' + d.officerNote : ''}` : 'Not uploaded', d.uploaded ? toneOfDoc(d.status) : undefined));
+    if(d.uploaded){
+      const data = await muni_fetchStoredFile(meta.storageKey(a));
+      addPoaAttachment(meta.label, fileName, d.status, data, { reason: data ? '' : 'file data could not be retrieved' });
+    }
+  }
+  const regDocs = r.regulatoryDocuments || {};
+  for(const name of (r.regulatoryDocList || [])){
+    if(name === POLICE_APPROVAL_DOC_NAME){
+      const granted = !!(jcfApp && jcfApp.permitGenerated), rej = !!(jcfApp && jcfApp.status === 'Rejected');
+      docRows.push(T(name, granted ? 'Approved — JCF permit issued through the linked online filing' : rej ? 'Rejected by JCF' : jcfApp ? 'Submitted — pending JCF review' : 'Not started by the applicant', granted ? 'good' : rej ? 'bad' : undefined));
+      continue;
+    }
+    const d = regDocs[name] || { uploaded: false, status: 'Not Uploaded' };
+    const detail = d.uploaded ? `${d.fileName || 'Uploaded file'}${d.uploadedDate ? ' · uploaded ' + d.uploadedDate : ''}` : (d.status === 'Not Applicable' ? 'Applicant declared Not Applicable' : 'Not uploaded');
+    docRows.push(T(name, `${detail} — ${d.status}${d.officerNote ? ' — Officer note: ' + d.officerNote : ''}`, toneOfDoc(d.status)));
+    if(d.uploaded) addPoaAttachment(name, d.fileName, d.status, d.fileData, { reason: d.fileData ? '' : 'file data could not be retrieved' });
+  }
+  A.push({ t: 'h2', text: 'Uploaded Documents' }, { t: 'rows', rows: docRows.length ? docRows : [T('Documents', 'No documents on file')] });
+
+  // payment receipts and fee documents
+  const rcpt = r.paymentReceipt;
+  if(rcpt && rcpt.fileName && rcpt.method !== 'Municipal Credit'){
+    addPoaAttachment('License Fee Payment Receipt', rcpt.fileName, a.paymentVerified ? 'Verified' : 'Submitted', await muni_fetchStoredFile(`applicationPaymentReceipt:${a.appNumber}`), { group: 'Payments' });
+  }
+  const feeRcpt = r.applicationFeePayment;
+  if(feeRcpt && feeRcpt.fileName){
+    addPoaAttachment('Application Fee Payment Receipt', feeRcpt.fileName, a.applicationFeeVerified ? 'Verified' : 'Submitted', await muni_fetchStoredFile(`applicationFeeReceipt:${a.appNumber}`), { group: 'Payments' });
+  }
+  for(const [idx, req] of (a.additionalPaymentRequests || r.additionalPaymentRequests || []).entries()){
+    if(req.applicantFileName){
+      addPoaAttachment(`Additional Payment Receipt (${fmtMoney(req.amount)})`, req.applicantFileName, req.status, await muni_fetchStoredFile(`applicationAdditionalPaymentReceipt:${a.appNumber}:${idx}`), { group: 'Payments' });
+    }
+  }
+
+  // costs
+  const costs = r.costs || { total: 0, applicationFee: 0, venueCost: 0, adTotal: 0 };
+  const appFeePaid = r.entrySource === 'manual' ? !!r.applicationFeeCollectedByMuni : (r.applicationFeePaid !== undefined ? !!r.applicationFeePaid : (a.status !== 'Submitted'));
+  const costRows = [T(`Application fee${costs.dayCount > 1 ? ` (${fmtMoney(costs.applicationFeeBase)} × ${costs.dayCount} days)` : ''} (payable to Atendify)`, `${fmtMoney(costs.applicationFee)} — ${appFeePaid ? 'Paid' : 'Unpaid'}`, appFeePaid ? 'good' : 'bad')];
+  if(isAnnual){
+    costRows.push(T(costs.venueLabel || 'Business/Venue Fee', fmtMoney(costs.venueCost)));
+  } else {
+    if(costs.dayBreakdown && costs.dayBreakdown.length){
+      costs.dayBreakdown.forEach((row, i) => costRows.push(T(window.atdCostDayLabel(row, i), fmtMoney(row.venueCost))));
+      costRows.push(T('Venue Cost (all days)', fmtMoney(costs.venueCost)));
+    } else {
+      costRows.push(T(a.venueIsNew ? 'Venue Inspection Fee' : 'Venue Cost', fmtMoney(costs.venueCost) + (costs.venueTierLabel ? ' — ' + costs.venueTierLabel : '')));
+    }
+    (a.extraVenues || []).forEach(ev => {
+      const label = ev.status === 'accepted'
+        ? `Accepted${ev.decidedBy ? ' by ' + ev.decidedBy : ''} — ${fmtMoney(ev.cost)} per day${ev.billed ? ` × ${ev.days.length} = ${fmtMoney(ev.billedAmount)} billed` : ' — not billed to the applicant'}`
+        : ev.status === 'rejected' ? `Rejected${ev.rejectReason ? ' — ' + ev.rejectReason : ''}` : 'Pending review';
+      costRows.push(T(`Additional location — ${ev.name} (${muni_extraVenueDayText(ev)})`, label));
+    });
+    costRows.push(T('Advertisement total', fmtMoney(costs.adTotal)));
+  }
+  costRows.push(T(`Payable to ${myMunicipalityName()}`, `${fmtMoney((costs.total || 0) - (costs.applicationFee || 0))} — ${a.paymentVerified ? 'Paid (verified)' : 'Unpaid'}`, a.paymentVerified ? 'good' : 'bad'));
+  costRows.push(T('Total (incl. Atendify fee)', fmtMoney(costs.total)));
+  A.push({ t: 'h2', text: 'Application Costs' }, { t: 'rows', rows: costRows });
+
+  // ---------- Part B: Official Use as completed ----------
+  progress('Reading the Official Use records…');
+  const B = [];
+  // Watchlist
+  const wlSubjects = [];
+  if(ap.trn) wlSubjects.push({ type: isCompany ? 'Company' : 'Applicant', name: ap.name, trn: ap.trn });
+  if(isCompany) (ap.directors || []).forEach(d => { if(d.trn) wlSubjects.push({ type: 'Director', name: d.name, trn: d.trn }); });
+  const wlRows = [];
+  for(const s of wlSubjects){
+    const wlEntry = findWatchlistEntry(s.trn), jcfFlag = await jcfFlagForTrn(s.trn);
+    const jcfActive = !!(jcfFlag && jcfFlag.status === 'Active'), wlActive = !!(wlEntry && wlEntry.status === 'Active');
+    const parts = [];
+    if(jcfActive) parts.push(`JCF flagged: ${jcfFlag.reason}${jcfFlag.flaggedBy ? ' (by ' + jcfFlag.flaggedBy + (jcfFlag.flaggedDate ? ' on ' + jcfFlag.flaggedDate : '') + ')' : ''}`);
+    if(wlActive) parts.push(`Municipal Corporation flagged: ${wlEntry.reason}${wlEntry.flaggedBy ? ' (by ' + wlEntry.flaggedBy + (wlEntry.flaggedDate ? ' on ' + wlEntry.flaggedDate : '') + ')' : ''}`);
+    else if(wlEntry && wlEntry.status === 'Cleared') parts.push('Municipal Corporation: cleared watchlist history on file');
+    wlRows.push(T(`${s.type} — ${s.name || 'N/A'}`, `TRN ${s.trn} · ${parts.length ? parts.join(' · ') : 'Not flagged'}`, (jcfActive || wlActive) ? 'bad' : undefined));
+  }
+  B.push({ t: 'card', title: 'Watchlist', blocks: [{ t: 'rows', rows: wlRows.length ? wlRows : [T('Subjects', 'No TRNs on file to check against the watchlist.')] }] });
+
+  // Document check
+  const breakdown = muni_computeDocBreakdown(a);
+  B.push({ t: 'card', title: 'Document Check', blocks: [
+    { t: 'checks', items: [
+      { checked: !!a.paymentVerified, label: 'Payment received', sub: 'Checked when the Accountant verified payment.' },
+      { checked: !!muni_computeRequiredDocumentsSubmitted(a), label: 'Required documents submitted', sub: 'Every document required for this event/business type was uploaded.' },
+      { checked: !!a.venueApproved, label: 'Venue approved', sub: a.venueApprovedAt ? 'Recorded ' + muni_pdfWhen(a.venueApprovedAt) : 'Checked by a Supervisor or CEO.' }
+    ] },
+    ...(breakdown.length ? [{ t: 'rows', rows: breakdown.map(([label, ok]) => T(label, ok ? 'Submitted / approved' : 'Outstanding', ok ? 'good' : 'bad')) }] : [])
+  ] });
+
+  // JCF approval
+  const jcfRows = [];
+  if(!jcfApp) jcfRows.push(T('JCF Approval Granted', 'No linked JCF Noise Abatement application was submitted.'));
+  else jcfRows.push(
+    T('JCF Approval Granted', jcfApp.permitGenerated ? 'Yes' : 'No', jcfApp.permitGenerated ? 'good' : (jcfApp.status === 'Rejected' ? 'bad' : undefined)),
+    T('JCF Application #', jcfApp.jcfAppNumber), T('Submitted', jcfApp.submittedAt ? new Date(jcfApp.submittedAt).toLocaleString() : jcfApp.submittedDate),
+    T('JCF status', jcfApp.status));
+  B.push({ t: 'card', title: 'JCF Approval Granted', blocks: [{ t: 'rows', rows: jcfRows }] });
+
+  // Payment verification
+  const pvRows = [];
+  const municipalDue = (costs.total || 0) - (costs.applicationFee || 0);
+  pvRows.push(T('Amount to verify', r.entrySource === 'manual' ? `${fmtMoney(costs.total)} (one combined counter payment incl. the ${fmtMoney(costs.applicationFee)} Atendify fee)` : `${fmtMoney(municipalDue)} payable to ${myMunicipalityName()} (excludes the ${fmtMoney(costs.applicationFee)} Atendify application fee)`));
+  if(rcpt && rcpt.fileName) pvRows.push(T('Applicant submitted', `${rcpt.fileName} via ${rcpt.method || 'N/A'}${rcpt.referenceNumber ? ', ref# ' + rcpt.referenceNumber : ''}`));
+  pvRows.push(T('Payment verified', a.paymentVerified ? 'Yes' : 'No', a.paymentVerified ? 'good' : 'bad'));
+  if(a.paymentVerified){
+    pvRows.push(T('Receipt #', a.paymentReceiptNumber));
+    if(a.paymentVerifiedAt) pvRows.push(T('Verified on', muni_pdfWhen(a.paymentVerifiedAt)));
+    if(a.paymentNotes) pvRows.push(T('Notes', a.paymentNotes));
+  }
+  pvRows.push(T('Atendify application fee', a.applicationFeePaid || appFeePaid ? (a.applicationFeeVerified ? 'Paid and verified by Admin' : 'Paid') : 'Not paid', a.applicationFeeVerified ? 'good' : undefined));
+  B.push({ t: 'card', title: 'Payment Verification', blocks: [{ t: 'rows', rows: pvRows }] });
+
+  // Municipal credit + additional payments
+  const mc = a.municipalCredits || [];
+  B.push({ t: 'card', title: 'Municipal Credit', blocks: mc.length
+    ? [{ t: 'rows', rows: mc.map(q => T(`${fmtMoney(q.amount)} — ${q.status}`, `${q.reason || ''}\nRequested by ${q.requestedBy || ''} on ${q.requestedDate || ''}${q.status !== 'Pending' && q.decidedBy ? '\nDecided by ' + q.decidedBy + ' on ' + (q.decidedDate || '') + (q.decisionNote ? ': ' + q.decisionNote : '') : ''}`, q.status === 'Approved' ? 'good' : q.status === 'Rejected' ? 'bad' : 'warn')) }]
+    : [{ t: 'p', text: 'No Municipal Credit was requested for this application.', italic: true, color: '#6b7280' }] });
+  const ap2 = a.additionalPaymentRequests || [];
+  B.push({ t: 'card', title: 'Additional Payment', blocks: ap2.length
+    ? [{ t: 'rows', rows: ap2.map(q => T(`${fmtMoney(q.amount)} — ${q.status}`, `${q.reason || ''}\nRequested by ${q.requestedBy || ''} on ${q.requestedDate || ''}${q.receiptNumber ? '\nReceipt #: ' + q.receiptNumber : ''}${q.applicantFileName ? '\nUploaded by applicant: ' + q.applicantFileName : ''}${q.notes ? '\nNotes: ' + q.notes : ''}`, q.status === 'Documented' ? 'good' : q.status === 'Paid' ? 'info' : 'warn')) }]
+    : [{ t: 'p', text: 'No additional payments were requested for this application.', italic: true, color: '#6b7280' }] });
+
+  // Review & recommendation
+  const rrRows = [];
+  if(a.recommendation){
+    rrRows.push(T('Recommendation', a.recommendation, a.recommendation === 'Recommend Approve' ? 'good' : 'bad'));
+    rrRows.push(T('Recommended by', a.recommendedBy || 'Supervisor'));
+    if(a.recommendationMadeAt) rrRows.push(T('Recommended on', muni_pdfWhen(a.recommendationMadeAt)));
+  } else rrRows.push(T('Recommendation', 'None on record'));
+  if(a.recommendationWithdrawalRequested) rrRows.push(T('Withdrawal requested', `${a.recommendationWithdrawalRequestedBy || ''}${a.recommendationWithdrawalRequestedDate ? ' on ' + a.recommendationWithdrawalRequestedDate : ''} — awaiting CEO approval`, 'warn'));
+  if(a.recommendationCeoRejectionReason) rrRows.push(T('Previous recommendation rejected by the CEO', `${a.recommendationCeoRejectionReason}${a.recommendationCeoRejectedDate ? ' (' + a.recommendationCeoRejectedDate + ')' : ''}`, 'warn'));
+  B.push({ t: 'card', title: 'Review & Recommendation', blocks: [{ t: 'rows', rows: rrRows }] });
+
+  // Final decision + permit
+  const fdRows = [T('Decision', a.status === 'Approved' ? 'Approved' : 'Denied (Rejected)', a.status === 'Approved' ? 'good' : 'bad')];
+  if(a.decidedAt) fdRows.push(T('Decision recorded', muni_pdfWhen(a.decidedAt)));
+  if(a.status === 'Rejected' && a.finalDecision) fdRows.push(T('Reason', a.finalDecision));
+  if(a.permitGenerated && a.permit) fdRows.push(T('Permit', `${a.permit.number} · issued ${a.permit.issuedDate || ''}${a.permit.sentTo ? ' · sent to ' + a.permit.sentTo : ''}`));
+  B.push({ t: 'card', title: 'Final Decision', badge: { text: a.status === 'Approved' ? 'Approved' : 'Denied', tone: a.status === 'Approved' ? 'good' : 'bad' }, blocks: [{ t: 'rows', rows: fdRows }] });
+
+  // ---------- Part C: linked JCF filing ----------
+  let jcfPart = null, jcfModel = null;
+  if(jcfApp && window.jcfd_buildExportModel){
+    progress('Reading the linked JCF filing…');
+    try{
+      jcfModel = await window.jcfd_buildExportModel(jcfApp, {
+        lookupFlags: async trn => ({ jcf: await jcfFlagForTrn(trn), muni: (function(){ const e = findWatchlistEntry(trn); return e || null; })() })
+      });
+    } catch(err){ console.error('JCF export model failed', err); }
+  }
+  const C = [];
+  if(jcfApp && !jcfModel){
+    C.push({ t: 'note', tone: 'warn', text: `The linked JCF filing ${jcfApp.jcfAppNumber || ''} (status: ${jcfApp.status || 'unknown'}) could not be read in full, so only its status is shown here.` });
+  } else if(jcfModel){
+    C.push({ t: 'note', tone: jcfModel.summary.status === 'Approved' ? 'good' : jcfModel.summary.status === 'Rejected' ? 'bad' : 'info',
+      text: `JCF Noise Abatement ${jcfModel.summary.isAnnual ? 'Annual ' : ''}filing ${jcfModel.summary.appNumber} — ${jcfModel.summary.status}${jcfModel.summary.finalDecision ? ': ' + jcfModel.summary.finalDecision : ''}.` });
+    C.push({ t: 'h3', text: 'Filing as submitted' }, ...jcfModel.layout);
+    C.push({ t: 'pagebreak' }, { t: 'h3', text: 'Official Use — JCF Division, as completed' }, ...jcfModel.official);
+    if(!jcfModel.filesReadable){
+      C.push({ t: 'note', tone: 'warn', text: 'The JCF filing\'s uploaded files are not readable by this municipal account, so they are listed but not reproduced as pages. See the note on the attachment index.' });
+    }
+  }
+
+  // ---------- timeline ----------
+  const tl = muni_buildApplicationTimeline(a).map(e => ({ when: muni_pdfWhen(e.iso), office: e.office, text: muni_plainText(e.description) }));
+
+  // ---------- permits ----------
+  progress('Preparing the permits…');
+  const P = [];
+  const qrText = window.atdVerifyUrl(a.appNumber);
+  const hasPoaPermit = !!(a.permitGenerated && a.permit);
+  const hasJcfPermit = !!(jcfApp && jcfApp.permitGenerated && jcfApp.permit && window.jcfd_buildPermitDocHtml);
+  if(!hasPoaPermit){
+    P.push({ t: 'note', tone: a.status === 'Rejected' ? 'bad' : 'warn',
+      text: a.status === 'Rejected'
+        ? `No Places of Amusement permit was issued — this application was denied${a.finalDecision ? ': ' + a.finalDecision : '.'}`
+        : 'No Places of Amusement permit is recorded against this application.' });
+  }
+  if(hasPoaPermit){
+    P.push({ t: 'permit', id: 'poa', caption: `Places of Amusement licence ${a.permit.number} — issued ${a.permit.issuedDate || ''} by ${myMunicipalityName()}`, html: muni_buildPermitDocHtml(a.permit, cachedSignature, cachedLogo, 'pdfPermitQrA'), qrText: qrText });
+  }
+  if(hasJcfPermit){
+    const jp = jcfApp.permit;
+    const sig = window.fetchJcfSignature ? await window.fetchJcfSignature(jp.parish) : null;
+    const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+    P.push({ t: 'permit', id: 'jcf', caption: `Noise Abatement permit ${jp.number} — issued ${jp.issuedDate || ''} by the Jamaica Constabulary Force`, html: window.jcfd_buildPermitDocHtml(jp, sig, 'pdfPermitQrB', crest), qrText: qrText });
+  }
+
+  // ---------- attachments ----------
+  const jcfAtt = jcfModel ? jcfModel.attachments.map(it => Object.assign({}, it, { group: 'JCF filing' })) : [];
+  const poaAtt = attachments.map(it => Object.assign({}, it, { group: it.group || 'Application' }));
+  const attBlocks = [];
+  attBlocks.push({ t: 'attachments', heading: 'Application Attachments', keyPrefix: 'p', items: poaAtt,
+    intro: 'Every file the applicant (or a manual-entry officer) uploaded to the Places of Amusement application, followed by payment receipts. Images and PDFs are reproduced as pages after this index.' });
+  if(jcfAtt.length){
+    attBlocks.push({ t: 'attachments', heading: 'JCF Filing Attachments', keyPrefix: 'j', items: jcfAtt,
+      intro: jcfModel && !jcfModel.filesReadable ? 'The JCF filing\'s file store is not readable by this municipal account, so these files are listed but not reproduced.' : 'Files uploaded to the linked JCF Noise Abatement filing.' });
+  }
+
+  // ---------- assemble ----------
+  const decidedLabel = a.status === 'Approved' ? 'Approved' : 'Denied';
+  const eventLabel = isAnnual ? (am.businessType || 'Annual licence') : (am.eventName || '—');
+  const dateLabel = isAnnual ? (r.fiscalYearLabel || am.applicationDate || '') : window.atdEventDateSummary(am);
+  const permitNos = [a.permitGenerated && a.permit ? a.permit.number : '', jcfApp && jcfApp.permitGenerated && jcfApp.permit ? jcfApp.permit.number : ''].filter(Boolean).join('  ·  ');
+  const exportedAt = new Date();
+  const parts = [
+    { id: 'poa', title: 'A — Places of Amusement Application', tocLabel: 'A   Places of Amusement Application', blocks: A },
+    { id: 'ou', title: 'B — Official Use (as completed)', tocLabel: 'B   Official Use, as completed', blocks: B }
+  ];
+  if(jcfApp) parts.push({ id: 'jcf', title: 'C — Linked JCF Noise Abatement Filing', tocLabel: 'C   Linked JCF Noise Abatement Filing', blocks: C });
+  parts.push({ id: 'tl', title: `${jcfApp ? 'D' : 'C'} — Activity Timeline`, tocLabel: `${jcfApp ? 'D' : 'C'}   Activity Timeline`, blocks: [{ t: 'timeline', entries: tl }] });
+  parts.push({ id: 'permits', title: `${jcfApp ? 'E' : 'D'} — Permits Issued`, tocLabel: `${jcfApp ? 'E' : 'D'}   Permits Issued`, blocks: P });
+  parts.push({ id: 'att', title: `${jcfApp ? 'F' : 'E'} — Attachments`, tocLabel: `${jcfApp ? 'F' : 'E'}   Attachments`, blocks: attBlocks });
+
+  return {
+    meta: {
+      title: `Application ${a.appNumber}`,
+      author: currentUser ? `${currentUser.name} (${myMunicipalityName()})` : 'Atendify',
+      subject: `Places of Amusement application file — ${decidedLabel}`,
+      header: `Atendify   |   Application ${a.appNumber}`,
+      footer: `Application ${a.appNumber}   ·   Exported ${exportedAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`
+    },
+    brand: { logo: ATENDIFY_LOGO_B64, orgName: myMunicipalityName() },
+    cover: {
+      eyebrow: 'Application file',
+      title: a.appNumber,
+      subtitle: `${isAnnual ? 'Annual Amusement Licence' : 'Special Event Permit'} — ${ap.name || a.applicant || ''}`,
+      status: {
+        text: a.status === 'Approved' ? 'Approved — permit issued' : 'Denied — no permit issued',
+        tone: a.status === 'Approved' ? 'good' : 'bad',
+        sub: a.decidedAt ? muni_pdfWhen(a.decidedAt) : ''
+      },
+      facts: [
+        ['Tracking code', a.trackingCode || '—'], ['Municipal Corporation', myMunicipalityName()],
+        ['Applicant', ap.name || a.applicant], [isAnnual ? 'Business' : 'Event', eventLabel],
+        [isAnnual ? 'Licence period' : 'Event date(s)', dateLabel], ['Venue', venue.name || '—'],
+        ['Submitted', a.submitted || '—'], ['Decision', decidedLabel + (a.decidedAt ? ' · ' + muni_pdfWhen(a.decidedAt) : '')],
+        ['Permit number(s)', permitNos || 'None issued'], ['Linked JCF filing', jcfApp ? `${jcfApp.jcfAppNumber || ''} — ${jcfApp.status || ''}` : 'None'],
+        ['Exported by', currentUser ? `${currentUser.name}, ${currentUser.role}` : '—'], ['Exported on', exportedAt.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })]
+      ],
+      note: 'This file was generated by Atendify from the records on file at the time shown. Uploaded documents are reproduced exactly as submitted. Officer decisions, notes and timestamps are those recorded in the system; nothing has been added or altered for this export.'
+    },
+    parts: parts
+  };
+}
+
+let muniPdfBusy = false;
+async function muni_exportApplicationPdf(){
+  const a = applications.find(x => x.id === activeAppId);
+  if(!a) return;
+  if(!muni_canExportPdf(a)){
+    muni_showToast('An application can only be exported after it has been approved or denied.');
+    return;
+  }
+  if(muniPdfBusy) return;
+  muniPdfBusy = true; window.__muniPdfBusy = true;
+  const btn = document.getElementById('muni_exportPdfBtn');
+  const label = btn ? btn.innerHTML : '';
+  const setLabel = txt => { if(btn){ btn.disabled = true; btn.textContent = txt; } };
+  try{
+    setLabel('Preparing…');
+    await window.atdPdf.ensureLib();
+    const model = await muni_buildExportModel(a, setLabel);
+    setLabel('Building PDF…');
+    const bytes = await window.atdPdf.build(model);
+    const safe = String(a.appNumber).replace(/[^A-Za-z0-9._-]+/g, '_');
+    window.atdPdf.download(bytes, `Application_${safe}_${a.status === 'Approved' ? 'Approved' : 'Denied'}.pdf`);
+    if(window.atdLogAudit && currentUser){
+      window.atdLogAudit({
+        portal: 'muni', actor: currentUser.email, actorRole: currentUser.role,
+        action: 'application.exported',
+        details: `Exported application ${a.appNumber} (${a.status}) as a PDF file.`,
+        muniId: currentUser.muniId
+      });
+    }
+    muni_showToast(`${a.appNumber} exported as PDF.`);
+  } catch(err){
+    console.error('PDF export failed', err);
+    muni_showToast('Could not build the PDF: ' + (err && err.message ? err.message : 'unexpected error') + '. Please try again.');
+  } finally {
+    muniPdfBusy = false; window.__muniPdfBusy = false;
+    if(btn) btn.innerHTML = label;
+    muni_refreshExportButton(applications.find(x => x.id === activeAppId));
+  }
+}
+window.muni_exportApplicationPdf = muni_exportApplicationPdf;
+
 function printPermit(){
   document.body.classList.add('printing-permit');
   window.print();
@@ -36030,7 +37589,7 @@ async function loadSubmittedApplications(silent, btnId){
   }
 }
 
-// ---- 5-minute platform auto-refresh (Municipal officer portal) ----
+// ---- Platform auto-refresh, every 60 seconds + on returning to the tab (Municipal officer portal) ----
 // New applications submitted by an applicant, or changes made by a
 // colleague, previously only showed up here after a manual "↻ Refresh"
 // click or a full page reload — an officer who leaves this dashboard open
@@ -36038,12 +37597,21 @@ async function loadSubmittedApplications(silent, btnId){
 // the real records every 5 minutes while someone is actually signed in and
 // looking at this portal (checked fresh on every tick, not just once), so
 // the dashboard/application lists stay current on their own.
-setInterval(() => {
+//
+// Now every 60 seconds, and also the moment the officer comes back to this
+// browser tab (a tab that sat in the background is stale by definition).
+// Both triggers share one throttle so they never double-load.
+let muniLastAutoRefresh = 0;
+function muni_autoRefreshNow(){
   const shell = document.getElementById('shell-muni');
-  if(currentUser && shell && !shell.classList.contains('hidden')){
-    loadSubmittedApplications(true);
-  }
-}, 5 * 60 * 1000);
+  if(!(currentUser && shell && !shell.classList.contains('hidden'))) return;
+  if(Date.now() - muniLastAutoRefresh < 15000) return;
+  muniLastAutoRefresh = Date.now();
+  loadSubmittedApplications(true);
+}
+setInterval(() => { if(document.visibilityState === 'visible') muni_autoRefreshNow(); }, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') muni_autoRefreshNow(); });
+window.addEventListener('focus', muni_autoRefreshNow);
 
 // ==================== Notification bell ====================
 // Combines two kinds of alert into one feed behind the topbar bell:
@@ -37163,7 +38731,7 @@ function admin_renderAll(){
   renderRequiredFieldsPanel();
 }
 
-// ---- 5-minute platform auto-refresh (National Admin portal) ----
+// ---- Platform auto-refresh, every 60 seconds + on returning to the tab (National Admin portal) ----
 // Applications submitted or changed elsewhere (by an applicant, a
 // Municipal officer, JCF, etc.) previously only reached this dashboard on
 // login or a manual page reload. This re-pulls the real application
@@ -37173,15 +38741,21 @@ function admin_renderAll(){
 // which also re-renders every settings/editor form on the other pages
 // (agency edits, fee adjustments, form template text, etc.) and would
 // silently overwrite anything an admin has mid-typed but not yet saved.
+let adminLastAutoRefresh = 0;
 async function admin_autoRefreshApplications(){
   const shell = document.getElementById('admin_appShell');
   if(!shell || shell.classList.contains('hidden')) return; // not logged in yet
+  if(Date.now() - adminLastAutoRefresh < 15000) return; // shared throttle: timer + tab-return
+  adminLastAutoRefresh = Date.now();
   await admin_loadApplications();
   admin_renderNationalOverview();
   admin_renderApplications();
   admin_renderRecentApps();
 }
-setInterval(admin_autoRefreshApplications, 5 * 60 * 1000);
+// Every 60 seconds, and again the moment the admin returns to this tab.
+setInterval(() => { if(document.visibilityState === 'visible') admin_autoRefreshApplications(); }, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') admin_autoRefreshApplications(); });
+window.addEventListener('focus', admin_autoRefreshApplications);
 window.admin_autoRefreshApplications = admin_autoRefreshApplications;
 
 function admin_todayIso(){ return new Date().toISOString().slice(0, 10); }
