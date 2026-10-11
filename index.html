@@ -3343,6 +3343,42 @@
     return location.origin + '/verify/' + encodeURIComponent(appNumber || '');
   };
 
+  // ---- Multi-day events on a JCF Noise Abatement filing ----
+  // The filing keeps every day of the linked application in
+  // eventOverview.eventDays (Day 1 first) and only Day 1 in dateOfEvent.
+  // These helpers give every screen, the approval step and the permit the
+  // same answer to "which days does this filing cover?" — a single-day
+  // filing (or an older one saved before eventDays existed) comes back as one
+  // day built from dateOfEvent, so callers never need a special case.
+  window.atdJcfEventDays = function(eo){
+    eo = eo || {};
+    var out = [];
+    (Array.isArray(eo.eventDays) ? eo.eventDays : []).forEach(function(d){
+      if(d && d.date) out.push({ day: d.day || 0, date: String(d.date), eventName: d.eventName || '', eventType: d.eventType || '', venueName: d.venueName || '', venueAddr: d.venueAddr || '', patrons: d.patrons || '' });
+    });
+    if(eo.dateOfEvent && !out.some(function(d){ return d.date === eo.dateOfEvent; })){
+      out.push({ day: 1, date: String(eo.dateOfEvent), eventName: eo.eventName || '', eventType: eo.eventType || '', venueName: '', venueAddr: '', patrons: eo.patronsExpected || '' });
+    }
+    out.sort(function(a, b){ return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+    return out;
+  };
+  // 'YYYY-MM-DD' of the first / last day, or '' when the filing has no date.
+  window.atdJcfFirstDate = function(eo){ var d = window.atdJcfEventDays(eo); return d.length ? d[0].date : ''; };
+  window.atdJcfLastDate  = function(eo){ var d = window.atdJcfEventDays(eo); return d.length ? d[d.length - 1].date : ''; };
+  // First day that has not started yet (null when every day is past).
+  window.atdJcfNextDate = function(eo, nowMs){
+    nowMs = nowMs || Date.now();
+    var d = window.atdJcfEventDays(eo).filter(function(x){ var t = new Date(x.date).getTime(); return !isNaN(t) && t >= nowMs; });
+    return d.length ? d[0].date : null;
+  };
+  // Table text: the date for one day, 'first – last (n days)' for several.
+  window.atdJcfDatesText = function(eo){
+    var d = window.atdJcfEventDays(eo);
+    if(!d.length) return '';
+    if(d.length === 1) return d[0].date;
+    return d[0].date + ' – ' + d[d.length - 1].date + ' (' + d.length + ' days)';
+  };
+
   // Fix: the on-screen error/debug panel (see atdShowDebugError further
   // down) used to pop up for EVERY visitor — applicant, officer, anyone —
   // any time an uncaught error or unhandled promise rejection happened
@@ -5860,10 +5896,25 @@
     const label = isGood ? 'Valid' : (s || 'Unknown');
     return `<span style="display:inline-block; padding:3px 10px; border-radius:999px; font-size:12.5px; font-weight:600; color:${color}; background:${bg};">${esc(label)}</span>`;
   }
+  // Multi-day permits: one row per day with its date and venue. The lookup only
+  // adds eventDays when the permit covers more than one day.
+  function dayRows(result){
+    const days = Array.isArray(result.eventDays) ? result.eventDays.filter(d => d && d.date) : [];
+    if(days.length < 2) return null;
+    let out = row('Event Days', days.length + ' days');
+    days.forEach((d, i) => {
+      const where = [d.venueName, d.venueAddr && d.venueAddr !== d.venueName ? d.venueAddr : ''].filter(Boolean).join(' — ');
+      const what = [d.eventType, d.eventName].filter(Boolean).join(' — ');
+      const dt = new Date(d.date + 'T00:00:00');
+      const dateTxt = isNaN(dt.getTime()) ? d.date : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      out += row('Day ' + (i + 1), dateTxt + ' · ' + [where || 'Same venue as Day 1', what ? '(' + what + ')' : ''].filter(Boolean).join(' '));
+    });
+    return out;
+  }
   function row(label, value){
     if(value == null || value === '') return '';
     return `<div style="display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid rgba(0,0,0,0.07); font-size:14px;">
-      <span style="color:#767680;">${esc(label)}</span>
+      <span style="color:#767680; white-space:nowrap;">${esc(label)}</span>
       <span style="font-weight:600; text-align:right;">${esc(value)}</span>
     </div>`;
   }
@@ -5908,10 +5959,16 @@
       jcfHtml += row('Permit No.', result.appNumber);
       jcfHtml += row('Permit Type', result.permitTypeLabel);
       jcfHtml += row('Event', result.eventName);
-      jcfHtml += row('Event Date', result.eventDate);
-      jcfHtml += row('Expires', expiry);
-      jcfHtml += row('Venue', result.venueName);
-      jcfHtml += row('Venue Address', result.venueAddress);
+      const jcfDays = dayRows(result);
+      if(jcfDays){
+        jcfHtml += jcfDays;
+        jcfHtml += row('Expires', expiry);
+      } else {
+        jcfHtml += row('Event Date', result.eventDate);
+        jcfHtml += row('Expires', expiry);
+        jcfHtml += row('Venue', result.venueName);
+        jcfHtml += row('Venue Address', result.venueAddress);
+      }
       bodyEl.innerHTML = jcfHtml;
       return;
     }
@@ -5924,10 +5981,16 @@
     html += row('Permit / Application No.', result.appNumber);
     html += row('License Type', result.isAnnual ? 'Annual License' : 'Special Event');
     html += row(result.isAnnual ? 'Business' : 'Event', eventOrBusiness);
-    if(!result.isAnnual) html += row('Event Date', result.eventDate);
-    html += row('Validity', result.validity);
-    html += row('Venue', result.venueName);
-    html += row('Venue Address', result.venueAddress);
+    const muniDays = result.isAnnual ? null : dayRows(result);
+    if(muniDays){
+      html += muniDays;
+      html += row('Validity', result.validity);
+    } else {
+      if(!result.isAnnual) html += row('Event Date', result.eventDate);
+      html += row('Validity', result.validity);
+      html += row('Venue', result.venueName);
+      html += row('Venue Address', result.venueAddress);
+    }
     if(result.jcf && result.jcf.hasJcfPermit){
       html += `<div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(0,0,0,0.07); font-size:13.5px; color:#767680;">
         Also cleared for noise abatement by ${esc(result.jcf.divisionName || 'JCF')} ${statusBadge(result.jcf.status)}
@@ -14271,6 +14334,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
          template never uses. See jcfd_openApproveModal/jcfd_confirmApprove's
          own formVariant branch. -->
     <div class="info-banner good hidden" id="jcfd_approveAnnualNote"></div>
+    <!-- Multi-day Special Event: the permit covers every day, so say so here and
+         default the expiration to the last day (see jcfd_openApproveModal). -->
+    <div class="info-banner hidden" id="jcfd_approveMultiDayNote" style="margin-bottom:12px;"></div>
     <div class="field-row" id="jcfd_approveExpiryFieldsWrap">
       <div class="field-group">
         <label for="jcfd_approveExpiryDate">Expiration date</label>
@@ -15219,7 +15285,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         // should end at: <time> EST." (see jcfd_buildPermitDocHtml) --
         // that's the JCF-directed close-off time for this permit.
         if(linkedJcf.permit.expiresTime12 || linkedJcf.permit.expiresTime){
-          closeOffEl.textContent = linkedJcf.permit.expiresTime12 || linkedJcf.permit.expiresTime;
+          closeOffEl.textContent = (linkedJcf.permit.expiresTime12 || linkedJcf.permit.expiresTime) +
+            ((linkedJcf.permit.eventDays && linkedJcf.permit.eventDays.length > 1) ? ' (each of the ' + linkedJcf.permit.eventDays.length + ' days)' : '');
           closeOffRow.classList.remove('hidden');
         }
       }
@@ -17215,7 +17282,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // hasn't approved yet.
     const soon7d = recs.filter(r => {
       if(r.formVariant === 'Annual' || r.status === 'Rejected') return false;
-      const d = r.eventOverview && r.eventOverview.dateOfEvent;
+      const d = window.atdJcfNextDate(r.eventOverview, now);
       const t = d ? new Date(d).getTime() : NaN;
       return !isNaN(t) && t >= now && t <= now + 7 * DAY_MS;
     });
@@ -17299,10 +17366,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const list = jcfdDashApps.filter(a => {
       const rec = a.rec;
       if(rec.formVariant === 'Annual' || rec.status === 'Rejected') return false;
-      const d = rec.eventOverview && rec.eventOverview.dateOfEvent;
+      const d = window.atdJcfNextDate(rec.eventOverview, now);
       const t = d ? new Date(d).getTime() : NaN;
       return !isNaN(t) && t >= now && t <= now + windowMs;
-    }).sort((x, y) => new Date(x.rec.eventOverview.dateOfEvent) - new Date(y.rec.eventOverview.dateOfEvent));
+    }).sort((x, y) => new Date(window.atdJcfNextDate(x.rec.eventOverview, now)) - new Date(window.atdJcfNextDate(y.rec.eventOverview, now)));
 
     if(!list.length){
       body.innerHTML = `<tr><td colspan="5" class="table-empty">No upcoming events in this window.</td></tr>`;
@@ -17313,18 +17380,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const rec = a.rec, eo = rec.eventOverview || {}, vi = rec.venueInfo || {};
       const statusLabel = rec.status === 'Approved' ? 'Approved' : (rec.recommendedAt ? 'Awaiting decision' : 'Not yet recommended');
       const statusBadge = { 'Approved': 'badge-green', 'Awaiting decision': 'badge-amber', 'Not yet recommended': 'badge-red' }[statusLabel];
-      const hoursUntil = (new Date(eo.dateOfEvent).getTime() - now) / HOUR_MS;
+      const nextDay = window.atdJcfNextDate(eo, now) || eo.dateOfEvent;
+      const hoursUntil = (new Date(nextDay).getTime() - now) / HOUR_MS;
       let risk = 'Low';
       if(rec.status !== 'Approved'){
         if(breachedKeys.has(a.key) || hoursUntil <= 72) risk = 'High';
         else if(hoursUntil <= 24 * 7) risk = 'Medium';
       }
       const riskBadge = { Low: 'badge-green', Medium: 'badge-amber', High: 'badge-red' }[risk];
-      const shortDate = acctEscapeHtml(new Date(eo.dateOfEvent).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      const mdDays = window.atdJcfEventDays(eo);
+      const shortFmt = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const shortDate = acctEscapeHtml(mdDays.length > 1 ? `${shortFmt(mdDays[0].date)} – ${shortFmt(mdDays[mdDays.length - 1].date)}` : shortFmt(nextDay));
       return `
         <tr>
           <td class="cell-primary"><a href="#" onclick="jcfd_openApplication('${a.key}'); return false;">${acctEscapeHtml(eo.eventName || rec.jcfAppNumber || 'Event')}</a><br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(vi.venueName || 'N/A')}</span></td>
-          <td title="${acctEscapeHtml(eo.dateOfEvent)}">${shortDate}</td>
+          <td title="${acctEscapeHtml(window.atdJcfDatesText(eo) || eo.dateOfEvent)}">${shortDate}</td>
           <td>${acctEscapeHtml(String(eo.patronsExpected || '—'))}</td>
           <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
           <td><span class="badge ${riskBadge}">${risk}</span></td>
@@ -17625,7 +17695,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return `<tr>
         <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
         <td>${acctEscapeHtml(eo.eventName || 'N/A')}</td>
-        <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
+        <td>${acctEscapeHtml(window.atdJcfDatesText(eo) || 'N/A')}</td>
         <td><span class="badge badge-green">Commented</span></td>
       </tr>`;
     }).join('');
@@ -17645,7 +17715,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
       <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
-      <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
+      <td>${acctEscapeHtml(window.atdJcfDatesText(eo) || 'N/A')}</td>
       <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
       <td>${jcfd_statusBadge(a.rec)}</td>
       <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
@@ -19360,6 +19430,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="detail-row"><div class="dr-label">Permit Number</div><div class="dr-value">${acctEscapeHtml(p.number)}</div></div>
         <div class="detail-row"><div class="dr-label">Issued</div><div class="dr-value">${acctEscapeHtml(p.issuedDate)}</div></div>
         <div class="detail-row"><div class="dr-label">Expires</div><div class="dr-value">${acctEscapeHtml(p.expiresDate)}${p.expiresTime12 ? ' at ' + acctEscapeHtml(p.expiresTime12) : ''}</div></div>
+        ${(p.eventDays && p.eventDays.length > 1) ? `<div class="detail-row"><div class="dr-label">Covers</div><div class="dr-value">${p.eventDays.length} days: ${p.eventDays.map(d => acctEscapeHtml(d.date)).join(', ')} (end time applies to each day)</div></div>` : ''}
         <div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="jcfd_printPermit()">🖨 Print permit</button></div>
       </div>`;
     }
@@ -21427,9 +21498,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       annualNoteEl.textContent = `This is an Annual Noise Abatement Permit — it will be valid for the fiscal year ${jcfd_fiscalYearLabel(new Date().toISOString().slice(0,10))}, same as the linked Annual Places of Amusement permit.`;
     } else {
       const eo = rec.eventOverview || {};
-      document.getElementById('jcfd_approveExpiryDate').value = eo.dateOfEvent || '';
+      // Multi-day: the permit covers every day, so it runs to the LAST day
+      // (not Day 1) and the end time below applies to each of the days.
+      const evDays = window.atdJcfEventDays(eo);
+      const lastDay = window.atdJcfLastDate(eo);
+      document.getElementById('jcfd_approveExpiryDate').value = lastDay || eo.dateOfEvent || '';
       document.getElementById('jcfd_approveExpiryTime').value = '02:00';
+      const mdNote = document.getElementById('jcfd_approveMultiDayNote');
+      if(evDays.length > 1){
+        mdNote.innerHTML = `<span><strong>${evDays.length}-day event.</strong> This permit will cover every day: ` +
+          evDays.map(d => acctEscapeHtml(jcfd_formatLongDate(d.date))).join('; ') +
+          `. The expiration date is set to the last day, and the end time applies to each day.</span>`;
+        mdNote.classList.remove('hidden');
+      } else {
+        mdNote.classList.add('hidden');
+        mdNote.textContent = '';
+      }
     }
+    if(isAnnualApprove) document.getElementById('jcfd_approveMultiDayNote').classList.add('hidden');
     document.getElementById('jcfd_approveModal').classList.remove('hidden');
   }
   window.jcfd_openApproveModal = jcfd_openApproveModal;
@@ -21454,6 +21540,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     const eo = rec.eventOverview || {};
     const ai = rec.applicantInfo || {};
+
+    // Multi-day event: the permit must reach the last day, otherwise it would
+    // lapse before the event does.
+    const permitDays = isAnnualApprove ? [] : window.atdJcfEventDays(eo);
+    const lastEventDay = permitDays.length ? permitDays[permitDays.length - 1].date : '';
+    if(!isAnnualApprove && permitDays.length > 1 && expiryDate < lastEventDay){
+      jcfd_showToast(`This is a ${permitDays.length}-day event. The expiration date can't be before the last day (${jcfd_formatLongDate(lastEventDay)}), or the permit would not cover every day.`);
+      return;
+    }
 
     rec.status = 'Approved';
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
@@ -21507,6 +21602,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       applicantAddress: [eo.addr1, eo.addr2, eo.district, eo.parish].filter(Boolean).join(', ') || 'N/A',
       eventName: eo.eventName || '',
       eventDate: eo.dateOfEvent || '',
+      // Every day the permit covers (empty for a single day). Each carries the
+      // venue it is held at; a day with no venue of its own is held at the
+      // filing's main venue.
+      eventDays: permitDays.length > 1 ? permitDays.map(d => ({
+        day: d.day, date: d.date, eventName: d.eventName || '', eventType: d.eventType || '',
+        venueName: d.venueName || (rec.venueInfo && rec.venueInfo.venueName) || '', venueAddr: d.venueAddr || ''
+      })) : [],
+      validity: permitDays.length > 1
+        ? `Valid ${jcfd_formatLongDate(permitDays[0].date)} to ${jcfd_formatLongDate(expiryDate)} (${permitDays.length} days)`
+        : '',
       divisionName: (jcfdCurrentBranch.parish || '') + ' Divisional Headquarters',
       parish: jcfdCurrentBranch.parish || '',
       // Was plain text (`${number} · promoterName`) — not a link anywhere,
@@ -21635,7 +21740,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const conditionsHtml = String(templates.jcfPermitConditionsText || '')
       .split('\n').map(s => s.trim()).filter(Boolean)
       .map(s => `<li>${acctEscapeHtml(s)}</li>`).join('\n          ');
-    const eventClause = p.eventName
+    // Multi-day: name every day (with its venue and event type) so the permit
+    // visibly covers each one, and say the end time applies to each day.
+    const isMultiDay = !!(p.eventDays && p.eventDays.length > 1);
+    const eventClause = isMultiDay
+      ? `${p.eventName ? ' to host event "<strong>' + acctEscapeHtml(p.eventName.toUpperCase()) + '</strong>"' : ' for an event'}, to be held over <strong>${p.eventDays.length} days</strong>: ` +
+        p.eventDays.map(d => `<strong>${acctEscapeHtml(jcfd_formatLongDate(d.date))}</strong>${d.venueName ? ' at <strong>' + acctEscapeHtml(d.venueName.toUpperCase()) + '</strong>' : ''}${(d.eventType || (d.eventName && d.eventName !== p.eventName)) ? ' (' + acctEscapeHtml([d.eventType, d.eventName !== p.eventName ? d.eventName : ''].filter(Boolean).join(' — ')) + ')' : ''}`).join('; ')
+      : p.eventName
       ? ` to host event "<strong>${acctEscapeHtml(p.eventName.toUpperCase())}</strong>" on the <strong>${acctEscapeHtml(jcfd_formatLongDate(p.eventDate))}</strong>`
       : ` for an event on the <strong>${acctEscapeHtml(jcfd_formatLongDate(p.eventDate))}</strong>`;
 
@@ -21664,7 +21775,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div><div class="pdg-value">${acctEscapeHtml(String(p.expectedPatrons))}</div><div class="pdg-label">EXPECTED PATRONS</div></div>
         </div>
 
-        <p class="permit-doc-body">This Permit is hereby granted by the ${acctEscapeHtml(p.parish || '')} Division of the Jamaica Constabulary, to: <strong>${acctEscapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${acctEscapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>${eventClause}. <strong style="color:#c0392b;">This event should end at: ${acctEscapeHtml(p.expiresTime12 || '')} EST.</strong></p>
+        <p class="permit-doc-body">This Permit is hereby granted by the ${acctEscapeHtml(p.parish || '')} Division of the Jamaica Constabulary, to: <strong>${acctEscapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${acctEscapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>${eventClause}. <strong style="color:#c0392b;">${isMultiDay ? 'On each of these days the event should end at' : 'This event should end at'}: ${acctEscapeHtml(p.expiresTime12 || '')} EST.</strong></p>
 
         <p class="permit-doc-body">Please be advised that permission is granted providing that the under mentioned instructions are complied with:</p>
         <ol style="margin:10px 0 14px 22px; padding:0; font-size:12px; line-height:1.6;">
