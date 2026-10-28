@@ -2569,6 +2569,12 @@
     box-shadow: 0 24px 70px rgba(0,0,0,0.3);
   }
   .modal-box.modal-wide{ max-width: 620px; }
+  /* Atendify Accountant finance console */
+  .fin-hero-figure{ font-size: 40px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .fin-hero-label{ font-size: 13.5px; color: var(--text-muted); margin-top: 2px; }
+  .fin-bar{ height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; min-width: 70px; }
+  #fin_pendingCount:empty{ display: none; }
+  .fin-bar > span{ display: block; height: 100%; background: var(--blue); border-radius: 4px; }
   .modal-box h3{ font-size: 20px; font-weight:700; margin:0 0 4px; }
   .modal-sub{ font-size: 13.5px; color: var(--text-muted); margin: 0 0 22px; }
   .field-group{ margin-bottom: 18px; }
@@ -4538,7 +4544,22 @@
 
   var client = null;
   if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase && window.supabase.createClient) {
+    // A password-reset email link lands back here carrying a one-time
+    // recovery token (type=recovery) that supabase-js turns into a real
+    // session. Note it BEFORE the client strips it from the URL, so the page
+    // shows the "choose a new password" box instead of treating that
+    // session as an ordinary sign-in and dropping the person into a portal.
+    window.ATD_RECOVERY_PENDING = /[#&?]type=recovery\b/.test((location.hash || '') + (location.search || ''));
     client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    try{
+      client.auth.onAuthStateChange(function (ev) {
+        if (ev === 'PASSWORD_RECOVERY') {
+          window.ATD_RECOVERY_PENDING = true;
+          if (window.atdShowRecoveryModal) window.atdShowRecoveryModal();
+          else window.addEventListener('DOMContentLoaded', function(){ if (window.atdShowRecoveryModal) window.atdShowRecoveryModal(); });
+        }
+      });
+    }catch(e){ /* older client: the URL check above still covers the usual case */ }
   }
 
   function resolved(v) { return Promise.resolve(v); }
@@ -5381,6 +5402,15 @@
     // portal had one before this — every existing "reset password" flow is
     // an admin/CEO resetting someone ELSE's password to a random temp one).
     // Requires an active session, which signUp()/signIn() already establish.
+    // Emails the person a secure, one-time "choose a new password" link
+    // (Supabase Auth sends it; the link comes back to this site and opens
+    // atdShowRecoveryModal). Always resolves without revealing whether the
+    // address has an account.
+    sendPasswordReset: function (email) {
+      if (!client) return Promise.reject(new Error('Backend not configured'));
+      var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
+      return client.auth.resetPasswordForEmail((email || '').trim().toLowerCase(), redirect ? { redirectTo: redirect } : undefined);
+    },
     changePassword: function (newPassword) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.updateUser({ password: newPassword });
@@ -5447,6 +5477,30 @@
         permissions: invite.permissions || {},
         display_name: invite.display_name || null
       }, { onConflict: 'email' });
+    },
+
+    // Atendify Accountant writes. An accountant's login has NO direct write
+    // access to kv_store at all; the only way their finance actions (verify an
+    // application fee, record a remittance, mark a subscription paid, suspend
+    // an MC) reach the database is this one narrow SECURITY DEFINER function
+    // (backend/accountant_role.sql -> atd_acct_patch), which only touches a
+    // fixed allow-list of payment/suspension fields on `application:` and
+    // `agency:` rows. Also used by the Super Admin's own session, harmlessly.
+    acctPatch: async function (key, patch) {
+      if (!client) return { error: new Error('Backend not configured') };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_acct_patch', { p_key: key, p_patch: patch });
+      });
+      return res;
+    },
+
+    // Super Admin only: suspend / reactivate / remove an Atendify Accountant's
+    // sign-in (backend/accountant_role.sql -> atd_admin_set_accountant).
+    adminSetAccountant: async function (email, action) {
+      if (!client) return { error: new Error('Backend not configured') };
+      return atdWithClockSkewRetry(function () {
+        return client.rpc('atd_admin_set_accountant', { p_email: (email || '').toLowerCase(), p_action: action });
+      });
     },
 
     // Public QR permit-verification lookup (Fix #21, backend/
@@ -6446,6 +6500,148 @@
       console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', err);
       return { ok: false, error: err && err.message ? err.message : String(err) };
     }
+  };
+
+
+  // ---- Forgot password / choose a new password (shared by every portal) ----
+  // Real password reset: Supabase Auth emails a one-time link (see
+  // ATDBackend.sendPasswordReset); opening it lands back here and
+  // atdShowRecoveryModal collects the new password. Replaces the old
+  // "temporary password" idea, which only ever changed a field in the app's
+  // own records and never the real login.
+  function atdAuthModal(html){
+    var ov = document.getElementById('atdAuthModal');
+    if(!ov){
+      ov = document.createElement('div');
+      ov.id = 'atdAuthModal';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(20,22,28,0.55);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px;';
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = '<div role="dialog" aria-modal="true" style="background:var(--panel,#fff);color:var(--text,#1a1d24);border-radius:14px;padding:28px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.25);font-family:inherit;">' + html + '</div>';
+    ov.style.display = 'flex';
+    return ov;
+  }
+  function atdAuthModalClose(){ var ov = document.getElementById('atdAuthModal'); if(ov) ov.style.display = 'none'; }
+  var ATD_AUTH_INPUT = 'width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border,#e2e5ea);border-radius:8px;font-size:14.5px;background:var(--bg,#fff);color:inherit;margin:6px 0 14px;';
+  var ATD_AUTH_BTN = 'border:none;background:var(--blue,#4f5fee);color:#fff;padding:9px 18px;border-radius:8px;font-size:14.5px;font-weight:600;cursor:pointer;';
+  var ATD_AUTH_BTN2 = 'border:1px solid var(--border,#e2e5ea);background:transparent;color:inherit;padding:9px 18px;border-radius:8px;font-size:14.5px;cursor:pointer;';
+  function atdEsc(x){ return String(x == null ? '' : x).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  window.atdOpenForgotPassword = function(emailInputId){
+    var pre = '';
+    try{ var el = emailInputId && document.getElementById(emailInputId); if(el) pre = (el.value || '').trim(); }catch(e){}
+    atdAuthModal(
+      '<h3 style="margin:0 0 6px;font-size:19px;">Reset your password</h3>' +
+      '<p style="margin:0 0 14px;font-size:13.5px;color:var(--text-muted,#667);line-height:1.5;">Enter the email on your account and we will send you a link to choose a new password.</p>' +
+      '<label for="atdForgotEmail" style="font-size:13px;font-weight:600;">Email</label>' +
+      '<input type="email" id="atdForgotEmail" autocomplete="email" value="' + atdEsc(pre) + '" style="' + ATD_AUTH_INPUT + '">' +
+      '<div id="atdForgotMsg" style="font-size:13.5px;line-height:1.5;margin:-6px 0 14px;display:none;"></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;">' +
+        '<button type="button" id="atdForgotClose" style="' + ATD_AUTH_BTN2 + '">Close</button>' +
+        '<button type="button" id="atdForgotSend" style="' + ATD_AUTH_BTN + '">Send reset link</button>' +
+      '</div>');
+    var msg = document.getElementById('atdForgotMsg');
+    var inp = document.getElementById('atdForgotEmail');
+    var send = document.getElementById('atdForgotSend');
+    document.getElementById('atdForgotClose').onclick = atdAuthModalClose;
+    function say(t, bad){ msg.style.display = 'block'; msg.style.color = bad ? 'var(--red,#c0392b)' : 'inherit'; msg.textContent = t; }
+    send.onclick = async function(){
+      var email = (inp.value || '').trim();
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ say('Enter a valid email address.', true); return; }
+      if(!(window.ATDBackend && window.ATDBackend.isConfigured())){ say('Password reset by email needs the live service, which is not connected here. Ask your administrator.', true); return; }
+      send.disabled = true; send.textContent = 'Sending…';
+      try{
+        var r = await window.ATDBackend.sendPasswordReset(email);
+        var err = r && r.error;
+        if(err && (err.status === 429 || /rate|too many|seconds/i.test(err.message || ''))){
+          say('Too many requests just now. Please wait a few minutes and try again.', true);
+        } else {
+          // Same message whether or not the address has an account.
+          say('If an account exists for ' + email + ', a reset link is on its way. Check your inbox and spam folder. The link works once and expires soon.');
+          send.style.display = 'none';
+        }
+      }catch(e){
+        say('Could not send the reset link. Check your connection and try again.', true);
+      }
+      send.disabled = false; send.textContent = 'Send reset link';
+    };
+    setTimeout(function(){ try{ inp.focus(); }catch(e){} }, 50);
+  };
+
+  window.atdShowRecoveryModal = function(){
+    atdAuthModal(
+      '<h3 style="margin:0 0 6px;font-size:19px;">Choose a new password</h3>' +
+      '<p style="margin:0 0 14px;font-size:13.5px;color:var(--text-muted,#667);line-height:1.5;">You followed a password-reset link. Enter the new password you want to use.</p>' +
+      '<label for="atdRecPw" style="font-size:13px;font-weight:600;">New password</label>' +
+      '<input type="password" id="atdRecPw" autocomplete="new-password" style="' + ATD_AUTH_INPUT + '">' +
+      '<label for="atdRecPw2" style="font-size:13px;font-weight:600;">Confirm new password</label>' +
+      '<input type="password" id="atdRecPw2" autocomplete="new-password" style="' + ATD_AUTH_INPUT + '">' +
+      '<div id="atdRecMsg" style="font-size:13.5px;line-height:1.5;margin:-6px 0 14px;display:none;color:var(--red,#c0392b);"></div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;">' +
+        '<button type="button" id="atdRecCancel" style="' + ATD_AUTH_BTN2 + '">Cancel</button>' +
+        '<button type="button" id="atdRecSave" style="' + ATD_AUTH_BTN + '">Save new password</button>' +
+      '</div>');
+    var msg = document.getElementById('atdRecMsg');
+    function bad(t){ msg.style.display = 'block'; msg.textContent = t; }
+    async function leave(){
+      try{ await window.ATDBackend.signOut(); }catch(e){}
+      window.ATD_RECOVERY_PENDING = false;
+      try{ history.replaceState(null, '', location.pathname); }catch(e){}
+      location.reload();
+    }
+    document.getElementById('atdRecCancel').onclick = leave;
+    document.getElementById('atdRecSave').onclick = async function(){
+      var pw = document.getElementById('atdRecPw').value, pw2 = document.getElementById('atdRecPw2').value;
+      if(!pw){ bad('Please enter a new password.'); return; }
+      if(pw !== pw2){ bad('Passwords do not match.'); return; }
+      var chk = window.atdValidatePassword ? await window.atdValidatePassword(pw) : { valid: pw.length >= 8, message: 'Password must be at least 8 characters.' };
+      if(!chk.valid){ bad(chk.message); return; }
+      var btn = document.getElementById('atdRecSave'); btn.disabled = true; btn.textContent = 'Saving…';
+      var r = await window.ATDBackend.changePassword(pw);
+      if(r && r.error){ btn.disabled = false; btn.textContent = 'Save new password'; bad(r.error.message || 'Could not update your password. The link may have expired; request a new one.'); return; }
+      atdAuthModal(
+        '<h3 style="margin:0 0 6px;font-size:19px;">Password updated</h3>' +
+        '<p style="margin:0 0 18px;font-size:13.5px;line-height:1.5;">Your password has been changed. Please sign in with your new password.</p>' +
+        '<div style="display:flex;justify-content:flex-end;"><button type="button" id="atdRecDone" style="' + ATD_AUTH_BTN + '">Go to sign in</button></div>');
+      document.getElementById('atdRecDone').onclick = leave;
+    };
+  };
+
+
+  // ---- "Confirm email" handling for staff (Municipal / JCF / Admin / Accountant) ----
+  // With Confirm email switched on in Supabase, signUp() succeeds but returns
+  // no session until the person clicks the link in the email, so signing them
+  // straight in fails. These two helpers give every staff sign-up screen the
+  // same clear behavior applicants already get.
+  window.atdIsUnconfirmedError = function(e){
+    var msg = (e && e.message) || '';
+    return !!e && (e.code === 'email_not_confirmed' || /email.*not.*confirm/i.test(msg));
+  };
+  window.atdUnconfirmedMessage = function(email){
+    return 'Your email address has not been confirmed yet. Open the confirmation email we sent' + (email ? ' to ' + email : '') + ' and click the link, then sign in. Cannot find it? Check spam, or choose "Create your password" again with the same email to send a new one.';
+  };
+  // Returns { error, exists, needsConfirm }. needsConfirm = account created but
+  // waiting on the email link; exists = that email already has an account.
+  window.atdStaffSignUp = async function(email, password){
+    var res = await window.ATDBackend.signUp(email, password);
+    if(res.error) return { error: res.error };
+    var data = res.data || {};
+    // Supabase hides "already registered" by returning a user with no identities.
+    if(data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) return { exists: true };
+    if(!data.session) return { needsConfirm: true };
+    return {};
+  };
+
+  // Shared by the "reset password" buttons in the Municipal and Admin
+  // portals: with the live backend this emails the person a real reset link
+  // instead of inventing a temporary password. Returns true if it was sent
+  // (or at least accepted); false if there is no live backend.
+  window.atdSendStaffPasswordReset = async function(email){
+    if(!(window.ATDBackend && window.ATDBackend.isConfigured())) return false;
+    try{
+      var r = await window.ATDBackend.sendPasswordReset(email);
+      return !(r && r.error);
+    }catch(e){ return false; }
   };
 
   // ---- Shared watch list check (Applicant/DJ/Sound System/Artist auto-reject) ----
@@ -8900,6 +9096,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <button type="submit" class="btn btn-primary btn-block" id="muniLoginBtn">Login</button>
       </form>
 
+      <div class="login-demo-hint" style="cursor:pointer; text-decoration:underline;" role="button" tabindex="0" onclick="atdOpenForgotPassword('muni_loginEmail')" onkeydown="if(event.key==='Enter'){atdOpenForgotPassword('muni_loginEmail');}">Forgot your password?</div>
+
       <div class="login-demo-hint" id="muni_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="muni_attemptSignup()">First time signing in? Create your password with this email (your CEO must have added your account first).</div>
     </div>
   </div>
@@ -11132,13 +11330,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       <div class="login-remember">
         <label><input type="checkbox" id="rememberMe"> Remember me</label>
-        <span style="font-size:13.5px; color:var(--blue); font-weight:600; cursor:pointer;">Forgot password?</span>
+        <span style="font-size:13.5px; color:var(--blue); font-weight:600; cursor:pointer;" role="button" tabindex="0" onclick="atdOpenForgotPassword('admin_loginEmail')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();atdOpenForgotPassword('admin_loginEmail');}">Forgot password?</span>
       </div>
 
       <button type="submit" class="btn btn-primary btn-block" id="adminLoginBtn">Login</button>
       </form>
 
-      <div class="login-demo-hint" id="admin_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="admin_attemptSignup()">First time with a live backend connected? Create the admin account with this email/password.</div>
+      <div class="login-demo-hint" id="admin_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="admin_attemptSignup()">First time signing in? Create your password for an Admin or Finance account the Super Admin has set up for this email.</div>
     </div>
   </div>
 </div>
@@ -11148,10 +11346,33 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   <aside class="sidebar">
     <div class="sidebar-logo">
       <img class="app-logo-img-admin" alt="Atendify logo" style="width:22px; height:22px; object-fit:contain;">
-      <span>Atendify Admin</span>
+      <span id="admin_logoText">Atendify Admin</span>
     </div>
 
     <div class="sidebar-scroll">
+    <div class="nav-section-label acct-only" style="display:none;">Finance</div>
+    <div class="nav-item acct-only" style="display:none;" data-page="fin-dashboard" onclick="admin_goPage('fin-dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      Finance Dashboard
+    </div>
+    <div class="nav-item acct-only" style="display:none;" data-page="fin-payments" onclick="admin_goPage('fin-payments')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Fee Payments <span id="fin_pendingCount" class="badge badge-amber" style="margin-left:auto;"></span>
+    </div>
+    <div class="nav-item acct-only" style="display:none;" data-page="fin-subs" onclick="admin_goPage('fin-subs')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+      Subscriptions &amp; Licensing
+    </div>
+    <div class="nav-item acct-only" style="display:none;" data-page="fin-walkins" onclick="admin_goPage('fin-walkins')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 11h6M9 15h6"/></svg>
+      Walk-in Remittances
+    </div>
+    <div class="nav-section-label acct-only" style="display:none;">Account</div>
+    <div class="nav-item acct-only" style="display:none;" data-page="fin-settings" onclick="admin_goPage('fin-settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 016-6h4a6 6 0 016 6v1"/></svg>
+      Settings
+    </div>
+
     <div class="nav-section-label">Overview</div>
     <div class="nav-item active" data-page="dashboard" onclick="admin_goPage('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
@@ -11217,7 +11438,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div class="sidebar-user">
         <div class="avatar" id="admin_sidebarAvatar">A</div>
         <div>
-          <div class="su-name">Admin</div>
+          <div class="su-name" id="admin_sidebarName">Admin</div>
           <div class="su-role" id="admin_sidebarEmail">admin@gmail.com</div>
         </div>
         <button class="admin_logout-btn" title="Log out" onclick="admin_logout()">
@@ -11345,6 +11566,148 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
     </div>
 
+    <!-- ===== FINANCE: SETTINGS (Atendify Accountant) ===== -->
+    <div class="page hidden" id="admin_page-fin-settings">
+      <div class="panel" style="max-width:520px;">
+        <div class="panel-head"><h2>My profile</h2></div>
+        <div style="display:flex; align-items:center; gap:18px; margin-bottom:20px;">
+          <div class="avatar" id="fin_profileAvatar" style="width:56px; height:56px; font-size:22px;">A</div>
+          <input type="file" id="fin_avatarInput" accept="image/*" style="display:none;" onchange="admin_avatarChosen(this)">
+          <div class="btn-row" style="justify-content:flex-start;">
+            <button class="btn btn-sm" type="button" id="fin_avatarUploadBtn" onclick="document.getElementById('fin_avatarInput').click()">Upload photo</button>
+            <button class="btn btn-sm btn-danger hidden" type="button" id="fin_avatarRemoveBtn" onclick="admin_removeAvatar()">Remove photo</button>
+          </div>
+        </div>
+        <div class="field-group"><label>Name</label><input type="text" id="fin_profileName" value="" disabled></div>
+        <div class="field-group"><label>Email</label><input type="text" id="fin_profileEmail" value="" disabled></div>
+        <div class="field-group"><label>Role</label><input type="text" value="Atendify Accountant" disabled></div>
+        <p class="field-hint" style="margin:0;">Your name, email and role are set by the Super Admin. To change them, ask the Super Admin.</p>
+      </div>
+
+      <div class="panel" style="max-width:520px;">
+        <div class="panel-head"><h2>Active sessions</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Devices and browsers currently signed in to your account. If you don't recognize one, log out of all sessions below.</p>
+        <div id="finSessionsBody"><div class="empty-state" style="padding:16px 0;">Loading…</div></div>
+        <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+          <button class="btn btn-sm btn-danger" type="button" onclick="atdSignOutAllSessions(admin_logout)">Log out of all sessions</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCE: DASHBOARD (Atendify Accountant) ===== -->
+    <div class="page hidden" id="admin_page-fin-dashboard">
+      <div class="panel fin-hero">
+        <div class="panel-head">
+          <h2>Atendify revenue</h2>
+          <div class="panel-tools">
+            <select id="fin_periodSelect" aria-label="Revenue period" onchange="fin_setPeriod(this.value)">
+              <option value="all">All time</option>
+              <option value="year">This year</option>
+              <option value="month">This month</option>
+              <option value="30d">Last 30 days</option>
+            </select>
+            <button class="btn btn-sm" onclick="fin_downloadCsv()">Download CSV</button>
+            <button class="btn btn-sm" onclick="admin_refreshRegistryData()">&#8635; Refresh</button>
+          </div>
+        </div>
+        <div class="fin-hero-figure" id="fin_heroTotal">J$0.00</div>
+        <div class="fin-hero-label">Total revenue earned by Atendify</div>
+        <div class="field-hint" id="fin_heroSub" style="margin:6px 0 0;"></div>
+        <div class="field-hint" id="fin_updatedAt" style="margin:2px 0 0;"></div>
+      </div>
+
+      <div class="panel">
+        <div class="stat-grid" id="fin_stats"></div>
+        <p class="field-hint" style="margin:12px 0 0;">Revenue means Atendify's own income only: application fees (once verified, or received from a municipality for walk-ins) plus subscription &amp; licensing fees recorded as paid. A municipality's own venue, advertisement and permit charges are the municipality's money and are not included.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Revenue by permit type</h2></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Agency group</th><th>Permit type</th><th>Applications</th><th>Billed</th><th>Collected</th><th>of which walk-in</th><th>Outstanding</th><th>Share</th></tr></thead>
+            <tbody id="fin_byTypeBody"></tbody>
+          </table>
+        </div>
+        <p class="field-hint" style="margin:12px 0 0;">Billed and Outstanding cover all time; Collected follows the period chosen above. The Jamaica Fire Brigade is not part of this build, so no revenue is shown for it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Subscription &amp; licensing revenue by agency type</h2></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Agency type</th><th>Agencies</th><th>Payments recorded</th><th>Collected</th><th>Overdue now</th></tr></thead>
+            <tbody id="fin_subByTypeBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Revenue by Municipal Corporation</h2></div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Municipality</th><th>Annual permit fees</th><th>Special event fees</th><th>Subscription</th><th>Total</th><th>Share</th><th>Walk-in fees owed</th><th>Subscription status</th><th>Account</th></tr></thead>
+            <tbody id="fin_byMuniBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCE: FEE PAYMENTS ===== -->
+    <div class="page hidden" id="admin_page-fin-payments">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Application fee payments</h2>
+          <div class="panel-tools">
+            <input type="text" id="fin_paySearch" placeholder="Search applicant or application #" aria-label="Search applicant or application number" oninput="fin_renderPayments()">
+            <select id="fin_payMuni" aria-label="Filter by municipality" onchange="fin_renderPayments()"><option value="">All municipalities</option></select>
+            <select id="fin_payFilter" aria-label="Filter by payment status" onchange="fin_setPayFilter(this.value)">
+              <option value="pending">Awaiting verification</option>
+              <option value="verified">Verified / received</option>
+              <option value="unpaid">Not yet paid</option>
+              <option value="walkin">Walk-in applications</option>
+              <option value="all">Everything</option>
+            </select>
+          </div>
+        </div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Online payments are verified here once the money has reached Atendify. Walk-in fees are collected by the municipality at the counter and settled from Walk-in Remittances.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Application #</th><th>Applicant</th><th>Municipality</th><th>Permit</th><th>Atendify fee</th><th>Payment</th><th>Status</th><th></th></tr></thead>
+            <tbody id="fin_paymentsBody"></tbody>
+          </table>
+        </div>
+        <div class="field-hint" id="fin_payMore" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCE: SUBSCRIPTIONS & LICENSING ===== -->
+    <div class="page hidden" id="admin_page-fin-subs">
+      <div class="panel">
+        <div class="stat-grid" id="fin_subsStats"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Agency subscriptions &amp; licensing</h2></div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Overdue agencies are listed first. "Mark as paid" records a paid invoice and starts the next billing period. A municipality can be suspended here when its payment is outstanding; it is shut out of its portal until you reinstate it.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Agency</th><th>Type</th><th>Tier</th><th>Cycle</th><th>Fee</th><th>Last paid</th><th>Next due</th><th>Payment</th><th>Account</th><th></th></tr></thead>
+            <tbody id="fin_subsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCE: WALK-IN REMITTANCES ===== -->
+    <div class="page hidden" id="admin_page-fin-walkins">
+      <div class="panel">
+        <div class="panel-head"><h2>Walk-in application fees owed to Atendify</h2></div>
+        <p class="field-hint" style="margin:-6px 0 14px;">When a municipality enters a walk-in application it collects the fee at the counter, then owes Atendify's application fee. Tick the applications whose fees have reached Atendify and mark them as received.</p>
+        <div class="stat-grid" id="fin_walkinStats"></div>
+      </div>
+      <div id="fin_walkinsBody"></div>
+    </div>
+
     <!-- ===== APPLICATIONS PAGE ===== -->
     <div class="page hidden" id="admin_page-applications">
       <div class="panel">
@@ -11465,6 +11828,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <tr><th>Name</th><th>Email</th><th>Municipality</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr>
             </thead>
             <tbody id="admin_usersBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="admin_financeUsersPanel" style="margin-top:24px;">
+        <div class="panel-head">
+          <h2>Atendify Accountants</h2>
+          <div class="panel-tools"><button class="btn btn-primary" onclick="fin_openUserModal()">+ Assign accountant</button></div>
+        </div>
+        <div class="field-hint" style="margin:-6px 0 14px;">Accountants run Atendify's finances: they verify fee payments, mark subscriptions and walk-in remittances as paid, suspend municipalities with outstanding payments, and see Atendify's revenue. They sign in on the normal Admin login but only ever see the Finance console. Only you, as Super Admin, can create or remove them.</div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Assigned</th><th></th></tr></thead>
+            <tbody id="admin_financeUsersBody"></tbody>
           </table>
         </div>
       </div>
@@ -11909,6 +12286,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </div>
 
 <!-- ===== Add / Edit Agency Modal ===== -->
+<div class="modal-overlay hidden" id="fin_modal" onclick="if(event.target===this) fin_closeModal()">
+  <div class="modal-box" id="fin_modalBox"></div>
+</div>
+<div class="modal-overlay hidden" id="fin_userModal">
+  <div class="modal-box">
+    <h3>Assign an Atendify Accountant</h3>
+    <p class="modal-sub">They will create their own password the first time they sign in. Use their work email.</p>
+    <div class="field-group"><label for="fin_userName">Full name</label><input type="text" id="fin_userName" maxlength="80" autocomplete="off"></div>
+    <div class="field-group"><label for="fin_userEmail">Email</label><input type="email" id="fin_userEmail" maxlength="120" autocomplete="off"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="fin_closeUserModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="fin_saveUser()">Assign accountant</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay hidden" id="agencyModal">
   <div class="modal-box">
     <h3 id="agencyModalTitle">Add agency account</h3>
@@ -13458,6 +13850,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <div id="acct_loginError" class="info-banner warn hidden"></div>
       <button type="submit" class="btn btn-primary" style="width:100%;" id="acctLoginBtn">Log In</button>
       </form>
+      <div style="text-align:center; margin-top:12px;"><a href="#" style="font-size:13.5px; font-weight:600;" onclick="atdOpenForgotPassword('acct_loginEmail'); return false;">Forgot your password?</a></div>
     </div>
 
     <div id="acct_paneSignup" class="acct-auth-pane">
@@ -13651,6 +14044,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
         <button type="submit" class="btn btn-primary btn-block" id="jcfdLoginBtn">Login</button>
         </form>
+
+        <div class="login-demo-hint" style="cursor:pointer; text-decoration:underline;" role="button" tabindex="0" onclick="atdOpenForgotPassword('jcfd_loginEmail')" onkeydown="if(event.key==='Enter'){atdOpenForgotPassword('jcfd_loginEmail');}">Forgot your password?</div>
 
         <div class="login-demo-hint" id="jcfd_signupHint" style="cursor:pointer; text-decoration:underline;" onclick="jcfd_attemptSignup()">First time signing in? Create your password with this email (your Chief must have added your account first).</div>
       </div>
@@ -16831,7 +17226,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const detail = (e && e.message) ? e.message : String(e);
         if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, false);
         if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: email || '(blank)', actorRole: '', action: 'login.failed', details: detail });
-        errorBox.textContent = `Could not sign in. (Details: ${detail})`;
+        errorBox.textContent = window.atdIsUnconfirmedError(e) ? window.atdUnconfirmedMessage(email) : `Could not sign in. (Details: ${detail})`;
         errorBox.classList.remove('hidden');
         return;
       }
@@ -16907,8 +17302,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     try{
-      const { error } = await window.ATDBackend.signUp(email, password);
-      if(error) throw error;
+      const r = await window.atdStaffSignUp(email, password);
+      if(r.error) throw r.error;
+      if(r.exists){ errorBox.textContent = 'An account already exists for this email. Use Login, or "Forgot your password?" if you cannot remember it.'; errorBox.classList.remove('hidden'); return; }
+      if(r.needsConfirm){ errorBox.textContent = 'Almost there: we sent a confirmation link to ' + email + '. Click it, then sign in with the password you just chose.'; errorBox.classList.remove('hidden'); return; }
       errorBox.classList.add('hidden');
       await jcfd_attemptLogin();
     }catch(e){
@@ -29126,7 +29523,7 @@ async function muni_attemptLogin(){
       // reported failure mode for newly-created staff accounts). Surface it
       // rather than collapsing every cause into one generic phrase, the same
       // way submitApp() already does for submission failures.
-      if(error) throw new Error(error.message || 'Sign-in failed.');
+      if(error) throw new Error(window.atdIsUnconfirmedError(error) ? window.atdUnconfirmedMessage(email) : (error.message || 'Sign-in failed.'));
       const profile = await window.ATDBackend.getProfile();
       if(!profile){
         throw new Error('Signed in, but no staff profile exists for this account yet.');
@@ -29222,6 +29619,15 @@ async function muni_tryRestoreSession(profile){
     // it again here (safe/idempotent) guarantees the sidebar's municipality
     // name resolves correctly instead of showing "Unassigned".
     await muni_initRegistryData();
+    // A municipality the Atendify Accountant/Admin has since suspended (for
+    // example for an outstanding payment) is dropped from MUNICIPALITIES
+    // (Active agencies only), so a still-valid saved session must not walk
+    // back into its portal on refresh any more than a fresh login could.
+    try{
+      const ags = await window.atdLoadAgencies();
+      const mine = ags.find(a => a.type === 'Municipal Corporation' && String(a.muniNumber) === String(muniId));
+      if(mine && mine.status === 'Suspended') return false;
+    }catch(e){ /* can't tell — fall through rather than lock a valid officer out */ }
     showHub('muni');
     muni_enterShellAsUser(user);
     return true;
@@ -29244,8 +29650,10 @@ async function muni_attemptSignup(){
     return;
   }
   try{
-    const { error } = await window.ATDBackend.signUp(email, password);
-    if(error) throw error;
+    const r = await window.atdStaffSignUp(email, password);
+    if(r.error) throw r.error;
+    if(r.exists){ errorBox.textContent = 'An account already exists for this email. Use Login, or "Forgot your password?" if you cannot remember it.'; errorBox.classList.remove('hidden'); return; }
+    if(r.needsConfirm){ errorBox.textContent = 'Almost there: we sent a confirmation link to ' + email + '. Click it, then sign in with the password you just chose.'; errorBox.classList.remove('hidden'); return; }
     errorBox.classList.add('hidden');
     await muni_attemptLogin();
   }catch(e){
@@ -34042,7 +34450,7 @@ async function saveUser(){
       window.ATDBackend.inviteStaff({ email, role: 'muni', agency_id: String(currentUser.muniId), permissions, display_name: name }).catch(()=>{});
     }
     await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'user.create', details: `Added ${name} as ${role}.`, muniId: currentUser.muniId });
-    muni_showToast(`${name} added as ${role}. Login details sent to ${email}.`);
+    muni_showToast(`${name} added as ${role}. Ask them to open the login screen and choose "Create your password" with ${email}.`);
   }
 
   closeUserModal();
@@ -34055,6 +34463,14 @@ async function resetUserPassword(id){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
   let pw = '';
   for(let i=0;i<10;i++) pw += chars.charAt(Math.floor(Math.random()*chars.length));
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    // Live backend: send a real, secure reset link. (A temporary password
+    // written to this record never changed the real login.)
+    const sent = await window.atdSendStaffPasswordReset(u.email);
+    await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'user.resetPassword', details: `Sent a password reset link to ${u.name} (${u.email}).`, muniId: currentUser.muniId });
+    muni_showToast(sent ? `A password reset link has been emailed to ${u.email}. If they have not created their password yet, ask them to use "Create your password" on the login screen.` : `Could not send a reset link to ${u.email}. Please try again shortly.`);
+    return;
+  }
   u.password = pw;
   await window.atdSaveMuniUser(u);
   await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'user.resetPassword', details: `Reset password for ${u.name} (${u.email}).`, muniId: currentUser.muniId });
@@ -38655,12 +39071,19 @@ async function admin_refreshRegistryData(){
   try{
     agencies = await window.atdLoadAgencies();
   }catch(e){ agencies = []; }
+  if(adminRole === 'accountant'){
+    // Finance console: only agencies (above) and applications are needed.
+    await admin_loadApplications();
+    if(!document.getElementById('admin_appShell').classList.contains('hidden')) fin_renderAll();
+    return;
+  }
   try{
     muniUsers = await window.atdLoadMuniUsers();
   }catch(e){ muniUsers = []; }
   await admin_loadApplications();
   await admin_loadVenues();
   await admin_loadAccountDeletionRequests();
+  await fin_loadUsers();
   try{
     const flag = await window.storage.get('platform:rolesSeeded');
     if(!flag || !flag.value){
@@ -38740,10 +39163,17 @@ function agencyNameByMuniId(muniId){
 // reachable. adminActorEmail records whoever actually signed in, real or
 // demo, for audit-log attribution.
 let adminActorEmail = ADMIN_EMAIL;
+// 'admin' (Super Admin, full console) or 'accountant' (Atendify Accountant:
+// finance-only console, created and assigned by the Super Admin). Set from the
+// signed-in profile's role at login / session restore; reset on logout.
+let adminRole = 'admin';
+let adminDisplayName = '';
+function admin_actorRoleLabel(){ return adminRole === 'accountant' ? 'Atendify Accountant' : 'Super Administrator'; }
 
 function admin_showAppShell(){
   document.getElementById('admin_loginScreen').classList.add('hidden');
   document.getElementById('admin_appShell').classList.remove('hidden');
+  admin_applyRoleMode();
   admin_renderAll();
   admin_applySidebarAvatar();
 }
@@ -38769,7 +39199,7 @@ async function admin_applySidebarAvatar(){
       if(r && r.value){ const rec = JSON.parse(r.value); avatarFileData = rec.fileData || null; }
     }catch(e){ /* no photo saved yet */ }
   }
-  document.querySelectorAll('#admin_sidebarAvatar, #admin_profileAvatar').forEach(el => {
+  document.querySelectorAll('#admin_sidebarAvatar, #admin_profileAvatar, #fin_profileAvatar').forEach(el => {
     if(!el) return;
     if(avatarFileData){
       el.style.backgroundImage = `url(${avatarFileData})`;
@@ -38778,15 +39208,21 @@ async function admin_applySidebarAvatar(){
       el.textContent = '';
     } else {
       el.style.backgroundImage = '';
-      el.textContent = 'A';
+      el.textContent = ((adminRole === 'accountant' && adminDisplayName) ? adminDisplayName.trim().charAt(0).toUpperCase() : 'A') || 'A';
     }
   });
-  const removeBtn = document.getElementById('admin_avatarRemoveBtn');
-  if(removeBtn) removeBtn.classList.toggle('hidden', !avatarFileData);
-  const uploadBtn = document.getElementById('admin_avatarUploadBtn');
-  if(uploadBtn) uploadBtn.textContent = avatarFileData ? 'Change photo' : 'Upload photo';
+  ['admin_avatarRemoveBtn', 'fin_avatarRemoveBtn'].forEach(id => { const b = document.getElementById(id); if(b) b.classList.toggle('hidden', !avatarFileData); });
+  ['admin_avatarUploadBtn', 'fin_avatarUploadBtn'].forEach(id => { const b = document.getElementById(id); if(b) b.textContent = avatarFileData ? 'Change photo' : 'Upload photo'; });
   const emailDisplay = document.getElementById('admin_profileEmailDisplay');
   if(emailDisplay) emailDisplay.value = adminActorEmail;
+  const finEmail = document.getElementById('fin_profileEmail');
+  if(finEmail) finEmail.value = adminActorEmail;
+  const finName = document.getElementById('fin_profileName');
+  if(finName) finName.value = adminDisplayName || '';
+  if(adminRole === 'accountant'){
+    const nm = document.getElementById('admin_sidebarName');
+    if(nm) nm.textContent = adminDisplayName || 'Accountant';
+  }
   const sidebarEmail = document.getElementById('admin_sidebarEmail');
   if(sidebarEmail) sidebarEmail.textContent = adminActorEmail;
 }
@@ -38794,7 +39230,7 @@ window.admin_applySidebarAvatar = admin_applySidebarAvatar;
 
 function admin_renderProfile(){
   admin_applySidebarAvatar();
-  if(window.atdRenderSessionsInto) window.atdRenderSessionsInto('adminSessionsBody');
+  if(window.atdRenderSessionsInto) window.atdRenderSessionsInto(adminRole === 'accountant' ? 'finSessionsBody' : 'adminSessionsBody');
 }
 window.admin_renderProfile = admin_renderProfile;
 
@@ -38854,12 +39290,14 @@ async function admin_attemptLogin(){
       const { error } = await window.ATDBackend.signIn(email, password);
       if(error) throw error;
       const profile = await window.ATDBackend.getProfile();
-      if(!profile || profile.role !== 'admin') throw new Error('This account is not set up as an Admin.');
+      if(!profile || (profile.role !== 'admin' && profile.role !== 'accountant')) throw new Error('This account is not set up as an Admin.');
+      adminRole = profile.role;
+      adminDisplayName = profile.display_name || '';
       adminActorEmail = profile.email || email;
       errorBox.classList.add('hidden');
       await window.atdRecordLoginAttempt('admin', email, true);
       if(window.ATDBackend.logSession) await window.ATDBackend.logSession('admin');
-      await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'login.success', details: 'Signed in to the Admin console.' });
+      await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: admin_actorRoleLabel(), action: 'login.success', details: adminRole === 'accountant' ? 'Signed in to the Atendify Finance console.' : 'Signed in to the Admin console.' });
       // Re-run the registry load now that a real admin session exists —
       // the very first load (triggered at page load, before this login)
       // always came back with empty applications/venues/muniUsers, since
@@ -38872,7 +39310,7 @@ async function admin_attemptLogin(){
     }catch(e){
       await window.atdRecordLoginAttempt('admin', email, false);
       await window.atdLogAudit({ portal: 'admin', actor: email || '(blank)', actorRole: 'Super Administrator', action: 'login.failed', details: 'Invalid email or password.' });
-      errorBox.textContent = 'Invalid email or password.';
+      errorBox.textContent = window.atdIsUnconfirmedError(e) ? window.atdUnconfirmedMessage(email) : 'Invalid email or password.';
       errorBox.classList.remove('hidden');
       return;
     }
@@ -38901,7 +39339,9 @@ window.admin_attemptLogin = admin_attemptLogin;
 // comment on muni_tryRestoreSession() for why this is needed.
 async function admin_tryRestoreSession(profile){
   try{
-    if(profile.role !== 'admin') return false;
+    if(profile.role !== 'admin' && profile.role !== 'accountant') return false;
+    adminRole = profile.role;
+    adminDisplayName = profile.display_name || '';
     adminActorEmail = profile.email || adminActorEmail;
     // Same reasoning as muni/jcfd's restore functions: re-run the registry
     // load now that a real admin session actually exists, so
@@ -38934,8 +39374,10 @@ async function admin_attemptSignup(){
     return;
   }
   try{
-    const { error } = await window.ATDBackend.signUp(email, password);
-    if(error) throw error;
+    const r = await window.atdStaffSignUp(email, password);
+    if(r.error) throw r.error;
+    if(r.exists){ errorBox.textContent = 'An account already exists for this email. Use Login, or "Forgot password?" if you cannot remember it.'; errorBox.classList.remove('hidden'); return; }
+    if(r.needsConfirm){ errorBox.textContent = 'Almost there: we sent a confirmation link to ' + email + '. Click it, then sign in with the password you just chose.'; errorBox.classList.remove('hidden'); return; }
     errorBox.classList.add('hidden');
     await admin_attemptLogin();
   }catch(e){
@@ -38954,6 +39396,9 @@ window.admin_attemptSignup = admin_attemptSignup;
 function admin_logout(){
   if(window.ATDBackend && window.ATDBackend.isConfigured()) window.ATDBackend.signOut();
   adminActorEmail = ADMIN_EMAIL;
+  adminRole = 'admin';
+  adminDisplayName = '';
+  admin_applyRoleMode();
   document.getElementById('admin_appShell').classList.add('hidden');
   document.getElementById('admin_loginScreen').classList.remove('hidden');
   document.getElementById('admin_loginEmail').value = '';
@@ -38961,12 +39406,19 @@ function admin_logout(){
 }
 
 // ---------------- Navigation ----------------
+const ADMIN_FIN_PAGES = ['fin-dashboard', 'fin-payments', 'fin-subs', 'fin-walkins', 'fin-settings'];
 function admin_goPage(page){
+  // Role guard: an Accountant can only open the finance pages, and the full
+  // console's pages are never reachable from that role even via the console.
+  if(adminRole === 'accountant' && ADMIN_FIN_PAGES.indexOf(page) < 0) page = 'fin-dashboard';
+  if(adminRole !== 'accountant' && ADMIN_FIN_PAGES.indexOf(page) >= 0) page = 'dashboard';
   document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
   (document.getElementById('admin_page-' + page) || document.getElementById('page-' + page)).classList.remove('hidden');
   document.querySelectorAll('#shell-admin .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', formtemplates: 'Application Forms', settings: 'Settings' };
+  const titles = { dashboard: 'Dashboard', applications: 'Applications', venueregistry: 'Venue Registry', agencies: 'Agencies', users: 'Users', auditlogs: 'Audit Logs', reports: 'Reports', permissions: 'Permissions', security: 'Security', subscription: 'Subscription & Licensing', integrations: 'Integrations', formtemplates: 'Application Forms', settings: 'Settings', 'fin-dashboard': 'Finance Dashboard', 'fin-payments': 'Fee Payments', 'fin-subs': 'Subscriptions & Licensing', 'fin-walkins': 'Walk-in Remittances', 'fin-settings': 'Settings' };
   document.getElementById('admin_topbarTitle').textContent = titles[page];
+  if(page === 'fin-dashboard' || page === 'fin-payments' || page === 'fin-subs' || page === 'fin-walkins') fin_renderAll();
+  if(page === 'fin-settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
   // The National Venue Registry is shared with every municipality, which can
@@ -38986,6 +39438,10 @@ function admin_showToast(message){
 
 // ---------------- Rendering ----------------
 function admin_renderAll(){
+  // The Atendify Accountant only ever sees the finance pages, and their login
+  // has no read access to most of what the full console renders (staff,
+  // venues, audit log, settings) -- so skip all of it for that role.
+  if(adminRole === 'accountant'){ fin_renderAll(); return; }
   admin_renderNationalOverview();
   admin_renderRecentApps();
   renderDashboardAgencies();
@@ -38999,6 +39455,7 @@ function admin_renderAll(){
   admin_renderAgencyLinkingEligibility();
   admin_populateUserFilters();
   renderAdminUsers();
+  fin_renderUsers();
   admin_renderAccountDeletionRequests();
   renderAuditLogs();
   admin_renderReports();
@@ -39026,6 +39483,11 @@ async function admin_autoRefreshApplications(){
   if(Date.now() - adminLastAutoRefresh < 15000) return; // shared throttle: timer + tab-return
   adminLastAutoRefresh = Date.now();
   await admin_loadApplications();
+  if(adminRole === 'accountant'){
+    try{ agencies = await window.atdLoadAgencies(); }catch(e){}
+    fin_renderAll();
+    return;
+  }
   admin_renderNationalOverview();
   admin_renderApplications();
   admin_renderRecentApps();
@@ -39904,7 +40366,7 @@ async function saveAgency(){
       const chief = await window.atdProvisionJcfdChief(record);
       admin_showToast(`Agency account created. Chief login ready: ${chief.email} — ask them to click "Create your password" on the JCF login screen.`);
     } else {
-      admin_showToast(`Agency account created. Login details sent to ${email}.`);
+      admin_showToast(`Agency account created. Ask them to open their login screen and choose "Create your password" with ${email}.`);
     }
   }
 
@@ -39923,6 +40385,21 @@ async function saveAgency(){
 
 async function resetAgencyPassword(id){
   const m = agencies.find(m => m.id === id);
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    // Live backend: email a real, secure reset link to whoever signs in for
+    // this agency (the CEO for a municipality), not an invented password.
+    let target = { email: m.email, label: m.name };
+    if(m.type === 'Municipal Corporation' && m.muniNumber){
+      const users = await window.atdLoadMuniUsers();
+      const ceo = users.find(u => u.muniId === m.muniNumber && u.role === 'CEO');
+      if(ceo) target = { email: ceo.email, label: `${m.name}'s CEO` };
+    }
+    if(!target.email){ admin_showToast(`${m.name} has no email on file to send a reset link to.`); return; }
+    const sent = await window.atdSendStaffPasswordReset(target.email);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.resetPassword', details: `Sent a password reset link for ${target.label} (${target.email}).`, muniId: m.muniNumber });
+    admin_showToast(sent ? `A password reset link has been emailed to ${target.email}. If they have not created their password yet, ask them to use "Create your password" on the login screen.` : `Could not send a reset link to ${target.email}. Please try again shortly.`);
+    return;
+  }
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
   let pw = '';
   for(let i=0;i<10;i++) pw += chars.charAt(Math.floor(Math.random()*chars.length));
@@ -40921,6 +41398,12 @@ async function adminResetUserPassword(id){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#';
   let pw = '';
   for(let i=0;i<10;i++) pw += chars.charAt(Math.floor(Math.random()*chars.length));
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    const sent = await window.atdSendStaffPasswordReset(u.email);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'user.resetPassword', details: `Sent a password reset link to ${u.name} (${u.email}).`, muniId: u.muniId });
+    admin_showToast(sent ? `A password reset link has been emailed to ${u.email}. If they have not created their password yet, ask them to use "Create your password" on the login screen.` : `Could not send a reset link to ${u.email}. Please try again shortly.`);
+    return;
+  }
   u.password = pw;
   await window.atdSaveMuniUser(u);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'user.resetPassword', details: `Reset password for ${u.name} (${u.email}).`, muniId: u.muniId });
@@ -41380,36 +41863,805 @@ async function adminToggleAgencyTierEligibility(agencyType, tier, checked){
 }
 
 async function adminMarkAgencyPaid(id){
-  const m = agencies.find(m => m.id === id);
-  const periodStart = m.lastBilledDate || m.created;
-  const periodEnd = new Date().toISOString().slice(0, 10);
-  m.lastBilledDate = periodEnd;
-  // Generate an Atendify-branded invoice/receipt record for the CEO's own
-  // Subscription & Billing page (renderMuniBilling()). Kept as an array on
-  // the agency record itself, rather than a new dedicated storage key
-  // scheme, since this pilot's agency count is small and this way the
-  // invoice history travels with the agency record automatically (loads,
-  // saves, and deletes right along with everything else atdSaveAgency
-  // already handles). Municipal-Corporation-only, matching subscriptionTier.
-  if(m.type === 'Municipal Corporation'){
-    if(!Array.isArray(m.subscriptionInvoices)) m.subscriptionInvoices = [];
-    const seq = m.subscriptionInvoices.length + 1;
-    m.subscriptionInvoices.push({
-      invoiceNumber: `ATD-${m.muniNumber}-${String(seq).padStart(5, '0')}`,
-      planName: m.subscriptionTier || 'Premium',
-      amount: m.platformFee,
-      billingCycle: m.platformBilling,
-      periodStart,
-      periodEnd,
-      issuedDate: periodEnd,
-      status: 'Paid'
-    });
-  }
-  await window.atdSaveAgency(m);
-  await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'subscription.markPaid', details: `Marked ${m.name}'s platform subscription as paid.`, muniId: m.muniNumber });
-  admin_showToast(`${m.name} marked as paid. Next due ${admin_computeNextDue(m.lastBilledDate, m.platformBilling)}.`);
-  renderBilling();
+  // The Super Admin's quick "Mark as paid" button: records the payment as of
+  // today. (The Atendify Accountant's console asks for the date received and
+  // an optional reference first -- see fin_openPaidModal.)
+  const ok = await fin_markSubscriptionPaid(id, {});
+  if(ok) renderBilling();
 }
+
+// ==================== Atendify Accountant: finance console ====================
+// A restricted mode of this same Admin console, for the Atendify Accountant
+// role. The Super Admin creates and assigns the account (Users -> "Atendify
+// Accountants"); the accountant signs in on the normal Admin login and sees
+// ONLY the four pages below, never the full console. Every number here is
+// computed live from the same real application and agency records the Super
+// Admin's Overview and Subscription & Licensing pages already use -- nothing
+// is estimated or invented. Where the platform holds no figure for something
+// (for example JCF filings carry no Atendify fee today) the page says so.
+//
+// What counts as Atendify revenue (as confirmed with the product owner):
+//   * Application fees -- costs.applicationFee on each application, counted as
+//     collected once verified (online payments verified by the accountant,
+//     walk-in fees once the Municipal Corporation's remittance is received).
+//   * Subscription & licensing fees -- each agency's platform fee, counted
+//     when a "Paid" invoice is recorded against the agency (Mark as paid).
+// A municipality's own venue/advertisement/permit charges are the
+// municipality's money and are NOT counted as Atendify revenue.
+//
+// Writes: an Accountant's database login has no direct write access to
+// kv_store at all. Their finance actions go through one narrow server-side
+// function (ATDBackend.acctPatch -> atd_acct_patch) that can only change a
+// fixed allow-list of payment/suspension fields (see backend/accountant_role.sql).
+let finPeriod = 'all';
+let finPayFilter = 'pending';
+let finFinanceUsers = [];
+
+function fin_ymd(d){
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+function fin_range(){
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  if(finPeriod === 'year') return [y + '-01-01', y + '-12-31'];
+  if(finPeriod === 'month') return [fin_ymd(new Date(y, m, 1)), fin_ymd(new Date(y, m + 1, 0))];
+  if(finPeriod === '30d') return [fin_ymd(new Date(now.getTime() - 30 * 86400000)), fin_ymd(now)];
+  return null;
+}
+function fin_inPeriod(dateStr){
+  const r = fin_range();
+  if(!r) return true;
+  const d = String(dateStr || '').slice(0, 10);
+  return !!d && d >= r[0] && d <= r[1];
+}
+function fin_periodLabel(){
+  return { all: 'All time', year: 'This year', month: 'This month', '30d': 'Last 30 days' }[finPeriod] || 'All time';
+}
+function fin_setPeriod(v){ finPeriod = v; fin_renderAll(); }
+window.fin_setPeriod = fin_setPeriod;
+
+const fin_isWalkin = a => a.entrySource === 'manual';
+// Money still owed to Atendify on this application's application fee.
+const fin_owed = a => admin_amountOwed(a, a.applicationFee, false, 'applicationFeeVerified');
+const fin_feeCollectedDate = a => a.applicationFeeVerifiedDate || a.submitted || '';
+const fin_corporations = () => agencies.filter(m => m.type === 'Municipal Corporation' && m.muniNumber);
+const fin_muniByNumber = n => agencies.find(m => m.type === 'Municipal Corporation' && String(m.muniNumber) === String(n));
+function fin_muniName(muniId){ const m = fin_muniByNumber(muniId); return m ? m.name : 'Unknown municipality'; }
+
+function fin_subStatus(m){
+  const lastPaid = m.lastBilledDate || m.created;
+  const nextDue = admin_computeNextDue(lastPaid, m.platformBilling);
+  const today = admin_todayIso();
+  let state = 'current', days = null;
+  if(nextDue){
+    days = admin_daysUntil(nextDue);
+    if(nextDue < today) state = 'overdue'; else if(days !== null && days <= 14) state = 'soon';
+  }
+  return { lastPaid, nextDue, state, days };
+}
+
+// ---- Core computation (single source for every number on the dashboard) ----
+function fin_compute(){
+  const types = {};
+  const typeRow = k => (types[k] = types[k] || { count: 0, billed: 0, collected: 0, collectedWalkin: 0, outstanding: 0 });
+  let appCollected = 0, appBilled = 0;
+  let onlineAwaiting = 0, onlineAwaitingCount = 0;
+  let walkinOwed = 0, walkinOwedCount = 0;
+  const muniRow = {};
+  const mr = id => (muniRow[id] = muniRow[id] || { annual: 0, special: 0, other: 0, subs: 0, walkinOwed: 0, walkinCount: 0 });
+
+  applications.forEach(a => {
+    const fee = a.applicationFee || 0;
+    const t = typeRow(a.licenseType || 'Unclassified');
+    t.count++;
+    t.billed += fee;
+    const owed = fin_owed(a);
+    t.outstanding += owed;
+    if(a.applicationFeeVerified && fin_inPeriod(fin_feeCollectedDate(a))){
+      t.collected += fee;
+      if(a.applicationFeeRemitted) t.collectedWalkin += fee;
+      appCollected += fee;
+      const m = mr(a.muniId);
+      if(a.licenseType === 'Annual') m.annual += fee; else if(a.licenseType === 'Special') m.special += fee; else m.other += fee;
+    }
+    appBilled += fee;
+    if(fin_isWalkin(a)){
+      if(owed > 0){ walkinOwed += owed; walkinOwedCount++; const m = mr(a.muniId); m.walkinOwed += owed; m.walkinCount++; }
+    } else if(a.applicationFeePaid && !a.applicationFeeVerified && a.status !== 'Rejected' && a.status !== 'Withdrawn'){
+      onlineAwaiting += fee; onlineAwaitingCount++;
+    }
+  });
+
+  const subsByType = {};
+  let subsTotal = 0, subsCount = 0, overdueCount = 0, overdueAmount = 0;
+  agencies.forEach(m => {
+    const row = (subsByType[m.type] = subsByType[m.type] || { agencies: 0, payments: 0, collected: 0, overdue: 0 });
+    row.agencies++;
+    (m.subscriptionInvoices || []).forEach(inv => {
+      if(inv.status !== 'Paid') return;
+      if(!fin_inPeriod(inv.paidDate || inv.issuedDate)) return;
+      const amt = Number(inv.amount) || 0;
+      row.payments++; row.collected += amt; subsTotal += amt; subsCount++;
+      if(m.type === 'Municipal Corporation' && m.muniNumber) mr(m.muniNumber).subs += amt;
+    });
+    const st = fin_subStatus(m);
+    if(st.state === 'overdue'){ row.overdue++; overdueCount++; overdueAmount += Number(m.platformFee) || 0; }
+  });
+
+  return { types, appCollected, appBilled, onlineAwaiting, onlineAwaitingCount, walkinOwed, walkinOwedCount, muniRow, subsByType, subsTotal, subsCount, overdueCount, overdueAmount, total: appCollected + subsTotal };
+}
+
+function fin_bar(value, max){
+  const pct = max > 0 ? Math.max(0, Math.min(100, Math.round(value / max * 100))) : 0;
+  return `<div class="fin-bar" title="${pct}%"><span style="width:${pct}%"></span></div>`;
+}
+
+function fin_renderAll(){
+  fin_renderDashboard();
+  fin_renderPayments();
+  fin_renderSubs();
+  fin_renderWalkins();
+  const sel = document.getElementById('fin_periodSelect');
+  if(sel && sel.value !== finPeriod) sel.value = finPeriod;
+  const upd = document.getElementById('fin_updatedAt');
+  if(upd) upd.textContent = 'Last updated ' + new Date().toLocaleString();
+}
+window.fin_renderAll = fin_renderAll;
+
+// ---------------- Dashboard ----------------
+function fin_renderDashboard(){
+  const c = fin_compute();
+  const hero = document.getElementById('fin_heroTotal');
+  if(!hero) return;
+  hero.textContent = admin_formatCurrency(c.total);
+  document.getElementById('fin_heroSub').textContent = fin_periodLabel() + ' · application fees ' + admin_formatCurrency(c.appCollected) + ' + subscription & licensing ' + admin_formatCurrency(c.subsTotal);
+
+  document.getElementById('fin_stats').innerHTML = [
+    ['Application fees collected', admin_formatCurrency(c.appCollected)],
+    ['Subscription & licensing collected', admin_formatCurrency(c.subsTotal)],
+    ['Online fees awaiting verification · ' + c.onlineAwaitingCount + ' application' + (c.onlineAwaitingCount === 1 ? '' : 's'), admin_formatCurrency(c.onlineAwaiting)],
+    ['Walk-in fees owed by municipalities · ' + c.walkinOwedCount + ' application' + (c.walkinOwedCount === 1 ? '' : 's'), admin_formatCurrency(c.walkinOwed)],
+    ['Subscriptions overdue · ' + c.overdueCount + ' agenc' + (c.overdueCount === 1 ? 'y' : 'ies'), admin_formatCurrency(c.overdueAmount)]
+  ].map(r => admin_ovwStatCard(r[0], r[1])).join('');
+
+  // Revenue by permit type, across agency groups.
+  const order = ['Annual', 'Special'];
+  Object.keys(c.types).forEach(k => { if(order.indexOf(k) < 0) order.push(k); });
+  const label = { Annual: 'Annual Places of Amusement permit', Special: 'Special Event permit', Unclassified: 'Unclassified' };
+  const collectedMax = Math.max(1, c.appCollected);
+  let rows = order.filter(k => c.types[k]).map(k => {
+    const t = c.types[k];
+    return `<tr>
+      <td class="cell-primary">Municipal Corporations</td>
+      <td>${admin_escapeHtml(label[k] || k)}</td>
+      <td>${t.count}</td>
+      <td>${admin_formatCurrency(t.billed)}</td>
+      <td>${admin_formatCurrency(t.collected)}</td>
+      <td>${admin_formatCurrency(t.collectedWalkin)}</td>
+      <td>${admin_formatCurrency(t.outstanding)}</td>
+      <td style="min-width:110px;">${fin_bar(t.collected, collectedMax)}</td>
+    </tr>`;
+  });
+  if(!rows.length) rows = [`<tr><td colspan="8" class="table-empty">No applications on file yet.</td></tr>`];
+  rows.push(`<tr>
+      <td class="cell-primary">Jamaica Constabulary Force</td>
+      <td>Noise Abatement filing</td>
+      <td colspan="5" style="color:var(--text-muted);">No Atendify fee is charged on JCF filings, so no revenue is recorded for them.</td>
+      <td></td>
+    </tr>`);
+  document.getElementById('fin_byTypeBody').innerHTML = rows.join('');
+
+  // Subscription & licensing by agency type.
+  const stTypes = Object.keys(c.subsByType).sort();
+  document.getElementById('fin_subByTypeBody').innerHTML = stTypes.map(k => {
+    const r = c.subsByType[k];
+    return `<tr><td class="cell-primary">${admin_escapeHtml(k)}</td><td>${r.agencies}</td><td>${r.payments}</td><td>${admin_formatCurrency(r.collected)}</td><td>${r.overdue}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="table-empty">No agencies yet.</td></tr>`;
+
+  // By Municipal Corporation.
+  const corps = fin_corporations();
+  const totals = corps.map(m => { const r = c.muniRow[m.muniNumber] || {}; return (r.annual || 0) + (r.special || 0) + (r.other || 0) + (r.subs || 0); });
+  const max = Math.max(1, ...totals);
+  document.getElementById('fin_byMuniBody').innerHTML = corps.map((m, i) => {
+    const r = c.muniRow[m.muniNumber] || { annual: 0, special: 0, other: 0, subs: 0, walkinOwed: 0 };
+    const st = fin_subStatus(m);
+    const stBadge = st.state === 'overdue' ? '<span class="badge badge-red">Subscription overdue</span>' : '<span class="badge badge-green">Subscription current</span>';
+    const acct = m.status === 'Suspended' ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>';
+    return `<tr>
+      <td class="cell-primary">${admin_escapeHtml(m.name)}</td>
+      <td>${admin_formatCurrency((r.annual || 0))}</td>
+      <td>${admin_formatCurrency((r.special || 0) + (r.other || 0))}</td>
+      <td>${admin_formatCurrency(r.subs || 0)}</td>
+      <td><strong>${admin_formatCurrency(totals[i])}</strong></td>
+      <td style="min-width:90px;">${fin_bar(totals[i], max)}</td>
+      <td>${admin_formatCurrency(r.walkinOwed || 0)}</td>
+      <td>${stBadge}</td>
+      <td>${acct}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="9" class="table-empty">No municipalities yet.</td></tr>`;
+}
+
+function fin_csvCell(v){ const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function fin_downloadCsv(){
+  const c = fin_compute();
+  const lines = [['Municipal Corporation', 'Annual permit fees collected', 'Special event fees collected', 'Subscription collected', 'Total', 'Walk-in fees owed', 'Account status'].map(fin_csvCell).join(',')];
+  fin_corporations().forEach(m => {
+    const r = c.muniRow[m.muniNumber] || { annual: 0, special: 0, other: 0, subs: 0, walkinOwed: 0 };
+    lines.push([m.name, r.annual, (r.special || 0) + (r.other || 0), r.subs, (r.annual || 0) + (r.special || 0) + (r.other || 0) + (r.subs || 0), r.walkinOwed, m.status].map(fin_csvCell).join(','));
+  });
+  lines.push('');
+  lines.push(['Period', fin_periodLabel(), 'Total revenue', c.total].map(fin_csvCell).join(','));
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'atendify-revenue-' + admin_todayIso() + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+window.fin_downloadCsv = fin_downloadCsv;
+
+// ---------------- Persistence helpers ----------------
+function fin_dbError(e){
+  const msg = (e && e.message) || '';
+  if(e && (e.code === '42501' || /row-level security|not allowed|permission denied/i.test(msg))) return 'Could not save — your session may have expired or this account lacks permission. Log out and back in, then try again.';
+  if(/atd_acct_patch|function .* does not exist|schema cache/i.test(msg)) return 'Could not save — the database has not been updated for the Accountant role yet (run backend/accountant_role.sql).';
+  return 'Could not save this change — please try again.';
+}
+
+// Applies `patch` to one application record. Accountant: server-side allow-list
+// function only. Super Admin: same direct write the rest of the console uses.
+async function fin_patchApplication(a, patch){
+  if(!a || !a._storageKey) return false;
+  try{
+    if(adminRole === 'accountant'){
+      if(!(window.ATDBackend && window.ATDBackend.isConfigured())) throw new Error('Backend not configured');
+      const res = await window.ATDBackend.acctPatch(a._storageKey, patch);
+      if(res && res.error) throw res.error;
+    } else {
+      await window.storage.set(a._storageKey, JSON.stringify(Object.assign({}, a.raw, patch)), true);
+    }
+  }catch(e){ admin_showToast(fin_dbError(e)); return false; }
+  Object.assign(a.raw, patch);
+  a.applicationFeeVerified = !!a.raw.applicationFeeVerified;
+  a.applicationFeeVerifiedBy = a.raw.applicationFeeVerifiedBy || '';
+  a.applicationFeeVerifiedDate = a.raw.applicationFeeVerifiedDate || '';
+  a.applicationFeeRemitted = !!a.raw.applicationFeeRemitted;
+  a.applicationFeeRemittedBy = a.raw.applicationFeeRemittedBy || '';
+  a.applicationFeeRemittedDate = a.raw.applicationFeeRemittedDate || '';
+  return true;
+}
+
+async function fin_patchAgency(m, patch){
+  try{
+    if(adminRole === 'accountant'){
+      if(!(window.ATDBackend && window.ATDBackend.isConfigured())) throw new Error('Backend not configured');
+      const res = await window.ATDBackend.acctPatch('agency:' + m.id, patch);
+      if(res && res.error) throw res.error;
+    } else {
+      await window.atdSaveAgency(Object.assign({}, m, patch));
+    }
+  }catch(e){ admin_showToast(fin_dbError(e)); return false; }
+  Object.assign(m, patch);
+  return true;
+}
+
+function fin_audit(action, details, muniId){
+  return window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: admin_actorRoleLabel(), action, details, muniId: muniId != null ? muniId : null });
+}
+
+// ---------------- Small modal ----------------
+function fin_openModal(html){
+  document.getElementById('fin_modalBox').innerHTML = html;
+  document.getElementById('fin_modal').classList.remove('hidden');
+}
+function fin_closeModal(){
+  document.getElementById('fin_modal').classList.add('hidden');
+  document.getElementById('fin_modalBox').innerHTML = '';
+}
+window.fin_closeModal = fin_closeModal;
+
+// ---------------- Fee Payments (verification queue) ----------------
+function fin_setPayFilter(v){ finPayFilter = v; fin_renderPayments(); }
+window.fin_setPayFilter = fin_setPayFilter;
+
+function fin_payStatus(a){
+  if(a.applicationFeeVerified) return a.applicationFeeRemitted ? '<span class="badge badge-green">Received from municipality</span>' : '<span class="badge badge-green">Verified</span>';
+  if(fin_isWalkin(a)) return a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Walk-in · awaiting remittance</span>' : '<span class="badge badge-amber">Walk-in · not yet verified by MC</span>';
+  if(a.applicationFeePaid) return '<span class="badge badge-amber">Awaiting verification</span>';
+  return '<span class="badge">Not yet paid</span>';
+}
+
+function fin_renderPayments(){
+  const body = document.getElementById('fin_paymentsBody');
+  if(!body) return;
+  const muniSel = document.getElementById('fin_payMuni');
+  if(muniSel && muniSel.options.length <= 1){
+    muniSel.innerHTML = '<option value="">All municipalities</option>' + fin_corporations().map(m => `<option value="${admin_escapeHtml(String(m.muniNumber))}">${admin_escapeHtml(m.name)}</option>`).join('');
+  }
+  const muniFilter = muniSel ? muniSel.value : '';
+  const q = ((document.getElementById('fin_paySearch') || {}).value || '').trim().toLowerCase();
+  const fsel = document.getElementById('fin_payFilter');
+  if(fsel && fsel.value !== finPayFilter) fsel.value = finPayFilter;
+
+  const pass = a => {
+    if(muniFilter && String(a.muniId) !== muniFilter) return false;
+    if(q && !(String(a.appNumber).toLowerCase().includes(q) || String(a.applicant).toLowerCase().includes(q))) return false;
+    if(finPayFilter === 'pending') return !fin_isWalkin(a) && a.applicationFeePaid && !a.applicationFeeVerified;
+    if(finPayFilter === 'verified') return a.applicationFeeVerified;
+    if(finPayFilter === 'unpaid') return !fin_isWalkin(a) && !a.applicationFeePaid && !a.applicationFeeVerified;
+    if(finPayFilter === 'walkin') return fin_isWalkin(a);
+    return true;
+  };
+  const list = applications.filter(pass);
+  const pendingCount = applications.filter(a => !fin_isWalkin(a) && a.applicationFeePaid && !a.applicationFeeVerified).length;
+  const badge = document.getElementById('fin_pendingCount');
+  if(badge) badge.textContent = pendingCount ? String(pendingCount) : '';
+  const shown = list.slice(0, 200);
+  body.innerHTML = shown.map(a => {
+    const pay = (a.raw && a.raw.applicationFeePayment) || {};
+    const channel = fin_isWalkin(a) ? 'Walk-in (collected by MC)' : (pay.method ? admin_escapeHtml(pay.method) + (pay.referenceNumber ? ' · ' + admin_escapeHtml(pay.referenceNumber) : '') : '—');
+    const key = JSON.stringify(a.appNumber).replace(/"/g, '&quot;');
+    let actions = '—';
+    if(!fin_isWalkin(a) && a.applicationFeePaid && !a.applicationFeeVerified){
+      actions = `<button class="btn btn-sm" onclick="fin_viewReceipt(${key})">View receipt</button> <button class="btn btn-sm btn-primary" onclick="fin_verifyFee(${key})">Verify payment</button>`;
+    } else if(!fin_isWalkin(a) && a.applicationFeeVerified){
+      actions = a.permitGenerated ? '<span style="color:var(--text-muted);">Locked · permit issued</span>' : `<button class="btn btn-sm" onclick="fin_viewReceipt(${key})">View receipt</button> <button class="btn btn-sm" onclick="fin_unverifyFee(${key})">Unverify</button>`;
+    } else if(fin_isWalkin(a)){
+      actions = a.applicationFeeVerified ? `<button class="btn btn-sm" onclick="fin_unverifyFee(${key})">Undo</button>` : '<button class="btn btn-sm" onclick="admin_goPage(\'fin-walkins\')">Walk-in remittances</button>';
+    }
+    return `<tr>
+      <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
+      <td>${admin_escapeHtml(a.applicant)}</td>
+      <td>${admin_escapeHtml(fin_muniName(a.muniId))}</td>
+      <td>${admin_escapeHtml(a.licenseType || '—')}</td>
+      <td>${admin_formatCurrency(a.applicationFee)}</td>
+      <td>${channel}</td>
+      <td>${fin_payStatus(a)}</td>
+      <td style="white-space:nowrap;">${actions}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="8" class="table-empty">${finPayFilter === 'pending' ? 'No fee payments are waiting for verification.' : 'Nothing matches this filter.'}</td></tr>`;
+  const more = document.getElementById('fin_payMore');
+  if(more) more.textContent = list.length > shown.length ? `Showing the first ${shown.length} of ${list.length}. Narrow the filter to see the rest.` : '';
+}
+window.fin_renderPayments = fin_renderPayments;
+
+async function fin_viewReceipt(appNumber){
+  activeAppId = appNumber;
+  await admin_openApplicationFeeReceiptModal();
+}
+window.fin_viewReceipt = fin_viewReceipt;
+
+async function fin_verifyFee(appNumber){
+  const a = applications.find(x => x.id === appNumber);
+  if(!a) return;
+  if(!a.applicationFeePaid){ admin_showToast('The applicant has not submitted a payment yet — there is nothing to verify.'); return; }
+  if(!(await window.atdConfirm(`Verify the ${admin_formatCurrency(a.applicationFee)} application fee payment for ${a.appNumber} (${a.applicant}, ${fin_muniName(a.muniId)})? Only do this once you have seen the money reach Atendify's account.`))) return;
+  const ok = await fin_patchApplication(a, { applicationFeeVerified: true, applicationFeeVerifiedBy: adminActorEmail, applicationFeeVerifiedDate: admin_todayIso() });
+  if(!ok) return;
+  await fin_audit('application.applicationFeeVerified', `${a.appNumber}: Atendify application fee verified.`, a.muniId);
+  admin_showToast(`Application fee verified for ${a.appNumber}.`);
+  fin_renderAll();
+}
+window.fin_verifyFee = fin_verifyFee;
+
+async function fin_unverifyFee(appNumber){
+  const a = applications.find(x => x.id === appNumber);
+  if(!a) return;
+  if(a.permitGenerated && !fin_isWalkin(a)){ admin_showToast('This fee can no longer be unverified — the permit has already been issued.'); return; }
+  const wasRemitted = a.applicationFeeRemitted;
+  if(!(await window.atdConfirm(wasRemitted ? `Undo the received-from-municipality mark on ${a.appNumber}? It will go back to owed by ${fin_muniName(a.muniId)}.` : `Unverify the application fee payment for ${a.appNumber}? It will go back to awaiting verification.`))) return;
+  const ok = await fin_patchApplication(a, { applicationFeeVerified: false, applicationFeeVerifiedBy: '', applicationFeeVerifiedDate: '', applicationFeeRemitted: false, applicationFeeRemittedBy: '', applicationFeeRemittedDate: '', applicationFeeRemittedRef: '' });
+  if(!ok) return;
+  await fin_audit('application.applicationFeeUnverified', `${a.appNumber}: Atendify application fee unverified${wasRemitted ? ' (was a municipal remittance)' : ''}.`, a.muniId);
+  admin_showToast(wasRemitted ? `${a.appNumber} is owed by ${fin_muniName(a.muniId)} again.` : `Application fee unverified for ${a.appNumber}.`);
+  fin_renderAll();
+}
+window.fin_unverifyFee = fin_unverifyFee;
+
+// ---------------- Subscriptions & Licensing ----------------
+function fin_renderSubs(){
+  const body = document.getElementById('fin_subsBody');
+  if(!body) return;
+  const c = fin_compute();
+  const suspendedMcs = agencies.filter(m => m.type === 'Municipal Corporation' && m.status === 'Suspended').length;
+  document.getElementById('fin_subsStats').innerHTML = [
+    ['Collected · ' + fin_periodLabel(), admin_formatCurrency(c.subsTotal)],
+    ['Agencies overdue', c.overdueCount],
+    ['Overdue amount (one billing period each)', admin_formatCurrency(c.overdueAmount)],
+    ['Suspended municipalities', suspendedMcs]
+  ].map(r => admin_ovwStatCard(r[0], r[1])).join('');
+
+  const rank = { overdue: 0, soon: 1, current: 2 };
+  const rows = agencies.map(m => ({ m, st: fin_subStatus(m) })).sort((x, y) => (rank[x.st.state] - rank[y.st.state]) || x.m.name.localeCompare(y.m.name));
+  body.innerHTML = rows.map(({ m, st }) => {
+    const badge = st.state === 'overdue' ? `<span class="badge badge-red">Overdue${st.days !== null ? ' · ' + Math.abs(st.days) + ' day' + (Math.abs(st.days) === 1 ? '' : 's') : ''}</span>`
+      : st.state === 'soon' ? `<span class="badge badge-amber">Due in ${st.days} day${st.days === 1 ? '' : 's'}</span>`
+      : '<span class="badge badge-green">Current</span>';
+    const acct = m.status === 'Suspended' ? '<span class="badge badge-red">Suspended</span>' : '<span class="badge badge-green">Active</span>';
+    const isMc = m.type === 'Municipal Corporation';
+    let susp = '';
+    if(isMc){
+      susp = m.status === 'Suspended'
+        ? `<button class="btn btn-sm" onclick="fin_openSuspendModal(${m.id})">Reinstate</button>`
+        : `<button class="btn btn-sm btn-danger" onclick="fin_openSuspendModal(${m.id})">Suspend</button>`;
+    }
+    const reason = (m.status === 'Suspended' && m.suspendedReason) ? `<div class="cell-sub">${admin_escapeHtml(m.suspendedReason)}</div>` : '';
+    return `<tr>
+      <td class="cell-primary">${admin_escapeHtml(m.name)}${reason}</td>
+      <td>${admin_escapeHtml(m.type)}</td>
+      <td>${isMc ? admin_escapeHtml(m.subscriptionTier || 'Premium') : '—'}</td>
+      <td>${admin_escapeHtml(m.platformBilling || '')}</td>
+      <td>${admin_formatCurrency(m.platformFee)}</td>
+      <td>${admin_escapeHtml(st.lastPaid || '—')}</td>
+      <td>${admin_escapeHtml(st.nextDue || '—')}</td>
+      <td>${badge}</td>
+      <td>${acct}</td>
+      <td style="white-space:nowrap;"><button class="btn btn-sm btn-primary" onclick="fin_openPaidModal(${m.id})">Mark as paid</button> ${susp}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="10" class="table-empty">No agency accounts yet.</td></tr>`;
+}
+
+function fin_openPaidModal(id){
+  const m = agencies.find(x => x.id === id);
+  if(!m) return;
+  const st = fin_subStatus(m);
+  fin_openModal(`
+    <h3>Mark subscription as paid</h3>
+    <p class="modal-sub">${admin_escapeHtml(m.name)} · ${admin_escapeHtml(m.platformBilling || '')} platform fee of <strong>${admin_formatCurrency(m.platformFee)}</strong>. This records a paid invoice and counts toward Atendify revenue. Only mark it once the money has reached Atendify.</p>
+    <div class="field-row">
+      <div class="field-group"><label for="fin_paidDate">Date received</label><input type="date" id="fin_paidDate" value="${admin_todayIso()}"></div>
+      <div class="field-group"><label for="fin_paidRef">Payment reference (optional)</label><input type="text" id="fin_paidRef" maxlength="80" placeholder="Bank reference, cheque no."></div>
+    </div>
+    <p class="field-hint">Currently ${st.state === 'overdue' ? 'overdue since ' + admin_escapeHtml(st.nextDue) : 'next due ' + admin_escapeHtml(st.nextDue || '—')}.</p>
+    ${(m.type === 'Municipal Corporation' && m.status === 'Suspended') ? `<label style="display:flex; gap:8px; align-items:center; font-size:13.5px; margin-bottom:14px;"><input type="checkbox" id="fin_paidReinstate" checked> This municipality is suspended &mdash; reinstate it now that it has paid</label>` : ''}
+    <div class="modal-actions">
+      <button class="btn" onclick="fin_closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="fin_confirmPaid(${m.id})">Mark as paid</button>
+    </div>`);
+}
+window.fin_openPaidModal = fin_openPaidModal;
+
+async function fin_confirmPaid(id){
+  const paidDate = (document.getElementById('fin_paidDate') || {}).value || admin_todayIso();
+  const reference = ((document.getElementById('fin_paidRef') || {}).value || '').trim();
+  if(paidDate > admin_todayIso()){ admin_showToast('The date received cannot be in the future.'); return; }
+  const reinstate = !!(document.getElementById('fin_paidReinstate') || {}).checked;
+  const ok = await fin_markSubscriptionPaid(id, { paidDate, reference });
+  if(!ok) return;
+  if(reinstate){
+    const m = agencies.find(x => x.id === id);
+    if(m && await fin_patchAgency(m, { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() })){
+      await fin_audit('agency.statusChange', `${m.name} reinstated after payment.`, m.muniNumber);
+      admin_showToast(`${m.name} marked as paid and reinstated.`);
+    }
+  }
+  fin_closeModal(); fin_renderAll();
+}
+window.fin_confirmPaid = fin_confirmPaid;
+
+// Shared by this console and the Super Admin's own Subscription & Licensing
+// "Mark as paid" button (adminMarkAgencyPaid). Records a Paid invoice against
+// the agency (every agency type now, so the revenue figures can count it) and
+// advances lastBilledDate.
+async function fin_markSubscriptionPaid(id, opts){
+  opts = opts || {};
+  const m = agencies.find(x => x.id === id);
+  if(!m) return false;
+  const periodStart = m.lastBilledDate || m.created;
+  const paidDate = opts.paidDate || admin_todayIso();
+  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.slice() : [];
+  const seq = invoices.length + 1;
+  const prefix = (m.type === 'Municipal Corporation' && m.muniNumber != null) ? `ATD-${m.muniNumber}` : `ATD-A${m.id}`;
+  invoices.push({
+    invoiceNumber: `${prefix}-${String(seq).padStart(5, '0')}`,
+    planName: m.type === 'Municipal Corporation' ? (m.subscriptionTier || 'Premium') : 'Platform access',
+    amount: m.platformFee,
+    billingCycle: m.platformBilling,
+    periodStart,
+    periodEnd: paidDate,
+    issuedDate: paidDate,
+    paidDate,
+    reference: opts.reference || '',
+    recordedBy: adminActorEmail,
+    status: 'Paid'
+  });
+  const ok = await fin_patchAgency(m, { lastBilledDate: paidDate, subscriptionInvoices: invoices });
+  if(!ok) return false;
+  await fin_audit('subscription.markPaid', `Marked ${m.name}'s platform subscription as paid (${admin_formatCurrency(m.platformFee)}${opts.reference ? ', ref ' + opts.reference : ''}).`, m.muniNumber);
+  admin_showToast(`${m.name} marked as paid. Next due ${admin_computeNextDue(m.lastBilledDate, m.platformBilling)}.`);
+  return true;
+}
+window.fin_markSubscriptionPaid = fin_markSubscriptionPaid;
+
+// ---------------- Suspend / reinstate a Municipal Corporation ----------------
+function fin_openSuspendModal(id, prefillReason){
+  const m = agencies.find(x => x.id === id);
+  if(!m) return;
+  if(m.status === 'Suspended'){
+    fin_openModal(`
+      <h3>Reinstate ${admin_escapeHtml(m.name)}?</h3>
+      <p class="modal-sub">Its officers will be able to sign in again and applicants will be able to choose this municipality once more.${m.suspendedReason ? ' Suspended for: ' + admin_escapeHtml(m.suspendedReason) : ''}</p>
+      <div class="modal-actions">
+        <button class="btn" onclick="fin_closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="fin_confirmSuspend(${m.id}, false)">Reinstate</button>
+      </div>`);
+    return;
+  }
+  const st = fin_subStatus(m);
+  const c = fin_compute();
+  const owed = (c.muniRow[m.muniNumber] || {}).walkinOwed || 0;
+  const bits = [];
+  if(st.state === 'overdue') bits.push(`Platform subscription overdue since ${st.nextDue}`);
+  if(owed > 0) bits.push(`Walk-in application fees owed: ${admin_formatCurrency(owed)}`);
+  const def = prefillReason || (bits.length ? bits.join('. ') + '.' : '');
+  fin_openModal(`
+    <h3>Suspend ${admin_escapeHtml(m.name)}?</h3>
+    <p class="modal-sub">While suspended, this municipality's officers cannot sign in, a saved session will not reopen after a refresh, and applicants cannot choose it for new applications. Applications already submitted are kept untouched. You can reinstate it at any time.</p>
+    <div class="field-group"><label for="fin_suspendReason">Reason (shown in the audit log)</label><textarea id="fin_suspendReason" rows="3" maxlength="300" placeholder="e.g. Subscription unpaid since 2026-09-01">${admin_escapeHtml(def)}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="fin_closeModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="fin_confirmSuspend(${m.id}, true)">Suspend municipality</button>
+    </div>`);
+}
+window.fin_openSuspendModal = fin_openSuspendModal;
+
+async function fin_confirmSuspend(id, suspend){
+  const m = agencies.find(x => x.id === id);
+  if(!m) return;
+  let patch;
+  if(suspend){
+    const reason = ((document.getElementById('fin_suspendReason') || {}).value || '').trim();
+    if(!reason){ admin_showToast('Please enter a reason for the suspension.'); return; }
+    patch = { status: 'Suspended', suspendedReason: reason, suspendedBy: adminActorEmail, suspendedDate: admin_todayIso() };
+  } else {
+    patch = { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() };
+  }
+  const ok = await fin_patchAgency(m, patch);
+  if(!ok) return;
+  await fin_audit('agency.statusChange', suspend ? `${m.name} suspended: ${patch.suspendedReason}` : `${m.name} reinstated.`, m.muniNumber);
+  admin_showToast(`${m.name} is now ${suspend ? 'suspended' : 'active'}.`);
+  fin_closeModal();
+  fin_renderAll();
+}
+window.fin_confirmSuspend = fin_confirmSuspend;
+
+// ---------------- Walk-in remittances ----------------
+function fin_renderWalkins(){
+  const host = document.getElementById('fin_walkinsBody');
+  if(!host) return;
+  const c = fin_compute();
+  const statsEl = document.getElementById('fin_walkinStats');
+  const received = applications.filter(a => fin_isWalkin(a) && a.applicationFeeRemitted);
+  const receivedTotal = received.reduce((s, a) => s + (a.applicationFee || 0), 0);
+  const atCounter = applications.filter(a => fin_isWalkin(a) && fin_owed(a) > 0 && a.applicationFeeCollectedByMuni).reduce((s, a) => s + (a.applicationFee || 0), 0);
+  statsEl.innerHTML = [
+    ['Total owed by municipalities', admin_formatCurrency(c.walkinOwed)],
+    ['Already collected at the counter', admin_formatCurrency(atCounter)],
+    ['Applications owing', c.walkinOwedCount],
+    ['Received from municipalities (all time)', admin_formatCurrency(receivedTotal)]
+  ].map(r => admin_ovwStatCard(r[0], r[1])).join('');
+
+  const groups = fin_corporations().map(m => ({
+    m, apps: applications.filter(a => fin_isWalkin(a) && String(a.muniId) === String(m.muniNumber) && fin_owed(a) > 0)
+  })).filter(g => g.apps.length).sort((x, y) => y.apps.reduce((s, a) => s + a.applicationFee, 0) - x.apps.reduce((s, a) => s + a.applicationFee, 0));
+
+  let html = groups.map(g => {
+    const total = g.apps.reduce((s, a) => s + (a.applicationFee || 0), 0);
+    const oldest = g.apps.map(a => a.submitted || '').filter(Boolean).sort()[0] || '';
+    const susp = g.m.status === 'Suspended';
+    const mid = JSON.stringify(g.m.muniNumber).replace(/"/g, '&quot;');
+    return `<div class="panel" data-muni="${admin_escapeHtml(String(g.m.muniNumber))}">
+      <div class="panel-head">
+        <div>
+          <h2>${admin_escapeHtml(g.m.name)} ${susp ? '<span class="badge badge-red">Suspended</span>' : ''}</h2>
+          <div class="field-hint" style="margin:2px 0 0;">Owes <strong>${admin_formatCurrency(total)}</strong> across ${g.apps.length} walk-in application${g.apps.length === 1 ? '' : 's'}${oldest ? ' · oldest entered ' + admin_escapeHtml(oldest) : ''}</div>
+        </div>
+        <div class="panel-tools">
+          <button class="btn btn-sm" onclick="fin_selectAllWalkins(${mid})">Select all</button>
+          <button class="btn btn-sm btn-primary" onclick="fin_openReceiveModal(${mid})">Mark selected as received</button>
+          <button class="btn btn-sm ${susp ? '' : 'btn-danger'}" onclick="fin_openSuspendModal(${g.m.id}, ${JSON.stringify('Walk-in application fees owed to Atendify: ' + admin_formatCurrency(total) + '.').replace(/"/g, '&quot;')})">${susp ? 'Reinstate' : 'Suspend'}</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;"><table>
+        <thead><tr><th style="width:34px;"></th><th>Application #</th><th>Applicant</th><th>Permit</th><th>Entered</th><th>Atendify fee</th><th>Stage</th></tr></thead>
+        <tbody>${g.apps.map(a => `<tr>
+          <td><input type="checkbox" class="fin-walkin-cb" data-muni="${admin_escapeHtml(String(g.m.muniNumber))}" value="${admin_escapeHtml(String(a.appNumber))}" aria-label="Select ${admin_escapeHtml(String(a.appNumber))}"></td>
+          <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
+          <td>${admin_escapeHtml(a.applicant)}</td>
+          <td>${admin_escapeHtml(a.licenseType || '—')}</td>
+          <td>${admin_escapeHtml(a.submitted || '—')}</td>
+          <td>${admin_formatCurrency(a.applicationFee)}</td>
+          <td>${a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Collected at counter · awaiting remittance</span>' : '<span class="badge">Payment not yet verified by MC</span>'}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+  if(!groups.length) html = `<div class="panel"><div class="table-empty" style="padding:18px 0;">No municipality owes Atendify any walk-in application fees right now.</div></div>`;
+
+  const recent = received.slice().sort((a, b) => String(b.applicationFeeRemittedDate).localeCompare(String(a.applicationFeeRemittedDate))).slice(0, 25);
+  html += `<div class="panel"><div class="panel-head"><h2>Recently received</h2></div>
+    <div style="overflow-x:auto;"><table>
+      <thead><tr><th>Application #</th><th>Municipality</th><th>Fee</th><th>Received</th><th>Reference</th><th>Recorded by</th><th></th></tr></thead>
+      <tbody>${recent.map(a => `<tr>
+        <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
+        <td>${admin_escapeHtml(fin_muniName(a.muniId))}</td>
+        <td>${admin_formatCurrency(a.applicationFee)}</td>
+        <td>${admin_escapeHtml(a.applicationFeeRemittedDate || '—')}</td>
+        <td>${admin_escapeHtml((a.raw && a.raw.applicationFeeRemittedRef) || '—')}</td>
+        <td>${admin_escapeHtml(a.applicationFeeRemittedBy || '—')}</td>
+        <td><button class="btn btn-sm" onclick="fin_unverifyFee(${JSON.stringify(a.appNumber).replace(/"/g, '&quot;')})">Undo</button></td>
+      </tr>`).join('') || `<tr><td colspan="7" class="table-empty">Nothing has been marked as received yet.</td></tr>`}</tbody>
+    </table></div></div>`;
+  // Keep any ticked boxes across a background refresh.
+  const ticked = new Set(Array.from(host.querySelectorAll('.fin-walkin-cb:checked')).map(cb => cb.value));
+  host.innerHTML = html;
+  host.querySelectorAll('.fin-walkin-cb').forEach(cb => { if(ticked.has(cb.value)) cb.checked = true; });
+}
+
+function fin_selectAllWalkins(muniId){
+  const boxes = Array.from(document.querySelectorAll('.fin-walkin-cb')).filter(cb => cb.dataset.muni === String(muniId));
+  const allOn = boxes.length && boxes.every(cb => cb.checked);
+  boxes.forEach(cb => { cb.checked = !allOn; });
+}
+window.fin_selectAllWalkins = fin_selectAllWalkins;
+
+let finReceiveSelection = [];
+function fin_openReceiveModal(muniId){
+  const nums = Array.from(document.querySelectorAll('.fin-walkin-cb:checked')).filter(cb => cb.dataset.muni === String(muniId)).map(cb => cb.value);
+  if(!nums.length){ admin_showToast('Tick the applications whose fees you have received first.'); return; }
+  const apps = nums.map(n => applications.find(a => String(a.appNumber) === n)).filter(a => a && fin_owed(a) > 0);
+  if(!apps.length) return;
+  finReceiveSelection = apps.map(a => a.appNumber);
+  const total = apps.reduce((s, a) => s + (a.applicationFee || 0), 0);
+  fin_openModal(`
+    <h3>Mark as received</h3>
+    <p class="modal-sub">Confirm Atendify has received <strong>${admin_formatCurrency(total)}</strong> from ${admin_escapeHtml(fin_muniName(apps[0].muniId))}, covering ${apps.length} walk-in application fee${apps.length === 1 ? '' : 's'} (${apps.map(a => admin_escapeHtml(String(a.appNumber))).join(', ')}).</p>
+    <div class="field-row">
+      <div class="field-group"><label for="fin_recvDate">Date received</label><input type="date" id="fin_recvDate" value="${admin_todayIso()}"></div>
+      <div class="field-group"><label for="fin_recvRef">Payment reference (optional)</label><input type="text" id="fin_recvRef" maxlength="80" placeholder="Bank reference, cheque no."></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="fin_closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="fin_confirmReceive()">Mark as received</button>
+    </div>`);
+}
+window.fin_openReceiveModal = fin_openReceiveModal;
+
+async function fin_confirmReceive(){
+  const date = (document.getElementById('fin_recvDate') || {}).value || admin_todayIso();
+  const ref = ((document.getElementById('fin_recvRef') || {}).value || '').trim();
+  if(date > admin_todayIso()){ admin_showToast('The date received cannot be in the future.'); return; }
+  const apps = finReceiveSelection.map(n => applications.find(a => a.appNumber === n)).filter(Boolean);
+  const done = [];
+  for(const a of apps){
+    const ok = await fin_patchApplication(a, {
+      applicationFeeVerified: true, applicationFeeVerifiedBy: adminActorEmail, applicationFeeVerifiedDate: date,
+      applicationFeeRemitted: true, applicationFeeRemittedBy: adminActorEmail, applicationFeeRemittedDate: date, applicationFeeRemittedRef: ref
+    });
+    if(ok) done.push(a);
+  }
+  fin_closeModal();
+  if(done.length){
+    const total = done.reduce((s, a) => s + (a.applicationFee || 0), 0);
+    await fin_audit('remittance.settled', `${fin_muniName(done[0].muniId)}: received ${admin_formatCurrency(total)} across ${done.length} walk-in application(s) (${done.map(a => a.appNumber).join(', ')})${ref ? ', ref ' + ref : ''}.`, done[0].muniId);
+    admin_showToast(`Marked ${admin_formatCurrency(total)} across ${done.length} application${done.length === 1 ? '' : 's'} as received.`);
+  }
+  if(done.length < apps.length) admin_showToast('Some applications could not be updated — please try again.');
+  fin_renderAll();
+}
+window.fin_confirmReceive = fin_confirmReceive;
+
+// ---------------- Role mode (what each role sees) ----------------
+function admin_applyRoleMode(){
+  const shell = document.getElementById('admin_appShell');
+  if(!shell) return;
+  const acct = adminRole === 'accountant';
+  shell.classList.toggle('acct-mode', acct);
+  shell.querySelectorAll('.sidebar-scroll > *').forEach(el => {
+    const finOnly = el.classList.contains('acct-only');
+    el.style.display = (finOnly === acct) ? '' : 'none';
+  });
+  const logo = document.getElementById('admin_logoText');
+  if(logo) logo.textContent = acct ? 'Atendify Finance' : 'Atendify Admin';
+  const nm = document.getElementById('admin_sidebarName');
+  if(nm) nm.textContent = acct ? (adminDisplayName || 'Accountant') : 'Admin';
+  // Land on the right first page for the role.
+  document.querySelectorAll('#shell-admin .page').forEach(p => p.classList.add('hidden'));
+  admin_goPage(acct ? 'fin-dashboard' : 'dashboard');
+}
+window.admin_applyRoleMode = admin_applyRoleMode;
+
+// ---------------- Super Admin: create and assign Accountant accounts ----------------
+async function fin_loadUsers(){
+  finFinanceUsers = [];
+  if(!window.storage) return;
+  try{
+    const list = await window.storage.list('financeUser:');
+    for(const k of ((list && list.keys) || [])){
+      try{
+        const r = await window.storage.get(k);
+        if(r && r.value) finFinanceUsers.push(JSON.parse(r.value));
+      }catch(e){ /* skip unreadable */ }
+    }
+    finFinanceUsers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }catch(e){ finFinanceUsers = []; }
+}
+window.fin_loadUsers = fin_loadUsers;
+
+function fin_renderUsers(){
+  const body = document.getElementById('admin_financeUsersBody');
+  if(!body) return;
+  body.innerHTML = finFinanceUsers.map(u => {
+    const em = JSON.stringify(u.email).replace(/"/g, '&quot;');
+    const active = u.status !== 'Suspended';
+    return `<tr>
+      <td class="cell-primary">${admin_escapeHtml(u.name)}</td>
+      <td>${admin_escapeHtml(u.email)}</td>
+      <td>${active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Suspended</span>'}</td>
+      <td>${admin_escapeHtml(u.created || '')}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm" onclick="fin_setUserState(${em}, '${active ? 'disable' : 'enable'}')">${active ? 'Suspend' : 'Reactivate'}</button>
+        <button class="btn btn-sm btn-danger" onclick="fin_setUserState(${em}, 'remove')">Remove</button>
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" class="table-empty">No Atendify Accountant has been assigned yet.</td></tr>`;
+}
+window.fin_renderUsers = fin_renderUsers;
+
+function fin_openUserModal(){
+  document.getElementById('fin_userName').value = '';
+  document.getElementById('fin_userEmail').value = '';
+  document.getElementById('fin_userModal').classList.remove('hidden');
+}
+function fin_closeUserModal(){ document.getElementById('fin_userModal').classList.add('hidden'); }
+window.fin_openUserModal = fin_openUserModal;
+window.fin_closeUserModal = fin_closeUserModal;
+
+async function fin_saveUser(){
+  if(adminRole !== 'admin') return;
+  const name = document.getElementById('fin_userName').value.trim();
+  const email = document.getElementById('fin_userEmail').value.trim().toLowerCase();
+  if(!name){ admin_showToast('Enter the accountant\'s name.'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ admin_showToast('Enter a valid email address.'); return; }
+  if(finFinanceUsers.some(u => u.email === email)){ admin_showToast('That email is already assigned.'); return; }
+  if(!(window.ATDBackend && window.ATDBackend.isConfigured())){
+    admin_showToast('An Accountant account needs the live backend — it cannot be created in this preview.');
+    return;
+  }
+  const res = await window.ATDBackend.inviteStaff({ email, role: 'accountant', display_name: name });
+  if(res && res.error){ admin_showToast(fin_dbError(res.error)); return; }
+  const rec = { email, name, status: 'Active', created: admin_todayIso(), createdBy: adminActorEmail };
+  try{ await window.storage.set('financeUser:' + email, JSON.stringify(rec), true); }
+  catch(e){ admin_showToast(fin_dbError(e)); return; }
+  finFinanceUsers.push(rec);
+  await fin_audit('financeUser.create', `Assigned ${name} (${email}) as Atendify Accountant.`);
+  fin_closeUserModal();
+  fin_renderUsers();
+  admin_showToast(`${name} can now open the Admin login, choose "Create your password" with ${email}, and sign in to the Finance console.`);
+}
+window.fin_saveUser = fin_saveUser;
+
+async function fin_setUserState(email, action){
+  if(adminRole !== 'admin') return;
+  const u = finFinanceUsers.find(x => x.email === email);
+  if(!u) return;
+  const verb = { disable: 'Suspend', enable: 'Reactivate', remove: 'Remove' }[action];
+  const warn = action === 'remove' ? ' They will lose access immediately and can be assigned again later.' : '';
+  if(!(await window.atdConfirm(`${verb} the Atendify Accountant account for ${u.name} (${u.email})?${warn}`))) return;
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    const { error } = await window.ATDBackend.adminSetAccountant(email, action);
+    if(error){ admin_showToast(fin_dbError(error)); return; }
+  }
+  try{
+    if(action === 'remove'){ await window.storage.delete('financeUser:' + email); finFinanceUsers = finFinanceUsers.filter(x => x.email !== email); }
+    else { u.status = action === 'disable' ? 'Suspended' : 'Active'; await window.storage.set('financeUser:' + email, JSON.stringify(u), true); }
+  }catch(e){ admin_showToast(fin_dbError(e)); return; }
+  const past = { disable: 'Suspended', enable: 'Reactivated', remove: 'Removed' }[action];
+  await fin_audit('financeUser.' + action, `${past} Atendify Accountant ${u.name} (${email}).`);
+  fin_renderUsers();
+  admin_showToast(`${u.name}: ${action === 'remove' ? 'removed' : action === 'disable' ? 'suspended' : 'reactivated'}.`);
+}
+window.fin_setUserState = fin_setUserState;
 
 // ---------------- Integrations ----------------
 // Payment, SMS, ID verification, and GIS below are still configuration
@@ -45121,6 +46373,13 @@ window.updateWordCount = updateWordCount;
     // session to restore, no need to load anything portal-related. The
     // overlay is already force-hidden for this route (see top of <body>).
     if(window.ATD_IS_VERIFY_ROUTE) return;
+    // Arrived from a password-reset email: the box that collects the new
+    // password is already up (see atdShowRecoveryModal). Don't treat the
+    // temporary recovery session as a normal sign-in.
+    if(window.ATD_RECOVERY_PENDING){
+      if(window.atdShowRecoveryModal) window.atdShowRecoveryModal();
+      return;
+    }
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
       profile = await window.ATDBackend.getProfile();
       window.atdDebugLog('atdBootstrapSessionRestore: getProfile() returned ' + (profile ? ('a profile with role=' + JSON.stringify(profile.role)) : 'null') + '.');
@@ -45129,7 +46388,7 @@ window.updateWordCount = updateWordCount;
           restored = await window.muni_tryRestoreSession(profile);
         } else if(profile.role === 'jcfd' && window.jcfd_tryRestoreSession){
           restored = await window.jcfd_tryRestoreSession(profile);
-        } else if(profile.role === 'admin' && window.admin_tryRestoreSession){
+        } else if((profile.role === 'admin' || profile.role === 'accountant') && window.admin_tryRestoreSession){
           restored = await window.admin_tryRestoreSession(profile);
         }
       }
