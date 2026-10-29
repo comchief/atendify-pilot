@@ -5486,6 +5486,15 @@
       var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
       return client.auth.resetPasswordForEmail((email || '').trim().toLowerCase(), redirect ? { redirectTo: redirect } : undefined);
     },
+    // The signed-in user's own access token (used to call Edge Functions that
+    // must know WHO is asking, e.g. send-finance-email). null if signed out.
+    getAccessToken: async function () {
+      if (!client) return null;
+      try {
+        var r = await client.auth.getSession();
+        return (r && r.data && r.data.session && r.data.session.access_token) || null;
+      } catch (e) { return null; }
+    },
     changePassword: function (newPassword) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.updateUser({ password: newPassword });
@@ -6577,6 +6586,39 @@
     }
   };
 
+
+  // ---- Finance emails (suspension notices, payment receipts, Accountant invite) ----
+  // Unlike atdSendEmail, this one is sent as the SIGNED-IN admin / accountant
+  // (their own login token), and the browser sends only an event name and a
+  // small reference (application number, agency id, invoice number...). The
+  // send-finance-email Edge Function works out the recipient, the amounts and
+  // the wording from the database records itself, so nothing here can be
+  // pointed at an arbitrary address. Best-effort, like every other email:
+  // never throws, never blocks the action that triggered it.
+  window.atdSendFinanceEmail = async function(event, ref){
+    if(window.ATD_ENV === 'test'){
+      console.info('[TEST ENV] finance email suppressed:', event, ref || {});
+      return { ok: true, suppressed: true };
+    }
+    try{
+      const token = (window.ATDBackend && window.ATDBackend.getAccessToken) ? await window.ATDBackend.getAccessToken() : null;
+      if(!token) return { ok: false, error: 'not signed in' };
+      const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-finance-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': window.ATD_SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ event, ref: ref || {} })
+      });
+      const body = await res.json().catch(() => ({}));
+      if(!res.ok || !body.ok){
+        console.warn('atdSendFinanceEmail: ' + event + ' did not send —', body.error || res.status);
+        return { ok: false, error: body.error || ('HTTP ' + res.status) };
+      }
+      return { ok: true, id: body.id || null, duplicate: !!body.duplicate };
+    }catch(err){
+      console.warn('atdSendFinanceEmail: ' + event + ' did not send —', err);
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  };
 
   // ---- Forgot password / choose a new password (shared by every portal) ----
   // Real password reset: Supabase Auth emails a one-time link (see
@@ -40643,9 +40685,12 @@ async function resetAgencyPassword(id){
 async function toggleAgencyStatus(id){
   const m = agencies.find(m => m.id === id);
   m.status = m.status === 'Active' ? 'Suspended' : 'Active';
+  if(m.status === 'Suspended'){ m.suspendedBy = adminActorEmail; m.suspendedDate = admin_todayIso(); }
+  else { m.reinstatedBy = adminActorEmail; m.reinstatedDate = admin_todayIso(); m.suspendedReason = ''; }
   await window.atdSaveAgency(m);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.statusChange', details: `${m.name} is now ${m.status.toLowerCase()}.`, muniId: m.muniNumber });
-  admin_showToast(`${m.name} is now ${m.status.toLowerCase()}.`);
+  const mail = await window.atdSendFinanceEmail(m.status === 'Suspended' ? 'agency_suspended' : 'agency_reinstated', { agencyId: m.id });
+  admin_showToast(`${m.name} is now ${m.status.toLowerCase()}.${fin_emailNote(mail, m.status === 'Suspended' ? 'suspension notice' : 'reinstatement notice')}`);
   admin_renderAll();
 }
 
@@ -42086,7 +42131,12 @@ async function adminMarkAgencyPaid(id){
   // today. (The Atendify Accountant's console asks for the date received and
   // an optional reference first -- see fin_openPaidModal.)
   const ok = await fin_markSubscriptionPaid(id, {});
-  if(ok) renderBilling();
+  if(ok){
+    const m = agencies.find(x => x.id === id);
+    const mail = m ? await fin_emailSubscriptionReceipt(m, false) : null;
+    if(mail) admin_showToast(`${m.name} marked as paid.${fin_emailNote(mail, 'receipt')}`);
+    renderBilling();
+  }
 }
 
 // ==================== Atendify Accountant: finance console ====================
@@ -42890,6 +42940,16 @@ async function fin_viewReceipt(appNumber){
 }
 window.fin_viewReceipt = fin_viewReceipt;
 
+// A short sentence to add to a toast saying what happened to the email.
+function fin_emailNote(res, what){
+  const list = Array.isArray(res) ? res : [res];
+  const bad = list.find(r => r && !r.ok);
+  if(bad) return /no email/i.test(bad.error || '') ? ` No email address is on file, so no ${what} was sent.` : ` The ${what} email could not be sent.`;
+  if(list.some(r => r && r.suppressed)) return ` (Test site: the ${what} email was not actually sent.)`;
+  if(list.every(r => !r || r.duplicate)) return '';
+  return ` A ${what} was emailed.`;
+}
+
 async function fin_verifyFee(appNumber){
   const a = applications.find(x => x.id === appNumber);
   if(!a) return;
@@ -42898,7 +42958,9 @@ async function fin_verifyFee(appNumber){
   const ok = await fin_patchApplication(a, { applicationFeeVerified: true, applicationFeeVerifiedBy: adminActorEmail, applicationFeeVerifiedDate: admin_todayIso() });
   if(!ok) return;
   await fin_audit('application.applicationFeeVerified', `${a.appNumber}: Atendify application fee verified.`, a.muniId);
-  admin_showToast(`Application fee verified for ${a.appNumber}.`);
+  // Online payers get a receipt; walk-in fees were paid to the municipality, not to Atendify.
+  const mail = fin_isWalkin(a) ? null : await window.atdSendFinanceEmail('application_fee_receipt', { appNumber: a.appNumber });
+  admin_showToast(`Application fee verified for ${a.appNumber}.${mail ? fin_emailNote(mail, 'receipt') : ''}`);
   fin_renderAll();
 }
 window.fin_verifyFee = fin_verifyFee;
@@ -42987,16 +43049,27 @@ async function fin_confirmPaid(id){
   const reinstate = !!(document.getElementById('fin_paidReinstate') || {}).checked;
   const ok = await fin_markSubscriptionPaid(id, { paidDate, reference });
   if(!ok) return;
-  if(reinstate){
-    const m = agencies.find(x => x.id === id);
-    if(m && await fin_patchAgency(m, { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() })){
-      await fin_audit('agency.statusChange', `${m.name} reinstated after payment.`, m.muniNumber);
-      admin_showToast(`${m.name} marked as paid and reinstated.`);
-    }
+  let reinstated = false;
+  const m = agencies.find(x => x.id === id);
+  if(reinstate && m && await fin_patchAgency(m, { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() })){
+    await fin_audit('agency.statusChange', `${m.name} reinstated after payment.`, m.muniNumber);
+    reinstated = true;
   }
-  fin_closeModal(); fin_renderAll();
+  fin_closeModal();
+  if(m){
+    const mail = await fin_emailSubscriptionReceipt(m, reinstated);
+    admin_showToast(`${m.name} marked as paid${reinstated ? ' and reinstated' : ''}.${mail ? fin_emailNote(mail, 'receipt') : ''}`);
+  }
+  fin_renderAll();
 }
 window.fin_confirmPaid = fin_confirmPaid;
+
+// Emails the paid-invoice receipt for the invoice that was just recorded.
+async function fin_emailSubscriptionReceipt(m, reinstated){
+  const inv = (m.subscriptionInvoices || []).slice(-1)[0];
+  if(!inv || inv.status !== 'Paid') return null;
+  return window.atdSendFinanceEmail('subscription_receipt', { agencyId: m.id, invoiceNumber: inv.invoiceNumber, reinstated: !!reinstated });
+}
 
 // Shared by this console and the Super Admin's own Subscription & Licensing
 // "Mark as paid" button (adminMarkAgencyPaid). Records a Paid invoice against
@@ -43055,8 +43128,8 @@ function fin_openSuspendModal(id, prefillReason){
   const def = prefillReason || (bits.length ? bits.join('. ') + '.' : '');
   fin_openModal(`
     <h3>Suspend ${admin_escapeHtml(m.name)}?</h3>
-    <p class="modal-sub">While suspended, this municipality's officers cannot sign in, a saved session will not reopen after a refresh, and applicants cannot choose it for new applications. Applications already submitted are kept untouched. You can reinstate it at any time.</p>
-    <div class="field-group"><label for="fin_suspendReason">Reason (shown in the audit log)</label><textarea id="fin_suspendReason" rows="3" maxlength="300" placeholder="e.g. Subscription unpaid since 2026-09-01">${admin_escapeHtml(def)}</textarea></div>
+    <p class="modal-sub">A notice with the reason below will be emailed to the municipality. While suspended, this municipality's officers cannot sign in, a saved session will not reopen after a refresh, and applicants cannot choose it for new applications. Applications already submitted are kept untouched. You can reinstate it at any time.</p>
+    <div class="field-group"><label for="fin_suspendReason">Reason (shown in the audit log and in the notice emailed to the municipality)</label><textarea id="fin_suspendReason" rows="3" maxlength="300" placeholder="e.g. Subscription unpaid since 2026-09-01">${admin_escapeHtml(def)}</textarea></div>
     <div class="modal-actions">
       <button class="btn" onclick="fin_closeModal()">Cancel</button>
       <button class="btn btn-danger" onclick="fin_confirmSuspend(${m.id}, true)">Suspend municipality</button>
@@ -43078,8 +43151,9 @@ async function fin_confirmSuspend(id, suspend){
   const ok = await fin_patchAgency(m, patch);
   if(!ok) return;
   await fin_audit('agency.statusChange', suspend ? `${m.name} suspended: ${patch.suspendedReason}` : `${m.name} reinstated.`, m.muniNumber);
-  admin_showToast(`${m.name} is now ${suspend ? 'suspended' : 'active'}.`);
   fin_closeModal();
+  const mail = await window.atdSendFinanceEmail(suspend ? 'agency_suspended' : 'agency_reinstated', { agencyId: m.id });
+  admin_showToast(`${m.name} is now ${suspend ? 'suspended' : 'active'}.${fin_emailNote(mail, suspend ? 'suspension notice' : 'reinstatement notice')}`);
   fin_renderAll();
 }
 window.fin_confirmSuspend = fin_confirmSuspend;
@@ -43203,7 +43277,11 @@ async function fin_confirmReceive(){
   if(done.length){
     const total = done.reduce((s, a) => s + (a.applicationFee || 0), 0);
     await fin_audit('remittance.settled', `${fin_muniName(done[0].muniId)}: received ${admin_formatCurrency(total)} across ${done.length} walk-in application(s) (${done.map(a => a.appNumber).join(', ')})${ref ? ', ref ' + ref : ''}.`, done[0].muniId);
-    admin_showToast(`Marked ${admin_formatCurrency(total)} across ${done.length} application${done.length === 1 ? '' : 's'} as received.`);
+    const byMuni = {};
+    done.forEach(a => { (byMuni[a.muniId] = byMuni[a.muniId] || []).push(a.appNumber); });
+    const mails = [];
+    for(const mid of Object.keys(byMuni)) mails.push(await window.atdSendFinanceEmail('remittance_receipt', { muniNumber: mid, appNumbers: byMuni[mid] }));
+    admin_showToast(`Marked ${admin_formatCurrency(total)} across ${done.length} application${done.length === 1 ? '' : 's'} as received.${fin_emailNote(mails, 'receipt')}`);
   }
   if(done.length < apps.length) admin_showToast('Some applications could not be updated — please try again.');
   fin_renderAll();
@@ -43259,6 +43337,7 @@ function fin_renderUsers(){
       <td>${active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Suspended</span>'}</td>
       <td>${admin_escapeHtml(u.created || '')}</td>
       <td style="white-space:nowrap;">
+        ${active ? `<button class="btn btn-sm" onclick="fin_resendInvite(${em})">Resend invite</button>` : ''}
         <button class="btn btn-sm" onclick="fin_setUserState(${em}, '${active ? 'disable' : 'enable'}')">${active ? 'Suspend' : 'Reactivate'}</button>
         <button class="btn btn-sm btn-danger" onclick="fin_setUserState(${em}, 'remove')">Remove</button>
       </td>
@@ -43296,9 +43375,22 @@ async function fin_saveUser(){
   await fin_audit('financeUser.create', `Assigned ${name} (${email}) as Atendify Accountant.`);
   fin_closeUserModal();
   fin_renderUsers();
-  admin_showToast(`${name} can now open the Admin login, choose "Create your password" with ${email}, and sign in to the Finance console.`);
+  const mail = await window.atdSendFinanceEmail('accountant_invite', { email });
+  const how = `${name} can open the Admin login, choose "Create your password" with ${email}, and sign in to the Finance console.`;
+  if(mail.suppressed) admin_showToast(`${name} assigned. ${how} (Test site: the invitation email was not actually sent.)`);
+  else if(mail.ok) admin_showToast(`${name} has been emailed an invitation to ${email}.`);
+  else admin_showToast(`${name} assigned, but the invitation email could not be sent. ${how}`);
 }
 window.fin_saveUser = fin_saveUser;
+
+async function fin_resendInvite(email){
+  if(adminRole !== 'admin') return;
+  const u = finFinanceUsers.find(x => x.email === email);
+  if(!u) return;
+  const mail = await window.atdSendFinanceEmail('accountant_invite', { email });
+  admin_showToast(mail.suppressed ? `(Test site: the invitation email to ${email} was not actually sent.)` : mail.ok ? (mail.duplicate ? `An invitation was already sent to ${email} within the last hour.` : `Invitation emailed to ${email}.`) : `The invitation email could not be sent to ${email}.`);
+}
+window.fin_resendInvite = fin_resendInvite;
 
 async function fin_setUserState(email, action){
   if(adminRole !== 'admin') return;
