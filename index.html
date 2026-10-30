@@ -2649,6 +2649,29 @@
   .fin-donut-stack .pie-legend{ width:100%; max-width:260px; display:flex; flex-direction:column; gap:9px; }
   .fin-donut-stack .pie-legend-row{ width:100%; }
   .fin-donut-stack .pie-legend-value{ margin-left:auto; }
+  .aud-controls{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 12px; font-size:13px; color:var(--text-muted); }
+  .aud-controls select{ width:auto; }
+  .aud-count{ margin-left:auto; font-variant-numeric: tabular-nums; }
+  .aud-month{ border:1px solid var(--border); border-radius:var(--radius); margin:0 0 10px; background:var(--bg); overflow:hidden; }
+  .aud-month.open{ border-color: var(--blue); }
+  .aud-month-head{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; width:100%; text-align:left; background: linear-gradient(90deg, var(--blue-tint), var(--bg) 70%); border:0; padding:14px 16px; cursor:pointer; font:inherit; color:var(--text); }
+  .aud-month-head:hover{ filter:brightness(0.98); }
+  .aud-month-head:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
+  .aud-caret{ display:inline-block; transition: transform .15s ease; color:var(--blue); font-size:14px; }
+  .aud-month.open .aud-caret{ transform: rotate(90deg); }
+  .aud-month-title{ font-weight:800; font-size:15px; min-width:130px; }
+  .aud-month-count{ font-weight:700; font-variant-numeric: tabular-nums; background:var(--blue); color:#fff; border-radius:999px; padding:2px 10px; font-size:12.5px; }
+  .aud-month-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .aud-chip{ font-size:12px; color:var(--text-muted); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:2px 9px; }
+  .aud-chip b{ color:var(--text); }
+  .aud-chip-bad{ color:var(--red); background:var(--red-tint); border-color:transparent; font-weight:700; }
+  .aud-month-body{ padding:6px 16px 16px; border-top:1px solid var(--border); }
+  .aud-summary{ display:grid; grid-template-columns: 1.3fr 1.3fr 0.8fr; gap:22px; margin:12px 0 16px; }
+  @media (max-width: 1000px){ .aud-summary{ grid-template-columns:1fr; } }
+  .aud-sub{ font-size:11.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px; }
+  .aud-hrow{ grid-template-columns: minmax(80px,170px) 1fr 44px; margin:6px 0; }
+  .aud-facts{ display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--text-muted); }
+  .aud-facts b{ color:var(--text); font-size:16px; }
   .fin-section-title{ font-size:15px; font-weight:800; margin:26px 0 12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
   .modal-box h3{ font-size: 20px; font-weight:700; margin:0 0 4px; }
   .modal-sub{ font-size: 13.5px; color: var(--text-muted); margin: 0 0 22px; }
@@ -5111,22 +5134,23 @@
   window.atdPruneReadAuditLog = async function(){
     if(!client) return;
     try{
-      var res = await atdWithClockSkewRetry(function(){
-        return client.from(TABLE).select('key, value').like('key', 'auditLog:%');
-      });
-      if(res.error){ window.atdShowDebugError('atdPruneReadAuditLog()', res.error); return; }
-      var rows = res.data || [];
-      var cutoff = Date.now() - READ_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-      var staleKeys = rows.filter(function(r){
-        var v = r.value || {};
-        return typeof v.action === 'string' && v.action.endsWith('.viewed')
-          && v.ts && new Date(v.ts).getTime() < cutoff;
-      }).map(function(r){ return r.key; });
-      if(!staleKeys.length) return;
-      var delRes = await atdWithClockSkewRetry(function(){
-        return client.from(TABLE).delete().in('key', staleKeys);
-      });
-      if(delRes.error) window.atdShowDebugError('atdPruneReadAuditLog() delete', delRes.error);
+      // Entry keys are 'auditLog:audit-<ms>-<random>', so "older than 90 days"
+      // is a key-range test the database can do for us (no need to download
+      // the whole log, and no 1,000-row blind spot as it grows).
+      var cutoffKey = 'auditLog:audit-' + (Date.now() - READ_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      for(var round = 0; round < 20; round++){
+        var res = await atdWithClockSkewRetry(function(){
+          return client.from(TABLE).select('key').like('key', 'auditLog:%').lt('key', cutoffKey).like('value->>action', '%.viewed').limit(500);
+        });
+        if(res.error){ window.atdShowDebugError('atdPruneReadAuditLog()', res.error); return; }
+        var staleKeys = (res.data || []).map(function(r){ return r.key; });
+        if(!staleKeys.length) return;
+        var delRes = await atdWithClockSkewRetry(function(){
+          return client.from(TABLE).delete().in('key', staleKeys);
+        });
+        if(delRes.error){ window.atdShowDebugError('atdPruneReadAuditLog() delete', delRes.error); return; }
+        if(staleKeys.length < 500) return;
+      }
     } catch(e){ window.atdShowDebugError('atdPruneReadAuditLog()', e); }
   };
 
@@ -5424,6 +5448,37 @@
         window.atdShowDebugError('storage.list(' + prefix + ')', e);
         return resolved({ keys: [] });
       }
+    },
+
+    // Bulk read of key + value for everything under a prefix, in a handful of
+    // requests instead of one request per row. The database returns at most
+    // 1,000 rows per request, so this pages through (newest key first). Used
+    // by the audit log, which grows without limit. opts: gteKey / ltKey bound
+    // the key range, valueLike = ['action', '%.viewed'] filters on a JSON
+    // field, limit caps the total rows (default 30,000).
+    listValues: async function (prefix, opts) {
+      opts = opts || {};
+      if (!client) return resolved([]);
+      var out = [];
+      var PAGE = 1000;
+      var maxRows = opts.limit || 30000;
+      try {
+        for (var start = 0; start < maxRows; start += PAGE) {
+          var from = start;
+          var res = await atdWithClockSkewRetry(function () {
+            var q = client.from(TABLE).select('key, value').like('key', prefix + '%');
+            if (opts.gteKey) q = q.gte('key', opts.gteKey);
+            if (opts.ltKey) q = q.lt('key', opts.ltKey);
+            if (opts.valueLike) q = q.like('value->>' + opts.valueLike[0], opts.valueLike[1]);
+            return q.order('key', { ascending: false }).range(from, from + PAGE - 1);
+          });
+          if (res.error) { window.atdShowDebugError('storage.listValues(' + prefix + ')', res.error); break; }
+          var rows = res.data || [];
+          out = out.concat(rows);
+          if (rows.length < PAGE) break;
+        }
+      } catch (e) { window.atdShowDebugError('storage.listValues(' + prefix + ')', e); }
+      return resolved(out);
     },
 
     signIn: function (email, password) {
@@ -7666,16 +7721,27 @@
       // Best-effort — a failed audit write should never block the action.
     }
   };
-  window.atdLoadAuditLogs = async function(){
+  // opts.sinceMs: only entries written after this time (cheap for "last 24 hours").
+  window.atdLoadAuditLogs = async function(opts){
+    opts = opts || {};
     if(!window.storage) return [];
     try{
-      const list = await window.storage.list('auditLog:');
-      const out = [];
-      for(const k of (list.keys || [])){
-        try{
-          const r = await window.storage.get(k);
-          if(r && r.value) out.push(JSON.parse(r.value));
-        }catch(e){ /* skip unreadable record */ }
+      let out = [];
+      if(window.storage.listValues){
+        const rows = await window.storage.listValues('auditLog:', opts.sinceMs ? { gteKey: 'auditLog:audit-' + Math.floor(opts.sinceMs) } : {});
+        for(const r of rows){
+          let v = r.value;
+          if(typeof v === 'string'){ try{ v = JSON.parse(v); }catch(e){ v = null; } }
+          if(v && typeof v === 'object') out.push(v);
+        }
+      } else {
+        const list = await window.storage.list('auditLog:');
+        for(const k of (list.keys || [])){
+          try{
+            const r = await window.storage.get(k);
+            if(r && r.value) out.push(JSON.parse(r.value));
+          }catch(e){ /* skip unreadable record */ }
+        }
       }
       out.sort((a,b) => (b.ts || '').localeCompare(a.ts || ''));
       return out;
@@ -12141,7 +12207,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <button class="btn btn-sm" onclick="renderAuditLogs()">↻ Refresh</button>
           </div>
         </div>
-        <div class="field-hint" style="margin:-6px 0 14px;">Every login (success and failure) and every mutation across all three portals, newest first. Showing the most recent 200 matching events.</div>
+        <div class="field-hint" style="margin:-6px 0 12px;">Every login (success and failure) and every mutation across all three portals, newest first. Entries can never be edited or deleted. Older entries are folded into a monthly summary that you can open at any time.</div>
+        <div class="aud-controls">
+          <label for="admin_auditKeep">Show full detail for the last</label>
+          <select id="admin_auditKeep" onchange="aud_setKeepDays(this.value)">
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+          </select>
+          <span class="aud-count" id="admin_auditCounts"></span>
+        </div>
         <div style="overflow-x:auto;">
           <table>
             <thead>
@@ -12150,6 +12227,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <tbody id="admin_auditLogBody"></tbody>
           </table>
         </div>
+        <div id="admin_auditRecentMore" style="margin-top:10px;"></div>
+      </div>
+      <div class="panel" id="admin_auditArchivePanel">
+        <div class="panel-head"><h2>Earlier activity</h2></div>
+        <div class="field-hint" style="margin:-6px 0 12px;">Summarised by month. Select a month to see what happened and to read every entry.</div>
+        <div id="admin_auditArchive"></div>
       </div>
     </div>
 
@@ -40071,7 +40154,7 @@ async function admin_renderNationalOverview(){
     const activeStaff = muniUsers.filter(u => u.status === 'Active').length;
     const pendingIntegrations = await admin_countPendingIntegrations();
     const activeLockouts = window.atdCountActiveLockouts ? await window.atdCountActiveLockouts() : 0;
-    const auditLogs = window.atdLoadAuditLogs ? await window.atdLoadAuditLogs() : [];
+    const auditLogs = window.atdLoadAuditLogs ? await window.atdLoadAuditLogs({ sinceMs: Date.now() - 24*60*60*1000 }) : [];
     const since24h = new Date(Date.now() - 24*60*60*1000).toISOString();
     const recentFailedLogins = auditLogs.filter(e => e.action === 'login.failed' && e.ts >= since24h).length;
     const securityAlerts = activeLockouts + recentFailedLogins;
@@ -41711,6 +41794,37 @@ function admin_downloadCsv(filename, headers, rows){
 }
 
 // ---------------- Audit Logs ----------------
+// Entries newer than the chosen number of days are listed in full; older ones
+// are folded into one summary per month (counts by portal and action, failed
+// logins, busiest accounts), opened on demand. Nothing is deleted or hidden:
+// every entry is still one click away, and the filters apply to both parts.
+let audKeepDays = 30;
+try{ const v = parseInt(localStorage.getItem('atdAuditKeepDays'), 10); if([7,14,30,60,90].indexOf(v) >= 0) audKeepDays = v; }catch(e){}
+let audRecentShown = 300;
+const audOpenMonths = new Set();
+const audMonthShown = {};
+let audAll = [];
+const AUD_PORTAL = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
+const AUD_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function aud_setKeepDays(v){
+  audKeepDays = parseInt(v, 10) || 30;
+  try{ localStorage.setItem('atdAuditKeepDays', String(audKeepDays)); }catch(e){}
+  audRecentShown = 300;
+  aud_render();
+}
+window.aud_setKeepDays = aud_setKeepDays;
+
+function aud_rowHtml(e){
+  return `<tr>
+      <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
+      <td><span class="badge badge-gray">${admin_escapeHtml(AUD_PORTAL[e.portal] || e.portal || 'unknown')}</span></td>
+      <td>${admin_escapeHtml(e.actor)}${e.actorRole ? `<div class="cell-sub">${admin_escapeHtml(e.actorRole)}</div>` : ''}${e._dbEmail ? `<div class="cell-sub" title="Stamped by the database from the signed-in account; it cannot be set by the browser.">Verified account: ${admin_escapeHtml(e._dbEmail)}</div>` : ''}</td>
+      <td>${admin_escapeHtml(e.action)}</td>
+      <td>${admin_escapeHtml(e.details)}</td>
+    </tr>`;
+}
+
 async function renderAuditLogs(){
   const body = document.getElementById('admin_auditLogBody');
   if(!body) return;
@@ -41721,42 +41835,122 @@ async function renderAuditLogs(){
   // runs here rather than on every sign-in. Not awaited, so it never delays
   // the table below from rendering with whatever's already loaded.
   if(window.atdPruneReadAuditLog) window.atdPruneReadAuditLog();
-  const logs = await window.atdLoadAuditLogs();
+  audAll = await window.atdLoadAuditLogs();
+  const keepEl = document.getElementById('admin_auditKeep');
+  if(keepEl) keepEl.value = String(audKeepDays);
+  aud_render();
+}
+
+function aud_render(){
+  const body = document.getElementById('admin_auditLogBody');
+  if(!body) return;
+  const logs = audAll;
 
   const actionFilterEl = document.getElementById('admin_auditActionFilter');
   const currentAction = actionFilterEl.value;
   const actionTypes = [...new Set(logs.map(e => e.action))].sort();
   actionFilterEl.innerHTML = '<option value="">All action types</option>' +
-    actionTypes.map(a => `<option value="${a}">${admin_escapeHtml(a)}</option>`).join('');
+    actionTypes.map(a => `<option value="${admin_escapeHtml(a)}">${admin_escapeHtml(a)}</option>`).join('');
   actionFilterEl.value = currentAction;
 
   const search = document.getElementById('admin_auditSearch').value.trim().toLowerCase();
   const portalFilter = document.getElementById('admin_auditPortalFilter').value;
   const actionFilterVal = actionFilterEl.value;
 
-  let list = logs.filter(e => {
-    const matchesSearch = !search || (e.actor || '').toLowerCase().includes(search) || (e.details || '').toLowerCase().includes(search);
+  const filtered = logs.filter(e => {
+    const matchesSearch = !search || (e.actor || '').toLowerCase().includes(search) || (e._dbEmail || '').toLowerCase().includes(search) || (e.details || '').toLowerCase().includes(search);
     const matchesPortal = !portalFilter || e.portal === portalFilter;
     const matchesAction = !actionFilterVal || e.action === actionFilterVal;
     return matchesSearch && matchesPortal && matchesAction;
-  }).slice(0, 200);
+  });
 
-  if(!list.length){
-    body.innerHTML = `<tr><td colspan="5" class="table-empty">No matching audit events yet.</td></tr>`;
+  // Split at midnight, N days ago, so "30 days" always means whole days.
+  const cut = new Date(); cut.setHours(0, 0, 0, 0); cut.setDate(cut.getDate() - audKeepDays);
+  const cutIso = cut.toISOString();
+  const recent = filtered.filter(e => (e.ts || '') >= cutIso);
+  const older = filtered.filter(e => (e.ts || '') < cutIso);
+
+  // ----- recent, in full -----
+  const shown = recent.slice(0, audRecentShown);
+  body.innerHTML = shown.length ? shown.map(aud_rowHtml).join('') : `<tr><td colspan="5" class="table-empty">No matching audit events in the last ${audKeepDays} days.</td></tr>`;
+  const moreEl = document.getElementById('admin_auditRecentMore');
+  if(moreEl) moreEl.innerHTML = recent.length > shown.length ? `<button class="btn btn-sm" onclick="aud_showMoreRecent()">Show ${Math.min(300, recent.length - shown.length)} more (${recent.length - shown.length} not shown)</button>` : '';
+
+  // ----- earlier, one summary per month -----
+  const groups = {};
+  older.forEach(e => {
+    const k = String(e.ts || '').slice(0, 7) || 'unknown';
+    (groups[k] = groups[k] || []).push(e);
+  });
+  const keys = Object.keys(groups).sort().reverse();
+  const num = n => Number(n).toLocaleString('en-US');
+  const countsEl = document.getElementById('admin_auditCounts');
+  if(countsEl) countsEl.textContent = `${num(recent.length)} recent · ${num(older.length)} earlier in ${keys.length} month${keys.length === 1 ? '' : 's'} · ${num(logs.length)} in total`;
+  const host = document.getElementById('admin_auditArchive');
+  const panel = document.getElementById('admin_auditArchivePanel');
+  if(panel) panel.style.display = (logs.length && !older.length && !(logs.some(e => (e.ts || '') < cutIso))) ? 'none' : '';
+  if(!host) return;
+  if(!keys.length){
+    host.innerHTML = `<div class="fin-empty-note">${logs.some(e => (e.ts || '') < cutIso) ? 'No earlier entries match the filters.' : 'Nothing is older than ' + audKeepDays + ' days yet. Entries will be folded into monthly summaries here as they age.'}</div>`;
     return;
   }
-
-  const portalLabel = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
-  body.innerHTML = list.map(e => `
-    <tr>
-      <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
-      <td><span class="badge badge-gray">${admin_escapeHtml(portalLabel[e.portal] || e.portal || 'unknown')}</span></td>
-      <td>${admin_escapeHtml(e.actor)}${e.actorRole ? `<div class="cell-sub">${admin_escapeHtml(e.actorRole)}</div>` : ''}</td>
-      <td>${admin_escapeHtml(e.action)}</td>
-      <td>${admin_escapeHtml(e.details)}</td>
-    </tr>
-  `).join('');
+  host.innerHTML = keys.map(k => aud_monthHtml(k, groups[k])).join('');
 }
+window.renderAuditLogs = renderAuditLogs;
+
+function aud_showMoreRecent(){ audRecentShown += 300; aud_render(); }
+window.aud_showMoreRecent = aud_showMoreRecent;
+
+function aud_monthHtml(key, list){
+  const num = n => Number(n).toLocaleString('en-US');
+  const [y, m] = key.split('-');
+  const title = AUD_MONTHS[(parseInt(m, 10) || 1) - 1] ? `${AUD_MONTHS[parseInt(m, 10) - 1]} ${y}` : key;
+  const open = audOpenMonths.has(key);
+  const byPortal = {};
+  list.forEach(e => { const p = AUD_PORTAL[e.portal] || e.portal || 'unknown'; byPortal[p] = (byPortal[p] || 0) + 1; });
+  const failed = list.filter(e => e.action === 'login.failed').length;
+  const logins = list.filter(e => e.action === 'login.success').length;
+  const chips = Object.keys(byPortal).sort((a, b) => byPortal[b] - byPortal[a]).map(p => `<span class="aud-chip">${admin_escapeHtml(p)} <b>${num(byPortal[p])}</b></span>`).join('')
+    + (failed ? `<span class="aud-chip aud-chip-bad">${num(failed)} failed login${failed === 1 ? '' : 's'}</span>` : '');
+  const id = 'aud_m_' + key;
+  return `<div class="aud-month${open ? ' open' : ''}" id="${id}">
+    <button type="button" class="aud-month-head" aria-expanded="${open}" aria-controls="${id}_body" onclick="aud_toggleMonth('${key}')">
+      <span class="aud-caret" aria-hidden="true">&#9656;</span>
+      <span class="aud-month-title">${admin_escapeHtml(title)}</span>
+      <span class="aud-month-count">${num(list.length)} event${list.length === 1 ? '' : 's'}</span>
+      <span class="aud-month-chips">${chips}</span>
+    </button>
+    <div class="aud-month-body" id="${id}_body"${open ? '' : ' hidden'}>${open ? aud_monthBodyHtml(key, list, { num, logins, failed }) : ''}</div>
+  </div>`;
+}
+
+function aud_monthBodyHtml(key, list, ctx){
+  const num = ctx.num;
+  // Top actions and busiest accounts, as small bars.
+  const byAction = {}, byActor = {};
+  list.forEach(e => { byAction[e.action] = (byAction[e.action] || 0) + 1; const a = e._dbEmail || e.actor || 'unknown'; byActor[a] = (byActor[a] || 0) + 1; });
+  const topA = Object.keys(byAction).sort((a, b) => byAction[b] - byAction[a]).slice(0, 6);
+  const topU = Object.keys(byActor).sort((a, b) => byActor[b] - byActor[a]).slice(0, 5);
+  const maxA = Math.max(1, ...topA.map(k => byAction[k])), maxU = Math.max(1, ...topU.map(k => byActor[k]));
+  const bars = (keys, map, max) => keys.map(k => `<div class="fin-hrow aud-hrow"><div class="fin-hlabel" title="${admin_escapeHtml(k)}">${admin_escapeHtml(k)}</div><div class="fin-htrack"><span class="fin-seg" style="width:${(map[k] / max * 100).toFixed(1)}%; background:var(--dvz-1);"></span></div><div class="fin-hvalue">${num(map[k])}</div></div>`).join('');
+  const shownN = audMonthShown[key] || 100;
+  const rows = list.slice(0, shownN);
+  return `<div class="aud-summary">
+      <div><div class="aud-sub">Most common actions</div>${bars(topA, byAction, maxA)}</div>
+      <div><div class="aud-sub">Busiest accounts</div>${bars(topU, byActor, maxU)}</div>
+      <div class="aud-facts"><div><b>${num(ctx.logins)}</b> successful sign-in${ctx.logins === 1 ? '' : 's'}</div><div><b>${num(ctx.failed)}</b> failed sign-in${ctx.failed === 1 ? '' : 's'}</div><div><b>${num(Object.keys(byActor).length)}</b> different account${Object.keys(byActor).length === 1 ? '' : 's'}</div></div>
+    </div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Time</th><th>Portal</th><th>Actor</th><th>Action</th><th>Details</th></tr></thead><tbody>${rows.map(aud_rowHtml).join('')}</tbody></table></div>
+    ${list.length > rows.length ? `<div style="margin-top:10px;"><button class="btn btn-sm" onclick="aud_monthMore('${key}')">Show ${Math.min(100, list.length - rows.length)} more (${num(list.length - rows.length)} not shown)</button></div>` : ''}`;
+}
+
+function aud_toggleMonth(key){
+  if(audOpenMonths.has(key)) audOpenMonths.delete(key); else audOpenMonths.add(key);
+  aud_render();
+}
+function aud_monthMore(key){ audMonthShown[key] = (audMonthShown[key] || 100) + 100; aud_render(); }
+window.aud_toggleMonth = aud_toggleMonth;
+window.aud_monthMore = aud_monthMore;
 
 async function admin_exportAuditCsv(){
   const logs = await window.atdLoadAuditLogs();
@@ -41960,7 +42154,7 @@ async function saveSecurityPolicy(){
 async function renderLoginActivity(){
   const body = document.getElementById('admin_loginActivityBody');
   if(!body) return;
-  const logs = await window.atdLoadAuditLogs();
+  const logs = await window.atdLoadAuditLogs({ sinceMs: Date.now() - 90*24*60*60*1000 });
   const logins = logs.filter(e => e.action === 'login.success' || e.action === 'login.failed').slice(0, 50);
   const portalLabel = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
   body.innerHTML = logins.map(e => `
