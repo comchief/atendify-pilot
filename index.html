@@ -32965,6 +32965,7 @@ async function jcfFlagForTrn(trn){
 
 async function loadWatchlist(){
   if(!window.storage) return;
+  if(muni_paymentOnly()) return;  // payment-only officers never load the watchlist
   try{
     const listResult = await window.storage.list('watchlist:', true);
     const keys = (listResult && listResult.keys) || [];
@@ -34936,8 +34937,8 @@ function muni_renderKeyInsights(){
       `<strong>${incompleteCount}</strong> event${incompleteCount === 1 ? '' : 's'} within 7 days ${incompleteCount === 1 ? 'has' : 'have'} incomplete permits`),
     tile(revenueUp ? 'good' : 'bad', revenueUp ? trendUpIcon : trendDownIcon, revenueText),
     tile(complianceTone, shieldIcon, `SLA compliance at <strong>${compliancePct}%</strong> right now`),
-    tile(flaggedIndividuals > 0 ? 'bad' : 'good', userIcon,
-      `<strong>${flaggedIndividuals}</strong> flagged individual${flaggedIndividuals === 1 ? '' : 's'} on your Watch List`),
+    ...(muni_paymentOnly() ? [] : [tile(flaggedIndividuals > 0 ? 'bad' : 'good', userIcon,
+      `<strong>${flaggedIndividuals}</strong> flagged individual${flaggedIndividuals === 1 ? '' : 's'} on your Watch List`)]),
     tile(flaggedVenues > 0 ? 'warn' : 'good', buildingIcon,
       `<strong>${flaggedVenues}</strong> flagged venue${flaggedVenues === 1 ? '' : 's'}`)
   ];
@@ -36824,6 +36825,8 @@ async function renderAppDetail(){
     });
   }
 
+  // Payment-only officers (e.g. the Accountant) do not see the watchlist at all.
+  if(!muni_paymentOnly()){
   cardsHtml += `<div class="official-card"><h4>Watchlist</h4>`;
   if(!wlSubjects.length){
     cardsHtml += `<div class="readback-row">No TRNs on file to check against the watchlist.</div>`;
@@ -36879,6 +36882,7 @@ async function renderAppDetail(){
     }
   }
   cardsHtml += `</div>`;
+  } // end: not payment-only
 
   // ---- Document Check card ----
   // Computed live (see muni_computeDocBreakdown/muni_computeRequiredDocumentsSubmitted)
