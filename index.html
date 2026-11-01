@@ -5891,6 +5891,14 @@
       if (res.error) { window.atdShowDebugError('municipalCreditDecide()', res.error); return { ok: false, error: 'Could not reach the service. Please try again.' }; }
       return res.data || { ok: false, error: 'No answer from the service.' };
     },
+    // The CEO's Credit Log: requests, credits issued and credit spent for the
+    // signed-in officer's municipality (security_credit_log.sql).
+    municipalCreditLog: async function () {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () { return client.rpc('atd_municipal_credit_log'); });
+      if (res.error) { window.atdShowDebugError('municipalCreditLog()', res.error); return { ok: false, error: 'Could not load the credit log. Please try again.' }; }
+      return res.data || { ok: false, error: 'No answer from the service.' };
+    },
     // Every Municipal Credit request for the signed-in officer's municipality
     // (the database only returns their own).
     municipalCreditRequests: async function () {
@@ -7694,6 +7702,9 @@
       created: new Date().toISOString().slice(0,10),
       password: password || ATD_DEFAULT_PASSWORD
     };
+    // On the live service the CEO creates their own password at first sign-in,
+    // so nothing is kept in the record.
+    if(window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured()) delete record.password;
     await window.atdSaveMuniUser(record);
     // Pre-authorize this CEO's email for the real backend the same way
     // muni_saveUser() already does for every OTHER staff member a CEO adds.
@@ -9730,6 +9741,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5a2.5 2.5 0 012.5-2.5h1A2.5 2.5 0 0115 9.5a2.5 2.5 0 01-2.5 2.5h-1A2.5 2.5 0 009 14.5a2.5 2.5 0 002.5 2.5h1a2.5 2.5 0 002.5-2.5"/></svg>
       Payments
     </div>
+    <div class="nav-item hidden" data-page="creditLog" id="navCreditLog" onclick="muni_goPage('creditLog')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><polyline points="9 15 11 17 15 13"/></svg>
+      Credit Log
+    </div>
     <div class="nav-item hidden" data-page="ads" id="navAds" onclick="muni_goPage('ads')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a2 2 0 11-3.2 2.4"/></svg>
       Advertisements
@@ -10243,6 +10258,49 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <table>
             <thead><tr><th>Date</th><th>Application #</th><th>Applicant</th><th>Type</th><th>License Type</th><th>Amount</th><th>Receipt #</th><th>Notes</th></tr></thead>
             <tbody id="muni_paymentsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== CREDIT LOG PAGE (CEO) =====
+         One place for every Municipal Credit this municipality has been asked to
+         issue: requested, approved, rejected, and whether the applicant has
+         spent it (and on which application). Read from the database through
+         atd_municipal_credit_log() (security_credit_log.sql). -->
+    <div class="page hidden" id="muni_page-creditLog">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Credit Log</h2>
+          <div class="panel-tools">
+            <input type="text" id="muni_creditSearch" placeholder="Search application # or applicant" aria-label="Search the credit log" oninput="muni_renderCreditLogTable()">
+            <button class="btn btn-sm" onclick="muni_renderCreditLog()">↻ Refresh</button>
+            <button class="btn btn-sm" onclick="muni_exportCreditLogCsv()">⬇ Export CSV</button>
+          </div>
+        </div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Every Municipal Credit request for your municipality: who asked, who decided, how much, and whether the applicant has used it. A credit is a refund of money already paid, and can only be spent on a License Fee at your municipality.</p>
+        <div class="stat-grid" id="muni_creditStats"></div>
+        <div class="readback-row hidden" id="muni_creditNote" style="margin:10px 0;"></div>
+        <div class="dash-risk-tabs" id="muni_creditStatusTabs" style="margin-top:14px;">
+          <button class="dash-risk-tab active" data-status="all" onclick="muni_setCreditStatus('all')">All</button>
+          <button class="dash-risk-tab" data-status="Pending" onclick="muni_setCreditStatus('Pending')">Awaiting decision</button>
+          <button class="dash-risk-tab" data-status="Approved" onclick="muni_setCreditStatus('Approved')">Approved</button>
+          <button class="dash-risk-tab" data-status="Rejected" onclick="muni_setCreditStatus('Rejected')">Rejected</button>
+        </div>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table>
+            <thead><tr><th>Date</th><th>Application #</th><th>Applicant</th><th>Amount</th><th>Reason</th><th>Requested by</th><th>Status</th><th>Decision</th><th>Spent by applicant</th></tr></thead>
+            <tbody id="muni_creditBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Credit spent</h2></div>
+        <p class="field-hint" style="margin:-6px 0 14px;">Each time an applicant used Municipal Credit to pay a License Fee, and the application it paid for. Credit is one balance per applicant, so spending is counted against the oldest credit first.</p>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr><th>Date</th><th>Applicant</th><th>Paid License Fee for</th><th>Amount spent</th></tr></thead>
+            <tbody id="muni_creditSpentBody"></tbody>
           </table>
         </div>
       </div>
@@ -11552,7 +11610,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label class="checkbox-row hidden" id="permManualEntryRow"><input type="checkbox" id="permManualEntry"> Enter manual (walk-in) applications <span style="color:var(--text-muted); font-size:12px;">&nbsp;— Supervisor accounts only</span></label>
     </div>
 
-    <div class="field-group">
+    <div class="field-group" id="userPasswordGroup">
       <label for="userPassword">Temporary password</label>
       <div class="pw-row">
         <input type="text" id="userPassword" placeholder="Temporary password">
@@ -30488,6 +30546,7 @@ function setupSidebarForUser(){
   document.getElementById('sidebarUserName').textContent = currentUser.name;
   document.getElementById('sidebarUserRole').textContent = currentUser.role;
   document.getElementById('sidebarAvatar').textContent = currentUser.name.charAt(0).toUpperCase();
+  document.getElementById('navCreditLog').classList.toggle('hidden', !hasPerm('approve'));
   document.getElementById('navUsers').classList.toggle('hidden', !hasPerm('manageUsers'));
   document.getElementById('navSignatures').classList.toggle('hidden', !hasPerm('manageUsers'));
   document.getElementById('navBank').classList.toggle('hidden', !hasPerm('manageUsers'));
@@ -30554,6 +30613,10 @@ function muni_goPage(page, keepAppsActive){
     muni_showToast("You don't have permission to manage promotions.");
     page = 'dashboard';
   }
+  if(page === 'creditLog' && !hasPerm('approve')){
+    muni_showToast("You don't have permission to view this.");
+    page = 'dashboard';
+  }
   if(page === 'billing' && currentUser.role !== 'CEO'){
     muni_showToast("You don't have permission to view this.");
     page = 'dashboard';
@@ -30575,7 +30638,7 @@ function muni_goPage(page, keepAppsActive){
   (document.getElementById('muni_page-' + page) || document.getElementById('page-' + page)).classList.remove('hidden');
   const navKey = keepAppsActive ? 'applications' : page;
   document.querySelectorAll('#shell-muni .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === navKey));
-  const titles = { dashboard: 'Dashboard', applications: 'Applications', payments: 'Payments', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar', billing: 'Subscription & Billing' };
+  const titles = { dashboard: 'Dashboard', applications: 'Applications', payments: 'Payments', creditLog: 'Credit Log', venues: 'Venues', ads: 'Advertisements', watchlist: 'Watchlist', slaBreaches: 'SLA Breaches', reports: 'Reports', permits: 'Permits', users: 'Users & Roles', appdetail: 'Application Details', signatures: 'Permits & Signatures', bank: 'Bank Account', settings: 'SLA Policy', profile: 'Profile', archive: 'Archive', formElements: 'Form Elements', promotions: 'Promotions', eventsCalendar: 'Events Calendar', billing: 'Subscription & Billing' };
   document.getElementById('muni_topbarTitle').textContent = titles[page];
   if(page === 'bank') loadBankDetails();
   if(page === 'signatures') { loadSignature(); loadLogo(); }
@@ -30593,6 +30656,7 @@ function muni_goPage(page, keepAppsActive){
   if(page === 'eventsCalendar') goEventsCalendarPage();
   if(page === 'billing') renderMuniBilling();
   if(page === 'payments') muni_renderPayments();
+  if(page === 'creditLog') muni_renderCreditLog();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -34444,6 +34508,184 @@ function muni_exportPaymentsCsv(){
 }
 window.muni_exportPaymentsCsv = muni_exportPaymentsCsv;
 
+// ==================== Credit Log (CEO) ====================
+// Data comes from atd_municipal_credit_log() (security_credit_log.sql): this
+// municipality's credit requests, the credits actually issued, and the times an
+// applicant spent that credit. The wallet is one balance per applicant per
+// municipality, so "spent" is worked out by applying each applicant's spending
+// to their oldest credit first - the screen says so.
+let muniCreditLog = { requests: [], credits: [], redemptions: [], demo: false, loaded: false };
+let muniCreditStatus = 'all';
+
+function mcl_norm(t){ return String(t || '').replace(' ', 'T').replace(/\+00(:00)?$/, 'Z'); }
+function mcl_date(t){ return String(t || '').slice(0, 10) || '—'; }
+function mcl_applicantFor(email, appNumber){
+  const list = myApplications();
+  const e = String(email || '').toLowerCase();
+  const a = list.find(x => x.appNumber === appNumber) || list.find(x => x.raw && String(x.raw.ownerEmail || '').toLowerCase() === e);
+  return a ? a.applicant : '';
+}
+function mcl_appCell(appNumber){
+  if(!appNumber) return '—';
+  const known = myApplications().some(x => x.appNumber === appNumber);
+  return known
+    ? `<a href="#" class="cell-primary" onclick="muni_openAppModal(${atdJs(appNumber)}); return false;">${atdH(appNumber)}</a>`
+    : `<span class="cell-primary">${atdH(appNumber)}</span>`;
+}
+function mcl_personCell(email){
+  const name = mcl_applicantFor(email, null);
+  return name
+    ? `${muni_escapeHtml(name)}<div class="cell-sub">${muni_escapeHtml(email || '')}</div>`
+    : muni_escapeHtml(email || '—');
+}
+
+// Turns the raw data into table rows plus headline totals.
+function mcl_build(){
+  const d = muniCreditLog;
+  const credits = (d.credits || []).slice().sort((a, b) => mcl_norm(a.issuedAt).localeCompare(mcl_norm(b.issuedAt)));
+  // Spending per applicant, applied to their oldest credit first.
+  const spentBy = {};
+  (d.redemptions || []).forEach(r => { const k = String(r.ownerEmail || '').toLowerCase(); spentBy[k] = (spentBy[k] || 0) + Math.abs(Number(r.amount) || 0); });
+  const used = {};
+  credits.forEach(c => {
+    const k = String(c.ownerEmail || '').toLowerCase();
+    const amt = Number(c.amount) || 0;
+    const take = Math.min(amt, spentBy[k] || 0);
+    spentBy[k] = (spentBy[k] || 0) - take;
+    used[c.id] = take;
+  });
+  const linked = new Set((d.requests || []).map(r => r.walletTransactionId).filter(Boolean));
+  const rows = [];
+  (d.requests || []).forEach(r => {
+    const amt = Number(r.amount) || 0;
+    const u = r.status === 'Approved' ? (used[r.walletTransactionId] || 0) : null;
+    rows.push({ key: r.id, date: r.requestedAt, appNumber: r.appNumber, email: r.ownerEmail, amount: amt, reason: r.reason,
+      requestedBy: r.requestedByName || r.requestedBy || '', status: r.status || 'Pending',
+      decision: r.status === 'Pending' ? '' : `${r.decidedByName || r.decidedBy || ''} on ${mcl_date(r.decidedAt)}${r.decisionNote ? ' — ' + r.decisionNote : ''}`,
+      used: u });
+  });
+  // Credits issued before requests were kept in the database.
+  credits.filter(c => !linked.has(c.id)).forEach(c => {
+    const amt = Number(c.amount) || 0;
+    rows.push({ key: c.id, date: c.issuedAt, appNumber: c.appNumber, email: c.ownerEmail, amount: amt, reason: String(c.reason || '').replace(/^Municipal Credit — [^:]*:\s*/, ''),
+      requestedBy: '—', status: 'Approved', decision: `Issued by ${c.issuedBy || 'staff'} on ${mcl_date(c.issuedAt)} (before the request log)`, used: used[c.id] || 0, earlier: true });
+  });
+  rows.sort((a, b) => mcl_norm(b.date).localeCompare(mcl_norm(a.date)));
+
+  const sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+  const pending = rows.filter(r => r.status === 'Pending');
+  const approved = rows.filter(r => r.status === 'Approved');
+  const issued = sum(credits, c => Number(c.amount) || 0);
+  const spent = sum(d.redemptions || [], r => Math.abs(Number(r.amount) || 0));
+  return { rows, pending, approved, rejected: rows.filter(r => r.status === 'Rejected'), issued, spent, outstanding: Math.max(0, issued - spent) };
+}
+
+function mcl_filteredRows(b){
+  const q = ((document.getElementById('muni_creditSearch') || {}).value || '').trim().toLowerCase();
+  return b.rows.filter(r => {
+    if(muniCreditStatus !== 'all' && r.status !== muniCreditStatus) return false;
+    if(q){
+      const hay = `${r.appNumber || ''} ${r.email || ''} ${mcl_applicantFor(r.email, r.appNumber)}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function muni_setCreditStatus(status){
+  muniCreditStatus = status;
+  const tabs = document.getElementById('muni_creditStatusTabs');
+  if(tabs) tabs.querySelectorAll('.dash-risk-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.status === status));
+  muni_renderCreditLogTable();
+}
+
+function muni_renderCreditLogTable(){
+  const body = document.getElementById('muni_creditBody');
+  if(!body) return;
+  const b = mcl_build();
+  const stats = document.getElementById('muni_creditStats');
+  if(stats){
+    const card = (v, l) => `<div class="stat-card"><div class="sc-value">${v}</div><div class="sc-label">${l}</div></div>`;
+    stats.innerHTML =
+      card(`${b.pending.length}`, `Awaiting your decision (${muni_formatCurrency(b.pending.reduce((t, r) => t + r.amount, 0))})`) +
+      card(muni_formatCurrency(b.approved.reduce((t, r) => t + r.amount, 0)), `Approved (${b.approved.length})`) +
+      card(`${b.rejected.length}`, 'Rejected') +
+      card(muni_formatCurrency(b.spent), 'Spent by applicants') +
+      card(muni_formatCurrency(b.outstanding), 'Credit still unspent');
+  }
+  const rows = mcl_filteredRows(b);
+  body.innerHTML = rows.length ? rows.map(r => {
+    const cls = r.status === 'Approved' ? 'badge-green' : r.status === 'Rejected' ? 'badge-red' : 'badge-amber';
+    let usedCell = '—';
+    if(r.status === 'Approved' && r.used !== null){
+      usedCell = r.used <= 0 ? 'Not spent yet'
+        : r.used >= r.amount - 0.005 ? `Fully spent (${muni_formatCurrency(r.used)})`
+        : `${muni_formatCurrency(r.used)} of ${muni_formatCurrency(r.amount)}`;
+    }
+    return `<tr>
+      <td style="white-space:nowrap;">${atdH(mcl_date(r.date))}</td>
+      <td>${mcl_appCell(r.appNumber)}</td>
+      <td>${mcl_personCell(r.email)}</td>
+      <td>${muni_formatCurrency(r.amount)}</td>
+      <td>${muni_escapeHtml(r.reason || '—')}</td>
+      <td>${muni_escapeHtml(r.requestedBy || '—')}</td>
+      <td><span class="badge ${cls}">${atdH(r.status)}</span></td>
+      <td>${muni_escapeHtml(r.decision || (r.status === 'Pending' ? 'Awaiting decision' : '—'))}</td>
+      <td>${atdH(usedCell)}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="9" class="table-empty">${muniCreditLog.loaded ? 'No Municipal Credit requests match.' : 'Loading…'}</td></tr>`;
+
+  const spentBody = document.getElementById('muni_creditSpentBody');
+  if(spentBody){
+    const q = ((document.getElementById('muni_creditSearch') || {}).value || '').trim().toLowerCase();
+    const reds = (muniCreditLog.redemptions || []).slice().sort((a, b) => mcl_norm(b.issuedAt).localeCompare(mcl_norm(a.issuedAt)))
+      .filter(r => !q || `${r.appNumber || ''} ${r.ownerEmail || ''} ${mcl_applicantFor(r.ownerEmail, r.appNumber)}`.toLowerCase().includes(q));
+    spentBody.innerHTML = reds.length ? reds.map(r => `<tr>
+      <td style="white-space:nowrap;">${atdH(mcl_date(r.issuedAt))}</td>
+      <td>${mcl_personCell(r.ownerEmail)}</td>
+      <td>${mcl_appCell(r.appNumber)}</td>
+      <td>${muni_formatCurrency(Math.abs(Number(r.amount) || 0))}</td>
+    </tr>`).join('') : `<tr><td colspan="4" class="table-empty">${muniCreditLog.demo ? 'Spending detail needs the live service.' : 'No credit has been spent yet.'}</td></tr>`;
+  }
+}
+window.muni_renderCreditLogTable = muni_renderCreditLogTable;
+window.muni_setCreditStatus = muni_setCreditStatus;
+
+async function muni_renderCreditLog(){
+  const note = document.getElementById('muni_creditNote');
+  if(note){ note.classList.add('hidden'); note.textContent = ''; }
+  if(mcServerMode() && window.ATDBackend.municipalCreditLog){
+    const res = await window.ATDBackend.municipalCreditLog();
+    if(!res || !res.ok){
+      muniCreditLog = { requests: [], credits: [], redemptions: [], demo: false, loaded: true };
+      if(note){ note.textContent = (res && res.error) || 'Could not load the credit log.'; note.classList.remove('hidden'); }
+    } else {
+      muniCreditLog = { requests: res.requests || [], credits: res.credits || [], redemptions: res.redemptions || [], demo: false, loaded: true };
+    }
+  } else {
+    // Local demo (no live service): show what the application records hold.
+    const reqs = [];
+    myApplications().forEach(a => (a.municipalCredits || []).forEach(c => reqs.push({
+      id: c.id, appNumber: a.appNumber, ownerEmail: (a.raw && a.raw.ownerEmail) || '', amount: c.amount, reason: c.reason, status: c.status,
+      requestedByName: c.requestedBy, requestedAt: c.requestedDate, decidedByName: c.decidedBy, decidedAt: c.decidedDate, decisionNote: c.decisionNote, walletTransactionId: c.walletTransactionId })));
+    muniCreditLog = { requests: reqs, credits: [], redemptions: [], demo: true, loaded: true };
+    if(note){ note.textContent = 'Demo mode: spending detail is only available on the live service.'; note.classList.remove('hidden'); }
+  }
+  muni_renderCreditLogTable();
+}
+window.muni_renderCreditLog = muni_renderCreditLog;
+
+function muni_exportCreditLogCsv(){
+  const rows = mcl_filteredRows(mcl_build());
+  if(!rows.length){ muni_showToast('Nothing to export for the current filter.'); return; }
+  const headers = ['Date', 'Application #', 'Applicant', 'Applicant email', 'Amount (J$)', 'Reason', 'Requested by', 'Status', 'Decision', 'Spent (J$)'];
+  const safe = v => /^[=+\-@\t\r]/.test(String(v || '')) ? "'" + v : (v || '');   // keep typed text from running as a spreadsheet formula
+  const data = rows.map(r => [mcl_date(r.date), r.appNumber || '', safe(mcl_applicantFor(r.email, r.appNumber)), safe(r.email), (r.amount || 0).toFixed(2), safe(r.reason), safe(r.requestedBy), r.status, safe(r.decision), r.used === null || r.used === undefined ? '' : r.used.toFixed(2)]);
+  const muniSlug = myMunicipalityName().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  muni_downloadCsv(`credit-log-${muniSlug}-${new Date().toISOString().slice(0,10)}.csv`, headers, data);
+}
+window.muni_exportCreditLogCsv = muni_exportCreditLogCsv;
+
 function muni_renderRecentApps(){
   const body = document.getElementById('muni_recentAppsBody');
   const recent = [...myApplications()].sort((a,b)=> b.submitted.localeCompare(a.submitted)).slice(0,5);
@@ -35143,6 +35385,8 @@ function generateUserPassword(){
 }
 
 function openUserModal(id){
+  const pwGroup = document.getElementById('userPasswordGroup');
+  if(pwGroup) pwGroup.classList.toggle('hidden', !!(window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured()));
   if(!hasPerm('manageUsers')){
     muni_showToast("You don't have permission to manage users.");
     return;
@@ -35207,7 +35451,10 @@ async function saveUser(){
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
   const role = document.getElementById('userRole').value;
-  const typedPassword = document.getElementById('userPassword').value.trim();
+  // On the live service officers create their own password ("Create your
+  // password" on the login screen), so no password is collected or stored here.
+  const liveAuth = !!(window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured());
+  const typedPassword = liveAuth ? '' : document.getElementById('userPassword').value.trim();
   const permissions = {
     view: document.getElementById('permView').checked,
     payment: document.getElementById('permPayment').checked,
@@ -35235,7 +35482,8 @@ async function saveUser(){
   if(editingUserId){
     const u = municipalUsers.find(u => u.id === editingUserId);
     Object.assign(u, { name, email, phone, role, permissions });
-    if(typedPassword) u.password = typedPassword; // blank leaves the existing/current password untouched
+    if(liveAuth) delete u.password;   // never keep a password in the staff record on the live service
+    else if(typedPassword) u.password = typedPassword; // blank leaves the existing/current password untouched
     await window.atdSaveMuniUser(u);
     if(u.id === currentUser.id) currentUser = u;
     await window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'user.update', details: `Updated staff account ${name}.`, muniId: currentUser.muniId });
@@ -35245,8 +35493,9 @@ async function saveUser(){
     const u = {
       id: newId, muniId: currentUser.muniId, name, email, phone, role, permissions,
       status: 'Active', created: new Date().toISOString().slice(0,10),
-      password: typedPassword || DEMO_PASSWORD
+      password: liveAuth ? undefined : (typedPassword || DEMO_PASSWORD)
     };
+    if(liveAuth) delete u.password;
     municipalUsers.push(u);
     await window.atdSaveMuniUser(u);
     // Phase 1b: pre-authorize this email for the real backend so that when
@@ -41250,7 +41499,9 @@ async function saveAgency(){
     await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.create', details: `Created ${type} agency ${name}.`, muniId: muniNumber });
     if(type === 'Municipal Corporation'){
       const ceo = await window.atdProvisionMuniCeo(record, typedPassword || null);
-      admin_showToast(`Agency account created. CEO login ready: ${ceo.email} / ${ceo.password}`);
+      admin_showToast(ceo.password
+        ? `Agency account created. CEO login ready: ${ceo.email} / ${ceo.password}`
+        : `Agency account created. Ask ${ceo.email} to open the municipal login screen and choose "Create your password".`);
     } else if(type === 'JCF'){
       // Without this, a newly created JCF division never gets any officer
       // record at all, and never shows up in the JCF portal's own login
