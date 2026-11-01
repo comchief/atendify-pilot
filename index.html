@@ -2672,6 +2672,36 @@
   .aud-hrow{ grid-template-columns: minmax(80px,170px) 1fr 44px; margin:6px 0; }
   .aud-facts{ display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--text-muted); }
   .aud-facts b{ color:var(--text); font-size:16px; }
+
+  /* Collapsible categories for long lists (atdRenderGrouped) */
+  .grp-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; font-size:13px; color:var(--text-muted); }
+  .grp-bar select{ width:auto; min-width:140px; }
+  .grp-bar .grp-total{ margin-left:auto; font-variant-numeric: tabular-nums; }
+  tr.grp-head > td{ padding:0 !important; background: linear-gradient(90deg, var(--blue-tint), var(--bg) 75%); border-bottom:1px solid var(--border); }
+  tr.grp-head.open > td{ border-bottom-color: var(--blue); }
+  .grp-btn{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%; text-align:left; background:transparent; border:0; padding:11px 14px; cursor:pointer; font:inherit; color:var(--text); }
+  .grp-btn:hover{ filter:brightness(0.97); }
+  .grp-btn:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
+  .grp-caret{ display:inline-block; transition: transform .15s ease; color:var(--blue); font-size:13px; }
+  tr.grp-head.open .grp-caret{ transform: rotate(90deg); }
+  .grp-title{ font-weight:800; font-size:14px; }
+  .grp-count{ font-weight:700; font-variant-numeric: tabular-nums; background:var(--blue); color:#fff; border-radius:999px; padding:1px 9px; font-size:12px; }
+  .grp-chips{ display:inline-flex; gap:6px; flex-wrap:wrap; }
+  .grp-chip{ font-size:12px; font-weight:400; color:var(--text-muted); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:1px 8px; }
+  .grp-chip-bad{ color:var(--red); background:var(--red-tint); border-color:transparent; font-weight:700; }
+  .grp-chip-warn{ color:var(--amber); background:var(--amber-tint); border-color:transparent; font-weight:700; }
+  .grp-chip-good{ color:var(--green); background:var(--green-tint); border-color:transparent; }
+  tr.grp-more > td{ padding:10px 14px !important; }
+  /* card-list variant (applicant portal, notification panels) */
+  .grp-head-div{ background: linear-gradient(90deg, var(--blue-tint), var(--bg) 75%); border:1px solid var(--border); border-radius:10px; margin:12px 0 8px; }
+  .grp-head-div.open{ border-color: var(--blue); }
+  .grp-head-div.open .grp-caret{ transform: rotate(90deg); }
+  .grp-more-div{ padding:6px 0 10px; }
+  /* inside notification dropdowns: out-rank '.suite-back-bar button' (see the .notif-panel .btn note above) and tighten */
+  .notif-panel .grp-btn{ color:var(--text); background:transparent; border:0; padding:8px 14px; }
+  .notif-panel .grp-head-div{ margin:6px 10px; }
+  .notif-panel .grp-title{ font-size:13px; }
+  .notif-panel .grp-more-div{ padding:6px 14px 10px; }
   .fin-section-title{ font-size:15px; font-weight:800; margin:26px 0 12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
   .modal-box h3{ font-size: 20px; font-weight:700; margin:0 0 4px; }
   .modal-sub{ font-size: 13.5px; color: var(--text-muted); margin: 0 0 22px; }
@@ -6607,36 +6637,67 @@
   // exists and backend/SETUP.md for how to finish wiring the Edge Function
   // + Resend account behind it.
   window.atdSendEmail = async function(event, to, data){
-    if(!to) return { ok: false, error: 'no recipient email on file' };
-    // Fix #61: the test site never sends real email, whatever the test
-    // project's Edge Function is (or isn't) configured to do. Reported as a
-    // success so the flow behaves as it would live, and logged so a tester
-    // can see what WOULD have gone out.
+    data = data || {};
+    // Two events are no longer sent by email at all (security audit, finding 2):
+    // the live site sends a secure password-reset link instead of a temporary
+    // password, and a watch-list match is shown on screen and in the in-app
+    // notification rather than emailed to an address typed into the form.
+    if(event === 'temp_password_issued' || event === 'application_watchlist_rejected'){
+      return { ok: false, error: 'this event is not sent by email' };
+    }
+    if(!data.appNumber) return { ok: false, error: 'no application number' };
+    // The test site never sends real email, whatever the test project's
+    // Edge Function is (or isn't) configured to do. Reported as a success so
+    // the flow behaves as it would live, and logged so a tester can see what
+    // WOULD have gone out.
     if(window.ATD_ENV === 'test'){
-      console.info('[TEST ENV] email suppressed:', event, '->', to, data || {});
+      console.info('[TEST ENV] email suppressed:', event, data);
       return { ok: true, id: 'suppressed-test-env' };
     }
+    // The browser sends only the event and a reference. The server looks up
+    // the recipient, the names and the permit number on the application record
+    // and refuses unless the caller is allowed (a signed-in officer of that
+    // municipality, or -- for "application received" -- the tracking code).
+    var ref = {
+      appNumber: data.appNumber,
+      kind: data.kind === 'jcf' ? 'jcf' : 'poa',
+      trackingCode: data.trackingCode || undefined,
+      documentName: data.documentName || undefined,
+      note: data.officerNote || undefined
+    };
     try{
-      const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': window.ATD_SUPABASE_ANON_KEY,
-          'Authorization': 'Bearer ' + window.ATD_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({ event, to, data: data || {} })
-      });
-      const body = await res.json().catch(()=>({}));
-      if(!res.ok || !body.ok){
-        console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', body.error || res.status);
-        return { ok: false, error: body.error || ('HTTP ' + res.status) };
+      var token = window.ATD_SUPABASE_ANON_KEY;
+      try{
+        var t = window.ATDBackend && window.ATDBackend.getAccessToken ? await window.ATDBackend.getAccessToken() : null;
+        if(t) token = t;
+      }catch(e){ /* guest: the anon key stands for "nobody signed in" */ }
+      var lastErr = 'unknown';
+      // The Approved / Rejected email is checked against the saved record, and
+      // the screen saves it a moment after sending, so a "not yet" answer is
+      // retried briefly.
+      for(var attempt = 0; attempt < 3; attempt++){
+        var res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email-v2', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': window.ATD_SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ event: event, ref: ref })
+        });
+        var body = await res.json().catch(function(){ return {}; });
+        if(res.ok && body.ok) return { ok: true, id: body.id || null };
+        lastErr = body.error || ('HTTP ' + res.status);
+        if(res.status !== 409) break;
+        await new Promise(function(r){ setTimeout(r, 1500); });
       }
-      return { ok: true, id: body.id || null };
+      console.warn('atdSendEmail: ' + event + ' for ' + data.appNumber + ' did not send —', lastErr);
+      return { ok: false, error: lastErr };
     } catch(err){
       // Network error, function not deployed yet, CORS, etc. — never throw
       // into the caller's flow over an email that's a nice-to-have, not a
       // dependency of the action itself.
-      console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', err);
+      console.warn('atdSendEmail: ' + event + ' did not send —', err);
       return { ok: false, error: err && err.message ? err.message : String(err) };
     }
   };
@@ -7747,6 +7808,223 @@
       return out;
     }catch(e){ return []; }
   };
+
+  // ---- Collapsible categories for long lists (shared by every portal) ----
+  // A list that can grow without limit (applications, permits, payments,
+  // venues, notifications ...) is shown as collapsible categories, so it can
+  // be read without endless scrolling. A caller hands over the items and how
+  // to draw one row; this draws a header row per category (name, count,
+  // optional summary chips) and, only for categories that are open, their
+  // rows, in pages. A small "Group by" bar above the table lets people switch
+  // category (or turn grouping off). Short lists (<= threshold) are drawn
+  // flat, exactly as before, and the bar stays hidden.
+  //
+  //   atdRenderGrouped('tbodyId', items, {
+  //     colspan: 7,                       // columns in the table
+  //     rowHtml: (item) => '<tr>…</tr>',  // existing row markup, unchanged
+  //     groupers: [{ id, label, of: item => ({ key, label, rank }) }, …],
+  //     emptyHtml: '<tr><td colspan="7" class="table-empty">…</td></tr>',
+  //     summary: items => 'html chips',   // optional
+  //     threshold: 25, pageSize: 50,
+  //     defaultOpen: 'first' | 'none' | 'all' | (group, index) => bool
+  //   });
+  //
+  // Open/closed state, the chosen grouping and "show more" counts are kept
+  // per list for the session, so redrawing (a filter, a refresh) never snaps
+  // everything shut.
+  (function(){
+    var STATE = {};  // listKey -> { by, open:{}, shown:{} }
+    var CACHE = {};  // listKey -> { items, o }
+    function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // Ready-made category helpers.
+    window.atdGrp = {
+      // Month from a date / ISO timestamp string; newest month first.
+      month: function(dateStr){
+        var s = String(dateStr || '');
+        var m = /^(\d{4})-(\d{2})/.exec(s);
+        if(!m) return { key: 'none', label: 'No date', rank: 1e9 };
+        var y = +m[1], mo = +m[2];
+        return { key: m[1] + '-' + m[2], label: (MONTHS[mo - 1] || m[2]) + ' ' + y, rank: -(y * 12 + mo) };
+      },
+      year: function(dateStr){
+        var m = /^(\d{4})/.exec(String(dateStr || ''));
+        return m ? { key: m[1], label: m[1], rank: -(+m[1]) } : { key: 'none', label: 'No date', rank: 1e9 };
+      },
+      // A label with an explicit priority order, e.g. atdGrp.ranked(status, ['Pending','Approved']).
+      ranked: function(label, order){
+        var v = label == null || label === '' ? 'Not set' : String(label);
+        var i = order ? order.indexOf(v) : -1;
+        return { key: v, label: v, rank: i >= 0 ? i : (order ? order.length : 0) };
+      },
+      // How long ago an ISO timestamp was: Today / Yesterday / Earlier this week / Last 30 days / Older.
+      age: function(iso){
+        var t = Date.parse(iso);
+        if(isNaN(t)) return { key: 'old', label: 'Older', rank: 4 };
+        var now = new Date(), a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        var d = new Date(t), b = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        var days = Math.round((a - b) / 86400000);
+        if(days <= 0) return { key: 'today', label: 'Today', rank: 0 };
+        if(days === 1) return { key: 'yest', label: 'Yesterday', rank: 1 };
+        if(days < 7) return { key: 'week', label: 'Earlier this week', rank: 2 };
+        if(days < 30) return { key: 'month', label: 'Last 30 days', rank: 3 };
+        return { key: 'old', label: 'Older', rank: 4 };
+      },
+      plain: function(label){ var v = label == null || label === '' ? 'Not set' : String(label); return { key: v, label: v, rank: 0 }; },
+      APP_STATUS_ORDER: ['Submitted', 'Payment Received', 'Processing', 'Under Review', 'Assigned', 'Pending Approval', 'Approved', 'Rejected', 'Withdrawn', 'Expired'],
+      // Standard categories for application / filing lists. acc supplies how to
+      // read each field: { status, date, muni, type } (any may be omitted).
+      appGroupers: function(acc){
+        var g = [];
+        if(acc.status) g.push({ id: 'status', label: 'Status', of: function(it){ return window.atdGrp.ranked(acc.status(it), window.atdGrp.APP_STATUS_ORDER); } });
+        if(acc.date) g.push({ id: 'month', label: 'Month', of: function(it){ return window.atdGrp.month(acc.date(it)); } });
+        if(acc.muni) g.push({ id: 'muni', label: 'Municipality', of: function(it){ return window.atdGrp.plain(acc.muni(it)); } });
+        if(acc.type) g.push({ id: 'type', label: 'Permit type', of: function(it){ return window.atdGrp.plain(acc.type(it)); } });
+        return g;
+      },
+      // Compact outcome chips for a group of applications.
+      statusChips: function(items, getStatus){
+        var a = 0, r = 0, p = 0;
+        items.forEach(function(it){ var s = getStatus(it); if(s === 'Approved') a++; else if(s === 'Rejected') r++; else if(s !== 'Withdrawn' && s !== 'Expired') p++; });
+        return (p ? window.atdGrp.chip(p + ' pending', 'warn') : '') + (a ? window.atdGrp.chip(a + ' approved', 'good') : '') + (r ? window.atdGrp.chip(r + ' rejected', 'bad') : '');
+      },
+      chip: function(text, tone){ return '<span class="grp-chip' + (tone ? ' grp-chip-' + tone : '') + '">' + text + '</span>'; },
+      count: function(items, test){ var n = 0; for(var i = 0; i < items.length; i++) if(test(items[i])) n++; return n; },
+      sum: function(items, get){ var t = 0; for(var i = 0; i < items.length; i++) t += Number(get(items[i])) || 0; return t; }
+    };
+
+    function st(listKey, o){
+      var s = STATE[listKey];
+      if(!s){ s = STATE[listKey] = { by: null, open: {}, shown: {} }; }
+      return s;
+    }
+    // The category in use: the person's own pick if they made one (and it
+    // still exists), otherwise the list's first category. Decided at draw
+    // time so a first draw with an empty list can't lock the list to "none".
+    function byOf(s, o){
+      var gs = o.groupers || [];
+      if(s.by === 'none') return 'none';
+      if(s.by != null && gs.some(function(g){ return g.id === s.by; })) return s.by;
+      return gs.length ? gs[0].id : 'none';
+    }
+
+    // Table lists draw <tr> rows; card lists (o.div) draw plain <div> blocks.
+    function moreRow(o, colspan, inner){ return o.div ? '<div class="grp-more-div">' + inner + '</div>' : '<tr class="grp-more"><td colspan="' + colspan + '">' + inner + '</td></tr>'; }
+    function headRow(o, colspan, isOpen, inner){ return o.div ? '<div class="grp-head-div' + (isOpen ? ' open' : '') + '">' + inner + '</div>' : '<tr class="grp-head' + (isOpen ? ' open' : '') + '"><td colspan="' + colspan + '">' + inner + '</td></tr>'; }
+
+    function build(listKey){
+      var c = CACHE[listKey]; if(!c) return '';
+      var o = c.o, items = c.items, s = st(listKey, o);
+      var colspan = o.colspan || 1, page = o.pageSize || 50, threshold = o.threshold == null ? 25 : o.threshold;
+      var by = byOf(s, o), grouper = (o.groupers || []).filter(function(g){ return g.id === by; })[0];
+      if(!items.length) return o.emptyHtml || '';
+      // Flat: short list, or grouping switched off. Still paged so "no
+      // grouping" on a huge list cannot freeze the page.
+      if(items.length <= threshold || !grouper){
+        var flatMax = items.length <= threshold ? items.length : (s.shown.__flat || page * 2);
+        var out = items.slice(0, flatMax).map(function(it, i){ return o.rowHtml(it, i); }).join('');
+        if(items.length > flatMax) out += moreRow(o, colspan, '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-more="__flat">Show ' + Math.min(page * 2, items.length - flatMax) + ' more (' + (items.length - flatMax) + ' not shown)</button>');
+        return out;
+      }
+      var map = {}, order = [];
+      items.forEach(function(it){
+        var g = grouper.of(it) || { key: 'none', label: 'Not set', rank: 0 };
+        var k = String(g.key);
+        if(!map[k]){ map[k] = { key: k, label: g.label, rank: g.rank == null ? 0 : g.rank, items: [] }; order.push(map[k]); }
+        map[k].items.push(it);
+      });
+      order.sort(function(a, b){ return (a.rank - b.rank) || String(a.label).localeCompare(String(b.label)); });
+      var html = '';
+      order.forEach(function(g, gi){
+        var isOpen;
+        if(g.key in s.open) isOpen = !!s.open[g.key];
+        else if(typeof o.defaultOpen === 'function') isOpen = !!o.defaultOpen(g, gi);
+        else if(o.defaultOpen === 'all') isOpen = true;
+        else if(o.defaultOpen === 'none') isOpen = false;
+        else isOpen = gi === 0;
+        var chips = o.summary ? o.summary(g.items, g, grouper.id) : '';
+        html += headRow(o, colspan, isOpen, '<button type="button" class="grp-btn" aria-expanded="' + isOpen + '" data-gl="' + esc(listKey) + '" data-gk="' + esc(g.key) + '"><span class="grp-caret" aria-hidden="true">&#9656;</span><span class="grp-title">' + esc(g.label) + '</span><span class="grp-count">' + g.items.length.toLocaleString('en-US') + '</span><span class="grp-chips">' + (chips || '') + '</span></button>');
+        if(isOpen){
+          var shown = s.shown[g.key] || page;
+          html += g.items.slice(0, shown).map(function(it, i){ return o.rowHtml(it, i); }).join('');
+          if(g.items.length > shown) html += moreRow(o, colspan, '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-more="' + esc(g.key) + '">Show ' + Math.min(page, g.items.length - shown) + ' more (' + (g.items.length - shown).toLocaleString('en-US') + ' not shown in ' + esc(g.label) + ')</button>');
+        }
+      });
+      c.groupCount = order.length; c.groupKeys = order.map(function(g){ return g.key; });
+      return html;
+    }
+
+    function bar(listKey){
+      var c = CACHE[listKey]; if(!c) return;
+      var o = c.o, s = st(listKey, o), tb = document.getElementById(listKey);
+      if(!tb) return;
+      var table = o.div ? tb : tb.closest('table'); if(!table) return;
+      var anchor = o.div ? tb : (table.parentElement && table.parentElement.children.length === 1 && table.parentElement.tagName === 'DIV') ? table.parentElement : table;
+      var id = 'grpbar_' + listKey;
+      var el = document.getElementById(id);
+      var threshold = o.threshold == null ? 25 : o.threshold;
+      var show = (o.groupers && o.groupers.length) && c.items.length > threshold && !o.noBar;
+      if(!show){ if(el) el.style.display = 'none'; return; }
+      if(!el){ el = document.createElement('div'); el.id = id; el.className = 'grp-bar'; anchor.parentNode.insertBefore(el, anchor); }
+      el.style.display = '';
+      var opts = o.groupers.map(function(g){ return '<option value="' + esc(g.id) + '"' + (g.id === byOf(s, o) ? ' selected' : '') + '>' + esc(g.label) + '</option>'; }).join('') + '<option value="none"' + (byOf(s, o) === 'none' ? ' selected' : '') + '>No grouping</option>';
+      var grouped = byOf(s, o) !== 'none';
+      el.innerHTML = '<label for="' + esc(id) + '_sel">Group by</label><select id="' + esc(id) + '_sel" class="grp-by" data-gl="' + esc(listKey) + '">' + opts + '</select>' +
+        (grouped ? '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-all="open">Expand all</button><button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-all="close">Collapse all</button>' : '') +
+        '<span class="grp-total">' + c.items.length.toLocaleString('en-US') + ' item' + (c.items.length === 1 ? '' : 's') + (grouped && c.groupCount ? ' in ' + c.groupCount + ' group' + (c.groupCount === 1 ? '' : 's') : '') + '</span>';
+    }
+
+    function draw(listKey){
+      var c = CACHE[listKey]; if(!c) return;
+      var tb = document.getElementById(listKey); if(!tb) return;
+      tb.innerHTML = build(listKey);
+      bar(listKey);
+    }
+
+    window.atdRenderGrouped = function(listKey, items, o){
+      CACHE[listKey] = { items: items || [], o: o || {} };
+      draw(listKey);
+    };
+    // Forget a list's saved state (rarely needed).
+    window.atdGroupReset = function(listKey){ delete STATE[listKey]; };
+
+    document.addEventListener('click', function(e){
+      var t = e.target && e.target.closest ? e.target.closest('[data-gl]') : null;
+      if(!t || t.tagName === 'SELECT') return;
+      var lk = t.getAttribute('data-gl'), c = CACHE[lk]; if(!c) return;
+      var s = st(lk, c.o);
+      if(t.hasAttribute('data-gk')){
+        var k = t.getAttribute('data-gk');
+        var wasOpen = t.getAttribute('aria-expanded') === 'true';
+        s.open[k] = !wasOpen;
+        // Redraw after this click has finished travelling, so other click
+        // listeners (e.g. "close the panel when clicking outside it") still
+        // find the clicked button attached to the page.
+        setTimeout(function(){
+          draw(lk);
+          var again = document.querySelector('[data-gl="' + lk.replace(/"/g, '\\"') + '"][data-gk="' + k.replace(/"/g, '\\"') + '"]');
+          if(again && again.focus) again.focus();
+        }, 0);
+      } else if(t.hasAttribute('data-more')){
+        var mk = t.getAttribute('data-more'), pg = c.o.pageSize || 50;
+        s.shown[mk] = (s.shown[mk] || (mk === '__flat' ? pg * 2 : pg)) + (mk === '__flat' ? pg * 2 : pg);
+        setTimeout(function(){ draw(lk); }, 0);
+      } else if(t.hasAttribute('data-all')){
+        var open = t.getAttribute('data-all') === 'open';
+        (c.groupKeys || []).forEach(function(gk){ s.open[gk] = open; });
+        setTimeout(function(){ draw(lk); }, 0);
+      }
+    });
+    document.addEventListener('change', function(e){
+      var t = e.target;
+      if(!t || !t.classList || !t.classList.contains('grp-by')) return;
+      var lk = t.getAttribute('data-gl'), c = CACHE[lk]; if(!c) return;
+      var s = st(lk, c.o);
+      s.by = t.value; s.open = {}; s.shown = {};
+      draw(lk);
+    });
+  })();
 
   // ---- Debounce helper ----
   // Several search boxes across the platform (Municipal/JCF Watch List,
@@ -16427,8 +16705,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       container.innerHTML = '<h2>History</h2><p class="col-desc">You haven\'t submitted any applications yet.</p>';
       return;
     }
-    let html = '<h2>History</h2>';
-    owned.forEach(function(o){
+    container.innerHTML = '<h2>History</h2><div id="acct_historyList"></div>';
+    const histCard = function(o){
+      let html = '';
       const label = o.type === 'poa' ? 'Places of Amusement License' : 'JCF Noise Abatement Permit';
       const number = o.type === 'poa' ? o.rec.appNumber : o.rec.jcfAppNumber;
       // Cancel is only meaningful on the Municipal Corporation (poa) side —
@@ -16446,8 +16725,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         '<div><div class="main">' + acctEscapeHtml(label) + ' — ' + acctEscapeHtml(number) + '</div>' +
         '<div class="sub">Status: ' + acctEscapeHtml(o.rec.status || 'Submitted') + ' · Submitted ' + acctEscapeHtml(o.rec.submittedDate || '') + '</div></div>' +
         '<div><button class="btn btn-sm" onclick="acct_viewApplication(\'' + o.type + '\',\'' + o.key + '\')">View</button>' + cancelHtml + '</div></div>';
-    });
-    container.innerHTML = html;
+      return html;
+    };
+    atdRenderGrouped('acct_historyList', owned, { div: true, threshold: 10, pageSize: 25, defaultOpen: 'first',
+      groupers: [
+        { id: 'year', label: 'Year', of: function(o){ return atdGrp.year(o.rec.submittedDate); } },
+        { id: 'status', label: 'Status', of: function(o){ return atdGrp.ranked(o.rec.status || 'Submitted', atdGrp.APP_STATUS_ORDER); } },
+        { id: 'type', label: 'Licence type', of: function(o){ return atdGrp.plain(o.type === 'poa' ? 'Places of Amusement' : 'JCF Noise Abatement'); } }
+      ],
+      summary: function(items){ return atdGrp.statusChips(items, function(o){ return o.rec.status || 'Submitted'; }); },
+      rowHtml: histCard });
   }
   window.acct_renderHistory = acct_renderHistory;
 
@@ -16514,14 +16801,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     let html = '<h2>Permits</h2>';
     if(annualPermits.length){
-      html += '<div class="section-title" style="margin-top:8px;">Annual Permits</div>';
-      html += annualPermits.map(permitCardHtml).join('');
+      html += '<div class="section-title" style="margin-top:8px;">Annual Permits</div><div id="acct_permitsAnnualList"></div>';
     }
     if(specialPermits.length){
-      html += '<div class="section-title" style="margin-top:' + (annualPermits.length ? '20px' : '8px') + ';">Special Permits</div>';
-      html += specialPermits.map(permitCardHtml).join('');
+      html += '<div class="section-title" style="margin-top:' + (annualPermits.length ? '20px' : '8px') + ';">Special Permits</div><div id="acct_permitsSpecialList"></div>';
     }
     container.innerHTML = html;
+    const permitGroupers = [
+      { id: 'year', label: 'Year issued', of: function(o){ return atdGrp.year((o.rec.permit || {}).issuedDate); } },
+      { id: 'month', label: 'Month issued', of: function(o){ return atdGrp.month((o.rec.permit || {}).issuedDate); } }
+    ];
+    if(annualPermits.length) atdRenderGrouped('acct_permitsAnnualList', annualPermits, { div: true, threshold: 8, pageSize: 25, groupers: permitGroupers, rowHtml: permitCardHtml });
+    if(specialPermits.length) atdRenderGrouped('acct_permitsSpecialList', specialPermits, { div: true, threshold: 8, pageSize: 25, groupers: permitGroupers, rowHtml: permitCardHtml });
   }
   window.acct_renderPermits = acct_renderPermits;
 
@@ -16678,8 +16969,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += '<p class="col-desc" style="margin-top:20px;">No wallet activity yet. If an application is ever refunded, a Credit Note or Municipal Credit is added here instead of a cash refund.</p>';
     } else {
       html += '<h3 style="margin-top:24px; margin-bottom:6px; font-size:15px;">Activity</h3>';
-      html += '<div class="acct-app-card" style="flex-direction:column; align-items:stretch; gap:0;">';
-      transactions.forEach(function(t){
+      html += '<div class="acct-app-card" style="flex-direction:column; align-items:stretch; gap:0;"><div id="acct_walletActivity"></div></div>';
+    }
+    container.innerHTML = html;
+    if(transactions.length){
+      const walletRow = function(t){
+        let html = '';
         const isCredit = Number(t.amount) > 0;
         const dateStr = (t.issuedAt || '').slice(0,10);
         const isMunicipal = t.creditSource === 'municipal';
@@ -16689,10 +16984,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           '<div class="sub">' + acctEscapeHtml(dateStr) + (t.appNumber ? ' · ' + acctEscapeHtml(t.appNumber) : '') + ' · <span class="badge ' + (isMunicipal ? 'badge-blue' : 'badge-gray') + '" style="font-size:10px;">' + acctEscapeHtml(sourceTag) + '</span></div></div>' +
           '<div style="font-weight:700; color:' + (isCredit ? '#1a7f37' : '#c0392b') + '; white-space:nowrap;">' + (isCredit ? '+' : '-') + acctFormatCurrency(Math.abs(Number(t.amount) || 0)) + '</div>' +
           '</div>';
-      });
-      html += '</div>';
+        return html;
+      };
+      atdRenderGrouped('acct_walletActivity', transactions, { div: true, threshold: 15, pageSize: 30, defaultOpen: 'first',
+        groupers: [ { id: 'month', label: 'Month', of: function(t){ return atdGrp.month(t.issuedAt); } }, { id: 'kind', label: 'Credits and uses', of: function(t){ return atdGrp.ranked(Number(t.amount) > 0 ? 'Credits received' : 'Credit used', ['Credits received', 'Credit used']); } } ],
+        summary: function(items){ return atdGrp.chip(acctFormatCurrency(atdGrp.sum(items, function(t){ return t.amount; })) + ' net', ''); },
+        rowHtml: walletRow });
     }
-    container.innerHTML = html;
   }
   window.acct_renderWallet = acct_renderWallet;
 
@@ -17204,7 +17502,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       badge.classList.add('hidden');
     }
 
-    body.innerHTML = acctNotifItems.length ? acctNotifItems.map(n => `
+    atdRenderGrouped('acct_notifPanelBody', acctNotifItems, { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: n => `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick="acct_openNotification(${JSON.stringify(n.id)})">
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
@@ -17213,7 +17511,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${acct_notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `).join('') : '<div class="notif-empty">No notifications yet.</div>';
+    ` });
   }
 
   function acct_toggleNotifPanel(event){
@@ -18484,7 +18782,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       badge.classList.add('hidden');
     }
 
-    const items = jcfdNotifPersisted.map(n => `
+    atdRenderGrouped('jcfd_notifPanelBody', jcfdNotifPersisted, { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: n => `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick='jcfd_notifGoToApp(${JSON.stringify(n.appNumber)}); jcfd_markNotificationRead(${JSON.stringify(n.id)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
@@ -18492,9 +18790,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${jcfd_notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `);
-
-    body.innerHTML = items.length ? items.join('') : '<div class="notif-empty">No notifications yet.</div>';
+    ` });
   }
   window.jcfd_renderNotifBell = jcfd_renderNotifBell;
 
@@ -18594,6 +18890,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // the two never drift out of sync. `rowDot` is the same "needs attention"
   // marker function jcfd_renderApplications already built (see its own
   // comment) -- pass a no-op (() => '') to render without it.
+  const jcfdStatusOf = a => atdGrp.ranked(jcfd_statusBadgeLabel(a.rec), ['Submitted', 'Assigned', 'Processing', 'Under Review', 'Approved', 'Rejected']);
+  const jcfdSpecialGroupers = () => [
+    { id: 'status', label: 'Status', of: jcfdStatusOf },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.rec.submittedDate) },
+    { id: 'officer', label: 'Assigned officer', of: a => atdGrp.plain(a.rec.assignedOfficerName || 'Unassigned') },
+    { id: 'venue', label: 'Venue', of: a => atdGrp.plain((a.rec.venueInfo && a.rec.venueInfo.venueName) || 'N/A') }
+  ];
+  const jcfdAnnualGroupers = () => [
+    { id: 'status', label: 'Status', of: jcfdStatusOf },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.rec.submittedDate) },
+    { id: 'officer', label: 'Assigned officer', of: a => atdGrp.plain(a.rec.assignedOfficerName || 'Unassigned') }
+  ];
+  const jcfdAppSummary = (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.rec.status || 'Submitted');
   function jcfd_specialAppRowHtml(a, rowDot){
     const eo = a.rec.eventOverview || {};
     const vi = a.rec.venueInfo || {};
@@ -18635,13 +18944,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
     const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
 
-    specialBody.innerHTML = specialVisible.length
-      ? specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('')
-      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No Special Event applications found.</td></tr>`;
-
-    annualBody.innerHTML = annualVisible.length
-      ? annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('')
-      : `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No Annual applications found.</td></tr>`;
+    atdRenderGrouped('jcfd_dashboardSpecialBody', specialVisible, { colspan: 8, rowHtml: a => jcfd_specialAppRowHtml(a, rowDot), groupers: jcfdSpecialGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No Special Event applications found.</td></tr>` });
+    atdRenderGrouped('jcfd_dashboardAnnualBody', annualVisible, { colspan: 6, rowHtml: a => jcfd_annualAppRowHtml(a, rowDot), groupers: jcfdAnnualGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No Annual applications found.</td></tr>` });
   }
 
   async function jcfd_renderApplications(){
@@ -18689,21 +18995,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
     const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
 
-    if(!specialVisible.length){
-      specialBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">
-        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}
-      </td></tr>`;
-    } else {
-      specialBody.innerHTML = specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('');
-    }
-
-    if(!annualVisible.length){
-      annualBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">
-        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}
-      </td></tr>`;
-    } else {
-      annualBody.innerHTML = annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('');
-    }
+    const isOfficer = jcfdCurrentUser.role === JCFD_ROLE_OFFICER;
+    atdRenderGrouped('jcfd_applicationsBodySpecial', specialVisible, { colspan: 8, rowHtml: a => jcfd_specialAppRowHtml(a, rowDot), groupers: jcfdSpecialGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">${isOfficer ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}</td></tr>` });
+    atdRenderGrouped('jcfd_applicationsBodyAnnual', annualVisible, { colspan: 6, rowHtml: a => jcfd_annualAppRowHtml(a, rowDot), groupers: jcfdAnnualGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">${isOfficer ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}</td></tr>` });
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
   // Debounced wrapper for the search box's oninput — jcfd_renderApplications()
@@ -21197,10 +21493,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     `;
 
     if(!breached.length){
-      body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>`;
+      atdRenderGrouped('jcfd_slaBreachesBody', [], { emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>` });
       return;
     }
-    body.innerHTML = breached.map(r =>`
+    atdRenderGrouped('jcfd_slaBreachesBody', breached, { colspan: 8, defaultOpen: 'all', groupers: [ { id: 'stage', label: 'Stage', of: r => atdGrp.plain(r.label) }, { id: 'role', label: 'Responsible role', of: r => atdGrp.plain(r.responsibleRole) }, { id: 'late', label: 'How late', of: r => { const d = r.overdueDays || 0; return d >= 7 ? { key: 'w', label: 'A week or more', rank: 0 } : d >= 1 ? { key: 'd', label: '1 to 6 days', rank: 1 } : { key: 'h', label: 'Under a day', rank: 2 }; } } ], rowHtml: r =>`
       <tr>
         <td>${acctEscapeHtml(r.a.rec.jcfAppNumber || '')}</td>
         <td>${r.a.rec.linkedTrackingCode ? acctEscapeHtml(r.a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -21211,7 +21507,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${jcfd_statusBadge(r.a.rec)}</td>
         <td><button class="btn btn-sm" onclick="jcfd_openApplication('${r.a.key}')">View</button></td>
       </tr>
-    `).join('');
+    ` });
   }
   window.jcfd_renderSlaBreaches = jcfd_renderSlaBreaches;
 
@@ -21303,7 +21599,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!record) return;
     document.getElementById('archiveViewTitle').textContent = `${record.year} Licensing Year`;
     document.getElementById('archiveViewSub').textContent = `Archived ${record.archivedDate}${record.archivedBy ? ' by ' + record.archivedBy : ''} — ${(record.applications || []).length} application(s).`;
-    document.getElementById('archiveViewBody').innerHTML = (record.applications || []).map(a => `
+    atdGroupReset('archiveViewBody');
+    atdRenderGrouped('archiveViewBody', record.applications || [], { colspan: 5, emptyHtml: `<tr><td colspan="5" class="table-empty">Nothing was archived for this year.</td></tr>`,
+      groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status),
+      rowHtml: a => `
       <tr>
         <td>${acctEscapeHtml(a.jcfAppNumber || '')}</td>
         <td>${a.trackingCode ? acctEscapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -21311,7 +21610,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(a.submitted || '')}</td>
         <td>${jcfd_statusBadge({status: a.status})}</td>
       </tr>
-    `).join('');
+    ` });
     document.getElementById('archiveViewModal').classList.remove('hidden');
   }
   window.jcfd_viewArchiveYear = jcfd_viewArchiveYear;
@@ -21808,7 +22107,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(applicantEmail){
         if(window.atdSendEmail){
           window.atdSendEmail('document_rejected', applicantEmail, {
-            appNumber: rec.jcfAppNumber, applicantName: (rec.eventOverview && rec.eventOverview.promoterName) || '',
+            kind: 'jcf', appNumber: String(jcfdActiveAppKey || '').replace(/^jcfApplication:/, ''), applicantName: (rec.eventOverview && rec.eventOverview.promoterName) || '',
             documentName: label, officerNote: note, municipalityName: rec.municipalityName || ''
           });
         }
@@ -21958,7 +22257,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     list.sort((a,b) => (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
     if(!list.length){
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No one on the JCF Watch List yet.</td></tr>`;
+      atdRenderGrouped('jcfd_watchlistBody', [], { emptyHtml: `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No one on the JCF Watch List yet.</td></tr>` });
       return;
     }
 
@@ -21970,7 +22269,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const viewOnclick = w._muniOnly
         ? `jcfd_openMuniOnlyWatchlistViewModal(${JSON.stringify(w.trn)})`
         : `jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})`;
-      return `<tr>
+      return { w, html: `<tr>
         <td>${acctEscapeHtml(w.fullName)}</td>
         <td>${acctEscapeHtml(w.type)}</td>
         <td>${acctEscapeHtml(formatTrnDisplayJcfd(w.trn))}</td>
@@ -21978,9 +22277,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${w._muniOnly ? '<span class="badge badge-gray">Not on JCF list</span>' : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>')}</td>
         <td>${muniCell}</td>
         <td><button class="btn btn-sm" onclick='${viewOnclick}'>View file</button></td>
-      </tr>`;
+      </tr>` };
     }));
-    body.innerHTML = rows.join('');
+    atdRenderGrouped('jcfd_watchlistBody', rows, { colspan: 7, rowHtml: x => x.html, groupers: [
+      { id: 'status', label: 'Status', of: x => atdGrp.ranked(x.w._muniOnly ? 'Not on JCF list' : (x.w.status === 'Active' ? 'Active' : 'Cleared'), ['Active', 'Not on JCF list', 'Cleared']) },
+      { id: 'type', label: 'Type', of: x => atdGrp.plain(x.w.type) },
+      { id: 'month', label: 'Month flagged', of: x => atdGrp.month(x.w.flaggedDate) }
+    ] });
   }
   window.jcfd_renderWatchlist = jcfd_renderWatchlist;
   // Debounced wrapper for the search box's oninput — jcfd_renderWatchlist()
@@ -22194,10 +22497,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     issued.sort((a,b) => (b.rec.permit.issuedDate || '').localeCompare(a.rec.permit.issuedDate || ''));
 
     if(!issued.length){
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No permits have been issued yet.</td></tr>`;
+      atdRenderGrouped('jcfd_permitsListBody', [], { emptyHtml: `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No permits have been issued yet.</td></tr>` });
       return;
     }
-    body.innerHTML = issued.map(a => {
+    atdRenderGrouped('jcfd_permitsListBody', issued, { colspan: 7, groupers: [
+      { id: 'month', label: 'Month issued', of: a => atdGrp.month(a.rec.permit.issuedDate) },
+      { id: 'year', label: 'Year issued', of: a => atdGrp.year(a.rec.permit.issuedDate) },
+      { id: 'event', label: 'Event', of: a => atdGrp.plain(a.rec.permit.eventName) }
+    ], rowHtml: a => {
       const p = a.rec.permit;
       return `<tr>
         <td>${acctEscapeHtml(p.number)}</td>
@@ -22208,7 +22515,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(a.rec.jcfAppNumber || '')}</td>
         <td><button class="btn btn-sm" onclick='jcfd_viewIssuedPermit(${JSON.stringify(a.key)})'>View / Print</button></td>
       </tr>`;
-    }).join('');
+    } });
   }
   window.jcfd_renderPermitsList = jcfd_renderPermitsList;
   // Debounced wrapper for the search box's oninput — same
@@ -26815,6 +27122,7 @@ async function submitApp(){
     if(record.applicant && record.applicant.email){
       window.atdSendEmail('application_submitted', record.applicant.email, {
         appNumber,
+        trackingCode: record.trackingCode,
         applicantName: record.applicant.name,
         municipalityName: record.municipalityName
       });
@@ -30256,10 +30564,10 @@ async function renderMuniBilling(){
   document.getElementById('billingDueDateText').textContent = periodEnd || '—';
 
   // ---- Past Invoices ----
-  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.slice().reverse() : [];
+  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.map((inv, i) => Object.assign({}, inv, { _idx: i })).reverse() : [];
   const invoicesBody = document.getElementById('billingInvoicesBody');
-  invoicesBody.innerHTML = invoices.length ? invoices.map((inv, revIdx) => {
-    const idx = invoices.length - 1 - revIdx;
+  atdRenderGrouped('billingInvoicesBody', invoices, { colspan: 5, threshold: 12, groupers: [ { id: 'year', label: 'Year', of: inv => atdGrp.year(inv.periodEnd || inv.issuedDate) } ], emptyHtml: `<tr><td colspan="5" class="table-empty">No invoices yet.</td></tr>`, rowHtml: (inv) => {
+    const idx = inv._idx;
     return `
     <tr>
       <td class="cell-primary">${muni_escapeHtml(inv.invoiceNumber)}</td>
@@ -30271,7 +30579,7 @@ async function renderMuniBilling(){
         <button class="btn btn-sm" onclick="muniPrintReceipt(${idx})">Receipt</button>
       </td>
     </tr>
-  `; }).join('') : `<tr><td colspan="5" class="table-empty">No invoices yet.</td></tr>`;
+  `; } });
 
   // ---- Payment Method ----
   document.getElementById('billingPaymentMethodText').textContent = m.paymentMethodLabel
@@ -30614,10 +30922,10 @@ async function renderSlaBreaches(){
   `;
 
   if(!breached.length){
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>`;
+    atdRenderGrouped('slaBreachesBody', [], { emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>` });
     return;
   }
-  body.innerHTML = breached.map(r =>`
+  atdRenderGrouped('slaBreachesBody', breached, Object.assign({ rowHtml: r =>`
     <tr>
       <td>${muni_escapeHtml(r.a.appNumber)}</td>
       <td>${r.a.trackingCode ? muni_escapeHtml(r.a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -30628,7 +30936,7 @@ async function renderSlaBreaches(){
       <td>${muni_statusBadge(r.a.status)}</td>
       <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(r.a.id)})'>View</button></td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: [ { id: 'stage', label: 'Stage', of: r => atdGrp.plain(r.label) }, { id: 'role', label: 'Responsible role', of: r => atdGrp.plain(r.responsibleRole) }, { id: 'late', label: 'How late', of: r => { const d = r.overdueDays || 0; return d >= 7 ? { key: 'w', label: 'A week or more', rank: 0 } : d >= 1 ? { key: 'd', label: '1 to 6 days', rank: 1 } : { key: 'h', label: 'Under a day', rank: 2 }; } } ], defaultOpen: 'all' }));
 }
 
 // ==================== Licensing Year Archive ====================
@@ -30715,7 +31023,10 @@ async function viewArchiveYear(year){
   if(!record) return;
   document.getElementById('archiveViewTitle').textContent = `${record.year} Licensing Year`;
   document.getElementById('archiveViewSub').textContent = `Archived ${record.archivedDate}${record.archivedBy ? ' by ' + record.archivedBy : ''} — ${(record.applications || []).length} application(s).`;
-  document.getElementById('archiveViewBody').innerHTML = (record.applications || []).map(a => `
+  atdGroupReset('archiveViewBody');
+  atdRenderGrouped('archiveViewBody', record.applications || [], { colspan: 5, emptyHtml: `<tr><td colspan="5" class="table-empty">Nothing was archived for this year.</td></tr>`,
+    groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status),
+    rowHtml: a => `
     <tr>
       <td>${muni_escapeHtml(a.appNumber || '')}</td>
       <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -30723,7 +31034,7 @@ async function viewArchiveYear(year){
       <td>${muni_escapeHtml(a.submitted || '')}</td>
       <td>${muni_statusBadge(a.status)}</td>
     </tr>
-  `).join('');
+  ` });
   document.getElementById('archiveViewModal').classList.remove('hidden');
 }
 
@@ -31404,12 +31715,12 @@ function renderVenues(){
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="6" class="table-empty">No venues found.</td></tr>`;
+    atdRenderGrouped('venuesBody', [], { emptyHtml: `<tr><td colspan="6" class="table-empty">No venues found.</td></tr>` });
     return;
   }
 
   const canManage = hasPerm('review');
-  body.innerHTML = list.map(v => {
+  atdRenderGrouped('venuesBody', list, { colspan: 6, rowHtml: v => {
     const location = [v.streetNumber, v.streetName, v.district].filter(Boolean).join(', ') || '—';
     return `
       <tr>
@@ -31439,9 +31750,12 @@ function renderVenues(){
         </td>
       </tr>
     `;
-  }).join('');
+  }, groupers: [
+    { id: 'status', label: 'Status', of: v => atdGrp.ranked(v.rejected ? 'Rejected' : v.flagged ? 'Flagged' : v.active ? 'Active' : 'Inactive', ['Flagged', 'Rejected', 'Active', 'Inactive']) },
+    { id: 'district', label: 'District', of: v => atdGrp.plain(v.district) },
+    { id: 'letter', label: 'First letter', of: v => { const c = String(v.name || '#').trim().charAt(0).toUpperCase(); const L = /[A-Z]/.test(c) ? c : '#'; return { key: L, label: L, rank: L === '#' ? 99 : L.charCodeAt(0) }; } }
+  ], defaultOpen: 'all', threshold: 40 });
 }
-
 async function deleteVenue(id){
   if(!hasPerm('review')){
     muni_showToast("You don't have permission to manage venues.");
@@ -32551,10 +32865,10 @@ function renderPromoRedemptionLog(){
   const myIds = new Set(myPromotions().map(p => p.id));
   const list = [...promoRedemptions.filter(r => myIds.has(r.promotionId))].sort((a,b)=> (b.redeemedDate || '').localeCompare(a.redeemedDate || ''));
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="6" class="table-empty">No promotion redemptions yet.</td></tr>`;
+    atdRenderGrouped('promoRedemptionBody', [], { emptyHtml: `<tr><td colspan="6" class="table-empty">No promotion redemptions yet.</td></tr>` });
     return;
   }
-  body.innerHTML = list.map(r => `
+  atdRenderGrouped('promoRedemptionBody', list, Object.assign({ rowHtml: r => `
     <tr>
       <td>${muni_escapeHtml(r.redeemedDate || '')}</td>
       <td class="cell-primary">${muni_escapeHtml(r.promoterName || '')}</td>
@@ -32562,7 +32876,7 @@ function renderPromoRedemptionLog(){
       <td>${muni_escapeHtml(r.promotionName || '')}<div class="cell-sub">${muni_escapeHtml(r.promotionCode || '')}</div></td>
       <td>${muni_escapeHtml(r.appNumber || '')}</td>
       <td>${muni_formatCurrency(r.discountAmount)}</td>
-    </tr>`).join('');
+    </tr>` }, { colspan: 6, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.redeemedDate) }, { id: 'promo', label: 'Promotion', of: r => atdGrp.plain(r.promotionName) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.discountAmount)) + ' discounted', '') }));
 }
 
 function openPromotionModal(id){
@@ -32931,11 +33245,11 @@ async function renderWatchlist(){
   list.sort((a,b)=> (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="5" class="table-empty">No one on the watchlist yet.</td></tr>`;
+    atdRenderGrouped('watchlistBody', [], { emptyHtml: `<tr><td colspan="5" class="table-empty">No one on the watchlist yet.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(w => {
+  atdRenderGrouped('watchlistBody', list, { rowHtml: w => {
     const badge = w._jcfActive
       ? '<span class="badge badge-red">Flagged (JCF)</span>'
       : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>');
@@ -32953,9 +33267,12 @@ async function renderWatchlist(){
       </td>
     </tr>
   `;
-  }).join('');
+  }, colspan: 5, groupers: [
+    { id: 'status', label: 'Status', of: w => atdGrp.ranked(w._jcfActive ? 'Flagged (JCF)' : (w.status === 'Active' ? 'Active' : 'Cleared'), ['Flagged (JCF)', 'Active', 'Cleared']) },
+    { id: 'month', label: 'Month flagged', of: w => atdGrp.month(w.flaggedDate) },
+    { id: 'by', label: 'Flagged by', of: w => atdGrp.plain(w.flaggedBy) }
+  ] });
 }
-
 // Read-only view for a TRN that only appears on the JCF Watch List (no
 // Municipal Corporation record exists for it) — there's nothing for a
 // Municipal officer to clear/reactivate here since it isn't their flag.
@@ -33424,11 +33741,11 @@ function renderPermitsList(){
   issued.sort((a,b)=> (b.permit.issuedDate || '').localeCompare(a.permit.issuedDate || ''));
 
   if(!issued.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No permits have been issued yet.</td></tr>`;
+    atdRenderGrouped('permitsListBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No permits have been issued yet.</td></tr>` });
     return;
   }
 
-  body.innerHTML = issued.map(a => {
+  atdRenderGrouped('permitsListBody', issued, { rowHtml: a => {
     const p = a.permit;
     return `
       <tr>
@@ -33442,9 +33759,12 @@ function renderPermitsList(){
         <td><button class="btn btn-sm" onclick='viewIssuedPermit(${JSON.stringify(a.id)})'>View / Print</button></td>
       </tr>
     `;
-  }).join('');
+  }, colspan: 8, groupers: [
+    { id: 'month', label: 'Month issued', of: a => atdGrp.month(a.permit && a.permit.issuedDate) },
+    { id: 'type', label: 'Permit type', of: a => atdGrp.plain(a.permit && a.permit.permitTypeLabel) },
+    { id: 'year', label: 'Year issued', of: a => atdGrp.year(a.permit && a.permit.issuedDate) }
+  ] });
 }
-
 // Fix: the Issued Permits tab's "View / Print" button used to call
 // muni_openAppModal(), which navigates to the full Application Details page
 // — the underlying application, comments, checklist and all — rather than
@@ -33933,10 +34253,10 @@ function muni_renderPaymentsTable(){
   const total = rows.reduce((sum, r) => sum + (r.amount || 0), 0);
   if(summaryEl) summaryEl.textContent = `Total: ${muni_formatCurrency(total)} across ${rows.length} record${rows.length === 1 ? '' : 's'}`;
   if(!rows.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>`;
+    atdRenderGrouped('muni_paymentsBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>` });
     return;
   }
-  body.innerHTML = rows.map(r => `
+  atdRenderGrouped('muni_paymentsBody', rows, Object.assign({ rowHtml: r => `
     <tr>
       <td>${muni_escapeHtml(muni_formatPaymentDate(r.date))}</td>
       <td class="cell-primary">${muni_escapeHtml(r.appNumber)}</td>
@@ -33947,7 +34267,7 @@ function muni_renderPaymentsTable(){
       <td>${muni_escapeHtml(r.receiptNumber || '—')}</td>
       <td>${muni_escapeHtml(r.notes || '—')}</td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.date) }, { id: 'type', label: 'Payment type', of: r => atdGrp.plain(r.type) }, { id: 'licence', label: 'Licence type', of: r => atdGrp.plain(r.licenseType) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.amount)), '') }));
 }
 window.muni_renderPaymentsTable = muni_renderPaymentsTable;
 
@@ -34558,10 +34878,12 @@ function muni_renderApplications(){
   );
   const rowDot = appNumber => attentionAppNumbers.has(appNumber) ? `<span class="notif-row-dot" title="Needs attention"></span>` : '';
 
+  const muniAppGroupers = (colsExtra) => atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted, muni: a => venueNameOf(a) }).map(g => g.id === 'muni' ? Object.assign(g, { label: 'Venue' }) : g);
+  const muniAppSummary = (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status);
   if(!specialVisible.length){
-    specialBody.innerHTML = `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>`;
+    atdRenderGrouped('muni_applicationsBodySpecial', [], { emptyHtml: `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>` });
   } else {
-    specialBody.innerHTML = specialVisible.map(a => `
+    atdRenderGrouped('muni_applicationsBodySpecial', specialVisible, { colspan: 9, rowHtml: a => `
       <tr>
         <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -34573,13 +34895,13 @@ function muni_renderApplications(){
         <td>${muni_statusBadge(a.status)}</td>
         <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
       </tr>
-    `).join('');
+    `, groupers: muniAppGroupers(), summary: muniAppSummary });
   }
 
   if(!annualVisible.length){
-    annualBody.innerHTML = `<tr><td colspan="8" class="table-empty">No Annual applications match your filters.</td></tr>`;
+    atdRenderGrouped('muni_applicationsBodyAnnual', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No Annual applications match your filters.</td></tr>` });
   } else {
-    annualBody.innerHTML = annualVisible.map(a => `
+    atdRenderGrouped('muni_applicationsBodyAnnual', annualVisible, { colspan: 8, rowHtml: a => `
       <tr>
         <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -34590,7 +34912,7 @@ function muni_renderApplications(){
         <td>${muni_statusBadge(a.status)}</td>
         <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
       </tr>
-    `).join('');
+    `, groupers: muniAppGroupers(), summary: muniAppSummary });
   }
 }
 
@@ -38765,9 +39087,7 @@ function renderNotifBell(){
     badge.classList.add('hidden');
   }
 
-  const items = [];
-  notifBreaches.forEach(n=>{
-    items.push(`
+  const notifRow = n => n.__breach ? `
       <div class="notif-item unread" onclick='notifGoToApp(${JSON.stringify(n.appNumber)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
@@ -38775,10 +39095,7 @@ function renderNotifBell(){
         </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>Overdue</span></div>
       </div>
-    `);
-  });
-  notifPersisted.forEach(n=>{
-    items.push(`
+    ` : `
       <div class="notif-item ${n.read ? '' : 'unread'}" onclick='notifGoToApp(${JSON.stringify(n.appNumber)}); markNotificationRead(${JSON.stringify(n.id)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
@@ -38786,10 +39103,8 @@ function renderNotifBell(){
         </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>${notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `);
-  });
-
-  body.innerHTML = items.length ? items.join('') : '<div class="notif-empty">No notifications yet.</div>';
+    `;
+  atdRenderGrouped('notifPanelBody', notifBreaches.map(n => Object.assign({}, n, { __breach: true })).concat(notifPersisted), { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: notifRow });
 }
 
 function toggleNotifPanel(event){
@@ -39257,10 +39572,10 @@ function admin_renderAccountDeletionRequests(){
   const body = document.getElementById('admin_deletionRequestsBody');
   if(!body) return;
   if(!adminAccountDeletionRequests.length){
-    body.innerHTML = '<tr><td colspan="4" class="empty-state">No pending deletion requests.</td></tr>';
+    atdRenderGrouped('admin_deletionRequestsBody', [], { emptyHtml: '<tr><td colspan="4" class="empty-state">No pending deletion requests.</td></tr>' });
     return;
   }
-  body.innerHTML = adminAccountDeletionRequests.map(r => `
+  atdRenderGrouped('admin_deletionRequestsBody', adminAccountDeletionRequests, Object.assign({ rowHtml: r => `
     <tr>
       <td>${admin_escapeHtml(r.name)}</td>
       <td>${admin_escapeHtml(r.email)}</td>
@@ -39271,7 +39586,7 @@ function admin_renderAccountDeletionRequests(){
           <button class="btn btn-sm btn-danger" onclick="admin_approveAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Approve &amp; delete</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>` }, { colspan: 4, groupers: [ { id: 'month', label: 'Month requested', of: r => atdGrp.month(r.requestedDate) } ] }));
 }
 
 // Declining requires a reason (see #admin_declineDeletionModal in the HTML)
@@ -39947,8 +40262,7 @@ async function admin_renderNationalOverview(){
   const pvBody = document.getElementById('admin_ovwPaymentVerificationBody');
   if(pvBody){
     const sortedAwaiting = [...awaitingFeeVerification].sort((a,b) => (a.submitted || '').localeCompare(b.submitted || ''));
-    pvBody.innerHTML = sortedAwaiting.length
-      ? sortedAwaiting.map(a => `
+    const pvRow = a => `
           <tr>
             <td class="cell-primary">${admin_paymentAlertBadge(a)}${admin_escapeHtml(a.appNumber)}</td>
             <td>${admin_escapeHtml(a.applicant)}</td>
@@ -39957,8 +40271,13 @@ async function admin_renderNationalOverview(){
             <td>${admin_escapeHtml(a.submitted)}</td>
             <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">Review</button></td>
           </tr>
-        `).join('')
-      : `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`;
+        `;
+    atdRenderGrouped('admin_ovwPaymentVerificationBody', sortedAwaiting, {
+      colspan: 6, rowHtml: pvRow,
+      groupers: [ { id: 'muni', label: 'Municipality', of: a => atdGrp.plain(agencyNameByMuniId(a.muniId)) }, { id: 'month', label: 'Month submitted', of: a => atdGrp.month(a.submitted) } ],
+      summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), 'warn'),
+      emptyHtml: `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`
+    });
   }
 
   // ---- Applications ----
@@ -40296,11 +40615,11 @@ function admin_renderApplications(){
   list.sort((a,b)=> (b.submitted||'').localeCompare(a.submitted||''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No applications match your filters.</td></tr>`;
+    atdRenderGrouped('admin_applicationsBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No applications match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(a => `
+  atdRenderGrouped('admin_applicationsBody', list, Object.assign({ rowHtml: a => `
     <tr>
       <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
@@ -40311,7 +40630,7 @@ function admin_renderApplications(){
       <td>${admin_statusBadge(a.status)}</td>
       <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">View</button></td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted, muni: a => agencyNameByMuniId(a.muniId), type: a => a.licenseType === 'Annual' ? 'Annual licence' : 'Special Event licence' }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status) }));
 }
 
 // ---------------- Agency accounts (grouped into per-type cards) ----------------
@@ -41487,11 +41806,11 @@ function renderVenueRegistry(){
   list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="12" class="table-empty">No venues match your filters.</td></tr>`;
+    atdRenderGrouped('admin_venueRegistryBody', [], { emptyHtml: `<tr><td colspan="12" class="table-empty">No venues match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(v => {
+  atdRenderGrouped('admin_venueRegistryBody', list, Object.assign({ rowHtml: v => {
     const eventCount = admin_venuePreviousEvents(v).length;
     const violationCount = admin_allVenueViolations(v).length;
     return `
@@ -41510,7 +41829,7 @@ function renderVenueRegistry(){
         <td><button class="btn btn-sm" onclick="admin_openVenueRegistryModal('${v.id}')">View</button></td>
       </tr>
     `;
-  }).join('');
+  } }, { colspan: 12, groupers: [ { id: 'muni', label: 'Municipality', of: v => atdGrp.plain(agencyNameByMuniId(v.muniId)) }, { id: 'license', label: 'Licence status', of: v => atdGrp.plain(v.licenseStatus) }, { id: 'risk', label: 'Risk class', of: v => atdGrp.plain(v.riskClassification) } ], summary: items => { const f = atdGrp.count(items, v => v.flagged); return f ? atdGrp.chip(f + ' flagged', 'bad') : ''; } }));
 }
 
 function admin_openVenueRegistryModal(id){
@@ -41548,16 +41867,17 @@ function admin_openVenueRegistryModal(id){
     : `No applications on file yet for this venue under ${agencyNameByMuniId(v.muniId)}.`;
 
   const eventsBody = document.getElementById('venueRegistryEventsBody');
-  eventsBody.innerHTML = events.length
-    ? [...events].sort((a,b) => (b.submitted||'').localeCompare(a.submitted||'')).map(a => `
+  atdGroupReset('venueRegistryEventsBody');
+  atdRenderGrouped('venueRegistryEventsBody', [...events].sort((a,b) => (b.submitted||'').localeCompare(a.submitted||'')), { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No previous events on file.</td></tr>`,
+    groupers: [ { id: 'year', label: 'Year', of: a => atdGrp.year(a.submitted) }, { id: 'status', label: 'Status', of: a => atdGrp.ranked(a.status, atdGrp.APP_STATUS_ORDER) } ],
+    rowHtml: a => `
         <tr>
           <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
           <td>${admin_escapeHtml(a.businessOrEvent || '—')}</td>
           <td>${admin_escapeHtml(a.date || a.submitted || '—')}</td>
           <td>${admin_statusBadge(a.status)}</td>
         </tr>
-      `).join('')
-    : `<tr><td colspan="4" class="table-empty">No previous events on file.</td></tr>`;
+      ` });
 
   admin_renderVenueViolations(v);
 
@@ -41593,16 +41913,17 @@ function admin_allVenueViolations(v){
 function admin_renderVenueViolations(v){
   const body = document.getElementById('venueRegistryViolationsBody');
   const violations = admin_allVenueViolations(v);
-  body.innerHTML = violations.length
-    ? violations.map(vi => `
+  atdGroupReset('venueRegistryViolationsBody');
+  atdRenderGrouped('venueRegistryViolationsBody', violations, { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No violations on file.</td></tr>`,
+    groupers: [ { id: 'year', label: 'Year', of: vi => atdGrp.year(vi.date) }, { id: 'sev', label: 'Severity', of: vi => atdGrp.ranked(vi.severity || 'Minor', ['Severe', 'Moderate', 'Minor']) }, { id: 'src', label: 'Source', of: vi => atdGrp.plain(vi.source) } ],
+    rowHtml: vi => `
         <tr>
           <td>${admin_escapeHtml(vi.date || '—')}</td>
           <td><span class="badge ${vi.severity === 'Severe' ? 'badge-red' : (vi.severity === 'Moderate' ? 'badge-amber' : 'badge-gray')}">${admin_escapeHtml(vi.severity || 'Minor')}</span></td>
           <td>${admin_escapeHtml(vi.description || '')}</td>
           <td><span class="badge ${vi.source === 'Municipal Corporation' ? 'badge-blue' : 'badge-gray'}">${admin_escapeHtml(vi.source)}</span></td>
         </tr>
-      `).join('')
-    : `<tr><td colspan="4" class="table-empty">No violations on file.</td></tr>`;
+      ` });
 }
 
 // Writes the full venue record (municipal fields untouched + these
@@ -41711,11 +42032,11 @@ function renderAdminUsers(){
   list.sort((a,b) => agencyNameByMuniId(a.muniId).localeCompare(agencyNameByMuniId(b.muniId)) || a.name.localeCompare(b.name));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="7" class="table-empty">No staff accounts match your filters.</td></tr>`;
+    atdRenderGrouped('admin_usersBody', [], { emptyHtml: `<tr><td colspan="7" class="table-empty">No staff accounts match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(u => `
+  atdRenderGrouped('admin_usersBody', list, Object.assign({ rowHtml: u => `
     <tr>
       <td class="cell-primary">${admin_escapeHtml(u.name)}</td>
       <td>${admin_escapeHtml(u.email)}<div class="cell-sub">${admin_escapeHtml(u.phone || '')}</div></td>
@@ -41737,7 +42058,7 @@ function renderAdminUsers(){
         </div>
       </td>
     </tr>
-  `).join('');
+  ` }, { colspan: 7, groupers: [ { id: 'muni', label: 'Municipality', of: u => atdGrp.plain(agencyNameByMuniId(u.muniId)) }, { id: 'role', label: 'Role', of: u => atdGrp.plain(u.role) }, { id: 'status', label: 'Status', of: u => atdGrp.ranked(u.status, ['Active', 'Suspended']) } ], summary: items => { const s = atdGrp.count(items, u => u.status !== 'Active'); return s ? atdGrp.chip(s + ' suspended', 'warn') : ''; } }));
 }
 
 async function adminResetUserPassword(id){
@@ -42155,16 +42476,25 @@ async function renderLoginActivity(){
   const body = document.getElementById('admin_loginActivityBody');
   if(!body) return;
   const logs = await window.atdLoadAuditLogs({ sinceMs: Date.now() - 90*24*60*60*1000 });
-  const logins = logs.filter(e => e.action === 'login.success' || e.action === 'login.failed').slice(0, 50);
+  const logins = logs.filter(e => e.action === 'login.success' || e.action === 'login.failed');
   const portalLabel = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
-  body.innerHTML = logins.map(e => `
+  atdRenderGrouped('admin_loginActivityBody', logins, { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No login activity yet.</td></tr>`,
+    groupers: [
+      { id: 'month', label: 'Month', of: e => atdGrp.month(e.ts) },
+      { id: 'day', label: 'Day', of: e => { const d = String(e.ts || '').slice(0, 10); const t = Date.parse(d); return /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(t) ? { key: d, label: new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }), rank: -t } : { key: 'none', label: 'No date', rank: 1e15 }; } },
+      { id: 'outcome', label: 'Outcome', of: e => atdGrp.ranked(e.action === 'login.failed' ? 'Failed' : 'Success', ['Failed', 'Success']) },
+      { id: 'portal', label: 'Portal', of: e => atdGrp.plain(portalLabel[e.portal] || e.portal || 'unknown') },
+      { id: 'who', label: 'Account', of: e => atdGrp.plain(e.actor) }
+    ],
+    summary: items => { const f = atdGrp.count(items, e => e.action === 'login.failed'); return f ? atdGrp.chip(f + ' failed', 'bad') : ''; },
+    rowHtml: e => `
     <tr>
       <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
       <td><span class="badge badge-gray">${admin_escapeHtml(portalLabel[e.portal] || e.portal || 'unknown')}</span></td>
       <td>${admin_escapeHtml(e.actor)}</td>
       <td>${e.action === 'login.success' ? '<span class="badge badge-green">Success</span>' : '<span class="badge badge-red">Failed</span>'}</td>
     </tr>
-  `).join('') || `<tr><td colspan="4" class="table-empty">No login activity yet.</td></tr>`;
+  ` });
 }
 
 function renderSecurityPage(){
@@ -42358,6 +42688,9 @@ async function adminMarkAgencyPaid(id){
 // fixed allow-list of payment/suspension fields (see backend/accountant_role.sql).
 let finPeriod = 'all';
 let finPayFilter = 'pending';
+// The ticked walk-in applications (by application number), kept as data so
+// they survive the list being collapsed, paged or redrawn.
+const finWalkSel = new Set();
 let finFinanceUsers = [];
 
 function fin_ymd(d){
@@ -43099,8 +43432,7 @@ function fin_renderPayments(){
   const pendingCount = applications.filter(a => !fin_isWalkin(a) && a.applicationFeePaid && !a.applicationFeeVerified).length;
   const badge = document.getElementById('fin_pendingCount');
   if(badge) badge.textContent = pendingCount ? String(pendingCount) : '';
-  const shown = list.slice(0, 200);
-  body.innerHTML = shown.map(a => {
+  const payRow = a => {
     const pay = (a.raw && a.raw.applicationFeePayment) || {};
     const channel = fin_isWalkin(a) ? 'Walk-in (collected by MC)' : (pay.method ? admin_escapeHtml(pay.method) + (pay.referenceNumber ? ' · ' + admin_escapeHtml(pay.referenceNumber) : '') : '—');
     const key = JSON.stringify(a.appNumber).replace(/"/g, '&quot;');
@@ -43122,9 +43454,22 @@ function fin_renderPayments(){
       <td>${fin_payStatus(a)}</td>
       <td style="white-space:nowrap;">${actions}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" class="table-empty">${finPayFilter === 'pending' ? 'No fee payments are waiting for verification.' : 'Nothing matches this filter.'}</td></tr>`;
+  };
+  const payStatusLabel = a => a.applicationFeeVerified ? (a.applicationFeeRemitted ? 'Received from municipality' : 'Verified') : fin_isWalkin(a) ? 'Walk-in, not yet received' : a.applicationFeePaid ? 'Awaiting verification' : 'Not yet paid';
+  const payGroupers = [
+    { id: 'muni', label: 'Municipality', of: a => atdGrp.plain(fin_muniName(a.muniId)) },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.applicationFeeVerified ? (a.applicationFeeVerifiedDate || a.submitted) : a.submitted) },
+    { id: 'status', label: 'Payment status', of: a => atdGrp.ranked(payStatusLabel(a), ['Awaiting verification', 'Walk-in, not yet received', 'Not yet paid', 'Verified', 'Received from municipality']) },
+    { id: 'type', label: 'Permit type', of: a => atdGrp.plain(a.licenseType) }
+  ];
+  if(finPayFilter === 'verified') payGroupers.unshift(payGroupers.splice(1, 1)[0]);
+  atdRenderGrouped('fin_paymentsBody', list, {
+    colspan: 8, rowHtml: payRow, groupers: payGroupers,
+    summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), ''),
+    emptyHtml: `<tr><td colspan="8" class="table-empty">${finPayFilter === 'pending' ? 'No fee payments are waiting for verification.' : 'Nothing matches this filter.'}</td></tr>`
+  });
   const more = document.getElementById('fin_payMore');
-  if(more) more.textContent = list.length > shown.length ? `Showing the first ${shown.length} of ${list.length}. Narrow the filter to see the rest.` : '';
+  if(more) more.textContent = '';
 }
 window.fin_renderPayments = fin_renderPayments;
 
@@ -43391,15 +43736,7 @@ function fin_renderWalkins(){
       </div>
       <div style="overflow-x:auto;"><table>
         <thead><tr><th style="width:34px;"></th><th>Application #</th><th>Applicant</th><th>Permit</th><th>Entered</th><th>Atendify fee</th><th>Stage</th></tr></thead>
-        <tbody>${g.apps.map(a => `<tr>
-          <td><input type="checkbox" class="fin-walkin-cb" data-muni="${admin_escapeHtml(String(g.m.muniNumber))}" value="${admin_escapeHtml(String(a.appNumber))}" aria-label="Select ${admin_escapeHtml(String(a.appNumber))}"></td>
-          <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
-          <td>${admin_escapeHtml(a.applicant)}</td>
-          <td>${admin_escapeHtml(a.licenseType || '—')}</td>
-          <td>${admin_escapeHtml(a.submitted || '—')}</td>
-          <td>${admin_formatCurrency(a.applicationFee)}</td>
-          <td>${a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Collected at counter · awaiting remittance</span>' : '<span class="badge">Payment not yet verified by MC</span>'}</td>
-        </tr>`).join('')}</tbody>
+        <tbody id="fin_wk_${admin_escapeHtml(String(g.m.muniNumber))}"></tbody>
       </table></div>
     </div>`;
   }).join('');
@@ -43419,22 +43756,50 @@ function fin_renderWalkins(){
         <td><button class="btn btn-sm" onclick="fin_unverifyFee(${JSON.stringify(a.appNumber).replace(/"/g, '&quot;')})">Undo</button></td>
       </tr>`).join('') || `<tr><td colspan="7" class="table-empty">Nothing has been marked as received yet.</td></tr>`}</tbody>
     </table></div></div>`;
-  // Keep any ticked boxes across a background refresh.
-  const ticked = new Set(Array.from(host.querySelectorAll('.fin-walkin-cb:checked')).map(cb => cb.value));
   host.innerHTML = html;
-  host.querySelectorAll('.fin-walkin-cb').forEach(cb => { if(ticked.has(cb.value)) cb.checked = true; });
+  // Each municipality's list is drawn in collapsible categories; the ticked
+  // applications are remembered in finWalkSel (not read back from the page),
+  // so ticks survive collapsing, paging and background refreshes.
+  const walkRow = a => `<tr>
+          <td><input type="checkbox" class="fin-walkin-cb" data-muni="${admin_escapeHtml(String(a.muniId))}" value="${admin_escapeHtml(String(a.appNumber))}"${finWalkSel.has(String(a.appNumber)) ? ' checked' : ''} aria-label="Select ${admin_escapeHtml(String(a.appNumber))}"></td>
+          <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
+          <td>${admin_escapeHtml(a.applicant)}</td>
+          <td>${admin_escapeHtml(a.licenseType || '—')}</td>
+          <td>${admin_escapeHtml(a.submitted || '—')}</td>
+          <td>${admin_formatCurrency(a.applicationFee)}</td>
+          <td>${a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Collected at counter · awaiting remittance</span>' : '<span class="badge">Payment not yet verified by MC</span>'}</td>
+        </tr>`;
+  groups.forEach(g => {
+    atdRenderGrouped('fin_wk_' + String(g.m.muniNumber), g.apps, {
+      colspan: 7, rowHtml: walkRow, pageSize: 50, defaultOpen: 'all',
+      groupers: [
+        { id: 'stage', label: 'Stage', of: a => atdGrp.ranked(a.applicationFeeCollectedByMuni ? 'Collected at counter, awaiting remittance' : 'Payment not yet verified by the municipality', ['Collected at counter, awaiting remittance']) },
+        { id: 'month', label: 'Month entered', of: a => atdGrp.month(a.submitted) }
+      ],
+      summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), '')
+    });
+  });
 }
 
+document.addEventListener('change', e => {
+  const cb = e.target;
+  if(cb && cb.classList && cb.classList.contains('fin-walkin-cb')){
+    if(cb.checked) finWalkSel.add(String(cb.value)); else finWalkSel.delete(String(cb.value));
+  }
+});
+
 function fin_selectAllWalkins(muniId){
-  const boxes = Array.from(document.querySelectorAll('.fin-walkin-cb')).filter(cb => cb.dataset.muni === String(muniId));
-  const allOn = boxes.length && boxes.every(cb => cb.checked);
-  boxes.forEach(cb => { cb.checked = !allOn; });
+  // Every application this municipality still owes, whether or not its row is currently drawn.
+  const owing = applications.filter(a => fin_isWalkin(a) && String(a.muniId) === String(muniId) && fin_owed(a) > 0).map(a => String(a.appNumber));
+  const allOn = owing.length && owing.every(n => finWalkSel.has(n));
+  owing.forEach(n => { if(allOn) finWalkSel.delete(n); else finWalkSel.add(n); });
+  fin_renderWalkins();
 }
 window.fin_selectAllWalkins = fin_selectAllWalkins;
 
 let finReceiveSelection = [];
 function fin_openReceiveModal(muniId){
-  const nums = Array.from(document.querySelectorAll('.fin-walkin-cb:checked')).filter(cb => cb.dataset.muni === String(muniId)).map(cb => cb.value);
+  const nums = applications.filter(a => String(a.muniId) === String(muniId) && finWalkSel.has(String(a.appNumber))).map(a => String(a.appNumber));
   if(!nums.length){ admin_showToast('Tick the applications whose fees you have received first.'); return; }
   const apps = nums.map(n => applications.find(a => String(a.appNumber) === n)).filter(a => a && fin_owed(a) > 0);
   if(!apps.length) return;
