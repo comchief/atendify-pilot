@@ -5870,6 +5870,38 @@
       return res.data || { ok: false };
     },
 
+    // Municipal Credit, enforced in the database (security_municipal_credit.sql):
+    // a request can only be made by staff holding "payment", it can never exceed
+    // what was actually paid on the application, and only a different staff
+    // member holding "approve" (the CEO) can approve or reject it. The credit
+    // itself is written by the database function, never by the browser.
+    municipalCreditRequest: async function (appNumber, amount, reason) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_municipal_credit_request', { p_app_number: appNumber, p_amount: amount, p_reason: reason });
+      });
+      if (res.error) { window.atdShowDebugError('municipalCreditRequest()', res.error); return { ok: false, error: 'Could not reach the service. Please try again.' }; }
+      return res.data || { ok: false, error: 'No answer from the service.' };
+    },
+    municipalCreditDecide: async function (id, approve, note) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_municipal_credit_decide', { p_id: id, p_approve: !!approve, p_note: note || '' });
+      });
+      if (res.error) { window.atdShowDebugError('municipalCreditDecide()', res.error); return { ok: false, error: 'Could not reach the service. Please try again.' }; }
+      return res.data || { ok: false, error: 'No answer from the service.' };
+    },
+    // Every Municipal Credit request for the signed-in officer's municipality
+    // (the database only returns their own).
+    municipalCreditRequests: async function () {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.from(TABLE).select('value').like('key', 'municipalCredit:%');
+      });
+      if (res.error) { window.atdShowDebugError('municipalCreditRequests()', res.error); return null; }
+      return (res.data || []).map(function (r) { return r.value; });
+    },
+
     // Login lockout, enforced server-side (see supabase_schema.sql's Family
     // 8 comment for why this moved off a client-read/writable kv_store
     // prefix): these three call SECURITY DEFINER Postgres functions that
@@ -35852,6 +35884,15 @@ function muni_openAppModal(id){
     }
   }
   renderAppDetail();
+  // Municipal Credit requests are held by the database: pick up any request or
+  // decision made by a colleague since the list was last loaded.
+  const mcApp = applications.find(a => a.id === id);
+  if(mcApp && mcServerMode()){
+    const mcBefore = JSON.stringify(mcApp.municipalCredits || []);
+    refreshMunicipalCreditsFor(mcApp).then(()=>{
+      if(activeAppId === id && JSON.stringify(mcApp.municipalCredits || []) !== mcBefore) renderAppDetail();
+    }).catch(()=>{});
+  }
   muni_loadLinkedJcfApp(id);
 }
 
@@ -36719,6 +36760,14 @@ async function renderAppDetail(){
         cardsHtml += `<div class="readback-row">Approved by ${muni_escapeHtml(req.decidedBy)} on ${muni_escapeHtml(req.decidedDate)} — ${muni_formatCurrency(req.amount)} credited to the applicant's Municipal Credit wallet (${muni_escapeHtml(myMunicipalityName())} only).</div>`;
       } else if(req.status === 'Rejected'){
         cardsHtml += `<div class="readback-row">Rejected by ${muni_escapeHtml(req.decidedBy)} on ${muni_escapeHtml(req.decidedDate)}${req.decisionNote ? `: ${muni_escapeHtml(req.decisionNote)}` : ''}</div>`;
+      } else if(hasPerm('approve') && mcServerMode() && !req.server){
+        // Made before the database rules existed: it cannot be approved, only closed.
+        cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">This request was made before the new approval system, so it cannot be approved. Reject it and ask for it to be requested again.</p>
+          <div class="official-field-label" style="margin-top:10px;">Decision note <span style="font-weight:400; color:var(--text-muted);">(required)</span></div>
+          <textarea id="mcDecisionNote${idx}" placeholder="e.g. Replaced by a new request"></textarea>
+          <div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="rejectMunicipalCredit(${idx})">Reject</button></div>`;
+      } else if(hasPerm('approve') && mcServerMode() && req.requestedByEmail && currentUser && String(req.requestedByEmail).toLowerCase() === String(currentUser.email || '').toLowerCase()){
+        cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">You made this request, so another person with approval permission must decide it.</p>`;
       } else if(hasPerm('approve')){
         cardsHtml += `
           <div class="official-field-label" style="margin-top:10px;">Decision note <span style="font-weight:400; color:var(--text-muted);">(required to reject, optional to approve)</span></div>
@@ -36740,6 +36789,7 @@ async function renderAppDetail(){
       cardsHtml += `<p class="no-permission-note" style="margin-top:8px;">No Municipal Credit can be issued — ${muni_escapeHtml(a.appNumber)} has no registered account to credit (guest submission).</p>`;
     } else {
       cardsHtml += `
+        <p class="recommendation-note">A Municipal Credit is a refund of money already paid on this application. The total credited can never be more than what was paid and verified.</p>
         <div class="official-field-label">Amount (JMD)</div>
         <input type="number" min="0" step="0.01" id="mcAmountInput" placeholder="e.g. 5000" style="margin-bottom:10px;">
         <div class="official-field-label">Reason</div>
@@ -37732,7 +37782,7 @@ async function persistIfFromStorage(a){
     a.raw.permitGenerated = a.permitGenerated;
     a.raw.permit = a.permit || null;
     a.raw.additionalPaymentRequests = a.additionalPaymentRequests || [];
-    a.raw.municipalCredits = a.municipalCredits || [];
+    a.raw.municipalCredits = (a.municipalCredits || []).filter(c => !c.server);   // database-held requests are not copied into the record
     a.raw.venueRegistryStatus = a.venueRegistryStatus || '';
     a.raw.venueRegistryRejectReason = a.venueRegistryRejectReason || '';
     a.raw.extraVenues = a.extraVenues || [];
@@ -37853,7 +37903,40 @@ async function unverifyPayment(){
 // See the "Municipal Credit card" comment in renderAppDetail() for the full
 // design rationale (why this is a separate mechanism from Admin's own
 // Atendify-side Credit Note, and why it's scoped to this municipality only).
-function requestMunicipalCredit(){
+// Is the real backend connected? When it is, Municipal Credit requests and
+// decisions go through the database functions in security_municipal_credit.sql,
+// which enforce the ceiling (never more than was paid), the permission checks
+// and "the requester cannot approve their own request". Without a backend (the
+// local demo) the old in-browser behaviour is kept.
+function mcServerMode(){
+  return !!(window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured() && window.ATDBackend.municipalCreditRequest);
+}
+// A request row from the database, in the shape the screen already draws.
+function mcFromServer(r){
+  return {
+    id: r.id, amount: Number(r.amount) || 0, reason: r.reason || '', status: r.status || 'Pending',
+    requestedBy: r.requestedByName || r.requestedBy || '', requestedByEmail: r.requestedBy || '',
+    requestedDate: String(r.requestedAt || '').slice(0, 10),
+    decidedBy: r.decidedByName || r.decidedBy || '', decidedDate: String(r.decidedAt || '').slice(0, 10),
+    decisionNote: r.decisionNote || '', walletTransactionId: r.walletTransactionId || '',
+    server: true
+  };
+}
+// Replace an application's Municipal Credit list with what the database holds
+// (plus any pre-database history that was saved inside the record itself).
+function mcMerge(rec, serverRows){
+  const mine = (serverRows || []).filter(r => r && r.appNumber === rec.appNumber).map(mcFromServer);
+  const ids = new Set(mine.map(m => m.id));
+  const legacy = (rec.municipalCredits || []).filter(c => c && !c.server && !ids.has(c.id));
+  return legacy.concat(mine);
+}
+async function refreshMunicipalCreditsFor(a){
+  if(!mcServerMode() || !a) return;
+  const rows = await window.ATDBackend.municipalCreditRequests();
+  if(rows) a.municipalCredits = mcMerge({ appNumber: a.appNumber, municipalCredits: (a.municipalCredits || []) }, rows);
+}
+
+async function requestMunicipalCredit(){
   const a = applications.find(a => a.id === activeAppId);
   const ownerEmail = a.raw && a.raw.ownerEmail;
   if(!ownerEmail){
@@ -37868,17 +37951,28 @@ function requestMunicipalCredit(){
   }
 
   if(!a.municipalCredits) a.municipalCredits = [];
-  a.municipalCredits.push({
-    id: 'mc-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
-    amount, reason,
-    status: 'Pending',
-    requestedBy: currentUser.name, requestedByRole: currentUser.role,
-    requestedDate: new Date().toISOString().slice(0,10),
-    decidedBy: '', decidedDate: '', decisionNote: '',
-    walletTransactionId: ''
-  });
+  if(mcServerMode()){
+    // The database checks the permission and the ceiling (never more than was
+    // paid on this application) and keeps the request.
+    const res = await window.ATDBackend.municipalCreditRequest(a.appNumber, amount, reason);
+    if(!res || !res.ok){
+      muni_showToast((res && res.error) || 'The Municipal Credit request could not be made.');
+      return;
+    }
+    a.municipalCredits.push(mcFromServer(res.request));
+  } else {
+    a.municipalCredits.push({
+      id: 'mc-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+      amount, reason,
+      status: 'Pending',
+      requestedBy: currentUser.name, requestedByRole: currentUser.role,
+      requestedDate: new Date().toISOString().slice(0,10),
+      decidedBy: '', decidedDate: '', decisionNote: '',
+      walletTransactionId: ''
+    });
+    persistIfFromStorage(a);
+  }
 
-  persistIfFromStorage(a);
   window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditRequested', details: `${a.appNumber}: ${muni_formatCurrency(amount)} requested — ${reason}`, muniId: currentUser.muniId });
   // Notify the CEO (via the shared 'approve' permission) that a credit is
   // awaiting their decision — mirrors setRecommendation()'s own notify-the-
@@ -37902,6 +37996,22 @@ async function approveMunicipalCredit(idx){
   const noteEl = document.getElementById(`mcDecisionNote${idx}`);
   const note = noteEl ? noteEl.value.trim() : '';
 
+  if(mcServerMode()){
+    if(!req.server){
+      muni_showToast('This request was made before the new approval system. Reject it and ask for it to be requested again.');
+      return;
+    }
+    // The database credits the wallet itself, after checking that you are the
+    // CEO, that you are not the person who requested it, and that the total
+    // credited on this application stays within what was paid.
+    const res = await window.ATDBackend.municipalCreditDecide(req.id, true, note);
+    if(!res || !res.ok){
+      muni_showToast((res && res.error) || 'The Municipal Credit could not be approved.');
+      return;
+    }
+    a.municipalCredits[idx] = mcFromServer(res.request);
+    muni_showToast(`Municipal Credit of ${muni_formatCurrency(req.amount)} approved and credited to the applicant's wallet.`);
+  } else {
   // Credit the applicant's wallet FIRST — a real, balance-affecting write —
   // so a failure here leaves the request still Pending (safe to retry)
   // rather than marking it Approved with no money actually moved.
@@ -37911,9 +38021,7 @@ async function approveMunicipalCredit(idx){
     await window.storage.set(txKey, JSON.stringify({
       id: txKey, ownerEmail, amount: req.amount,
       // creditSource/muniId/muniName are what keep this scoped to THIS
-      // municipality's own license fees only — see fix59_municipal_credit.sql,
-      // which teaches atd_wallet_redeem_municipal() to sum/debit only rows
-      // matching both creditSource:'municipal' and this exact muniId.
+      // municipality's own license fees only.
       creditSource: 'municipal', muniId: a.muniId, muniName: myMunicipalityName(),
       type: 'municipal_credit', appNumber: a.appNumber, reason: `Municipal Credit — ${a.appNumber}: ${req.reason}`,
       issuedBy: currentUser.email, issuedAt: new Date().toISOString()
@@ -37930,12 +38038,10 @@ async function approveMunicipalCredit(idx){
   req.walletTransactionId = txKey;
   const ok = await persistIfFromStorage(a);
   if(!ok){
-    // The wallet credit already succeeded and is real money the applicant
-    // can spend — don't silently roll that back just because saving this
-    // application's own audit record failed; just warn so it can be fixed.
     muni_showToast(`${muni_formatCurrency(req.amount)} was credited to the wallet, but saving this application's record failed — please refresh and try again.`);
   } else {
     muni_showToast(`Municipal Credit of ${muni_formatCurrency(req.amount)} approved and credited to the applicant's wallet.`);
+  }
   }
   window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditApproved', details: `${a.appNumber}: ${muni_formatCurrency(req.amount)} approved and credited.`, muniId: currentUser.muniId });
   window.atdNotifyApplicant(ownerEmail, 'municipal_credit_approved',
@@ -37944,7 +38050,7 @@ async function approveMunicipalCredit(idx){
   muni_renderAll();
 }
 
-function rejectMunicipalCredit(idx){
+async function rejectMunicipalCredit(idx){
   const a = applications.find(a => a.id === activeAppId);
   const req = a.municipalCredits[idx];
   if(!req || req.status !== 'Pending') return;
@@ -37955,12 +38061,22 @@ function rejectMunicipalCredit(idx){
     return;
   }
 
-  req.status = 'Rejected';
-  req.decidedBy = currentUser.name;
-  req.decidedDate = new Date().toISOString().slice(0,10);
-  req.decisionNote = note;
-
-  persistIfFromStorage(a);
+  if(mcServerMode() && req.server){
+    const res = await window.ATDBackend.municipalCreditDecide(req.id, false, note);
+    if(!res || !res.ok){
+      muni_showToast((res && res.error) || 'The Municipal Credit could not be rejected.');
+      return;
+    }
+    a.municipalCredits[idx] = mcFromServer(res.request);
+  } else {
+    // A request from before the database rules, or the local demo: closed in
+    // the application record itself (no money moves on a rejection).
+    req.status = 'Rejected';
+    req.decidedBy = currentUser.name;
+    req.decidedDate = new Date().toISOString().slice(0,10);
+    req.decisionNote = note;
+    persistIfFromStorage(a);
+  }
   window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'application.municipalCreditRejected', details: `${a.appNumber}: ${muni_formatCurrency(req.amount)} request rejected — ${note}`, muniId: currentUser.muniId });
   muni_showToast(`Municipal Credit request rejected.`);
   renderAppDetail();
@@ -38962,6 +39078,11 @@ async function loadSubmittedApplications(silent, btnId){
       }
     }
 
+    // Municipal Credit requests live in the database (security_municipal_credit.sql);
+    // fetch them once and attach each to its application below.
+    let mcServerRows = null;
+    try{ if(mcServerMode()) mcServerRows = await window.ATDBackend.municipalCreditRequests(); }catch(e){ mcServerRows = null; }
+
     // Remove previously-loaded storage records, then re-merge fresh copies
     applications = applications.filter(a => !a._fromStorage);
 
@@ -39026,7 +39147,7 @@ async function loadSubmittedApplications(silent, btnId){
         // applicant can actually spend it — this array is this application's
         // own audit trail of that decision, not the source of truth for the
         // applicant's spendable balance.
-        municipalCredits: rec.municipalCredits || [],
+        municipalCredits: mcServerRows ? mcMerge(rec, mcServerRows) : (rec.municipalCredits || []),
         paymentSubmittedAt: rec.paymentSubmittedAt || '',
         paymentVerifiedAt: rec.paymentVerifiedAt || '',
         venueApprovedAt: rec.venueApprovedAt || '',
