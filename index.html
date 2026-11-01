@@ -2649,6 +2649,59 @@
   .fin-donut-stack .pie-legend{ width:100%; max-width:260px; display:flex; flex-direction:column; gap:9px; }
   .fin-donut-stack .pie-legend-row{ width:100%; }
   .fin-donut-stack .pie-legend-value{ margin-left:auto; }
+  .aud-controls{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 12px; font-size:13px; color:var(--text-muted); }
+  .aud-controls select{ width:auto; }
+  .aud-count{ margin-left:auto; font-variant-numeric: tabular-nums; }
+  .aud-month{ border:1px solid var(--border); border-radius:var(--radius); margin:0 0 10px; background:var(--bg); overflow:hidden; }
+  .aud-month.open{ border-color: var(--blue); }
+  .aud-month-head{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; width:100%; text-align:left; background: linear-gradient(90deg, var(--blue-tint), var(--bg) 70%); border:0; padding:14px 16px; cursor:pointer; font:inherit; color:var(--text); }
+  .aud-month-head:hover{ filter:brightness(0.98); }
+  .aud-month-head:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
+  .aud-caret{ display:inline-block; transition: transform .15s ease; color:var(--blue); font-size:14px; }
+  .aud-month.open .aud-caret{ transform: rotate(90deg); }
+  .aud-month-title{ font-weight:800; font-size:15px; min-width:130px; }
+  .aud-month-count{ font-weight:700; font-variant-numeric: tabular-nums; background:var(--blue); color:#fff; border-radius:999px; padding:2px 10px; font-size:12.5px; }
+  .aud-month-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .aud-chip{ font-size:12px; color:var(--text-muted); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:2px 9px; }
+  .aud-chip b{ color:var(--text); }
+  .aud-chip-bad{ color:var(--red); background:var(--red-tint); border-color:transparent; font-weight:700; }
+  .aud-month-body{ padding:6px 16px 16px; border-top:1px solid var(--border); }
+  .aud-summary{ display:grid; grid-template-columns: 1.3fr 1.3fr 0.8fr; gap:22px; margin:12px 0 16px; }
+  @media (max-width: 1000px){ .aud-summary{ grid-template-columns:1fr; } }
+  .aud-sub{ font-size:11.5px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:6px; }
+  .aud-hrow{ grid-template-columns: minmax(80px,170px) 1fr 44px; margin:6px 0; }
+  .aud-facts{ display:flex; flex-direction:column; gap:8px; font-size:13px; color:var(--text-muted); }
+  .aud-facts b{ color:var(--text); font-size:16px; }
+
+  /* Collapsible categories for long lists (atdRenderGrouped) */
+  .grp-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; font-size:13px; color:var(--text-muted); }
+  .grp-bar select{ width:auto; min-width:140px; }
+  .grp-bar .grp-total{ margin-left:auto; font-variant-numeric: tabular-nums; }
+  tr.grp-head > td{ padding:0 !important; background: linear-gradient(90deg, var(--blue-tint), var(--bg) 75%); border-bottom:1px solid var(--border); }
+  tr.grp-head.open > td{ border-bottom-color: var(--blue); }
+  .grp-btn{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%; text-align:left; background:transparent; border:0; padding:11px 14px; cursor:pointer; font:inherit; color:var(--text); }
+  .grp-btn:hover{ filter:brightness(0.97); }
+  .grp-btn:focus-visible{ outline:2px solid var(--blue); outline-offset:-2px; }
+  .grp-caret{ display:inline-block; transition: transform .15s ease; color:var(--blue); font-size:13px; }
+  tr.grp-head.open .grp-caret{ transform: rotate(90deg); }
+  .grp-title{ font-weight:800; font-size:14px; }
+  .grp-count{ font-weight:700; font-variant-numeric: tabular-nums; background:var(--blue); color:#fff; border-radius:999px; padding:1px 9px; font-size:12px; }
+  .grp-chips{ display:inline-flex; gap:6px; flex-wrap:wrap; }
+  .grp-chip{ font-size:12px; font-weight:400; color:var(--text-muted); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:1px 8px; }
+  .grp-chip-bad{ color:var(--red); background:var(--red-tint); border-color:transparent; font-weight:700; }
+  .grp-chip-warn{ color:var(--amber); background:var(--amber-tint); border-color:transparent; font-weight:700; }
+  .grp-chip-good{ color:var(--green); background:var(--green-tint); border-color:transparent; }
+  tr.grp-more > td{ padding:10px 14px !important; }
+  /* card-list variant (applicant portal, notification panels) */
+  .grp-head-div{ background: linear-gradient(90deg, var(--blue-tint), var(--bg) 75%); border:1px solid var(--border); border-radius:10px; margin:12px 0 8px; }
+  .grp-head-div.open{ border-color: var(--blue); }
+  .grp-head-div.open .grp-caret{ transform: rotate(90deg); }
+  .grp-more-div{ padding:6px 0 10px; }
+  /* inside notification dropdowns: out-rank '.suite-back-bar button' (see the .notif-panel .btn note above) and tighten */
+  .notif-panel .grp-btn{ color:var(--text); background:transparent; border:0; padding:8px 14px; }
+  .notif-panel .grp-head-div{ margin:6px 10px; }
+  .notif-panel .grp-title{ font-size:13px; }
+  .notif-panel .grp-more-div{ padding:6px 14px 10px; }
   .fin-section-title{ font-size:15px; font-weight:800; margin:26px 0 12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; }
   .modal-box h3{ font-size: 20px; font-weight:700; margin:0 0 4px; }
   .modal-sub{ font-size: 13.5px; color: var(--text-muted); margin: 0 0 22px; }
@@ -3603,6 +3656,8 @@
       'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js',
       'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'
     ];
+    // Fixed hash of pdf-lib 1.17.1 (audit finding 8): a file that does not match is not run.
+    var PDF_LIB_SRI = 'sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI';
     var C = {
       ink: '#1a1d24', muted: '#6b7280', border: '#e2e5ea', surface: '#f7f8fa',
       brand: '#4338ca', brandTint: '#eef1ff',
@@ -3615,6 +3670,7 @@
       return new Promise(function(resolve, reject){
         var s = document.createElement('script');
         s.src = url; s.async = true;
+        s.integrity = PDF_LIB_SRI; s.crossOrigin = 'anonymous';
         s.onload = function(){ resolve(); };
         s.onerror = function(){ reject(new Error('Could not load ' + url)); };
         document.head.appendChild(s);
@@ -4522,7 +4578,11 @@
   original private-to-this-browser localStorage behavior automatically —
   same as before this change, not a crash.
 -->
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<!-- Pinned to an exact version and checked against a fixed hash (audit finding 8): if unpkg ever served a different
+     file, the browser would refuse to run it and the app would show its "cannot reach the backend" screen instead of
+     running unknown code. To upgrade: pick a version, download dist/umd/supabase.js from that npm package, and compute
+     openssl dgst -sha384 -binary supabase.js | openssl base64 -A -->
+<script src="https://unpkg.com/@supabase/supabase-js@2.118.0/dist/umd/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script>
 <script>
 (function(){
   'use strict';
@@ -5111,22 +5171,23 @@
   window.atdPruneReadAuditLog = async function(){
     if(!client) return;
     try{
-      var res = await atdWithClockSkewRetry(function(){
-        return client.from(TABLE).select('key, value').like('key', 'auditLog:%');
-      });
-      if(res.error){ window.atdShowDebugError('atdPruneReadAuditLog()', res.error); return; }
-      var rows = res.data || [];
-      var cutoff = Date.now() - READ_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-      var staleKeys = rows.filter(function(r){
-        var v = r.value || {};
-        return typeof v.action === 'string' && v.action.endsWith('.viewed')
-          && v.ts && new Date(v.ts).getTime() < cutoff;
-      }).map(function(r){ return r.key; });
-      if(!staleKeys.length) return;
-      var delRes = await atdWithClockSkewRetry(function(){
-        return client.from(TABLE).delete().in('key', staleKeys);
-      });
-      if(delRes.error) window.atdShowDebugError('atdPruneReadAuditLog() delete', delRes.error);
+      // Entry keys are 'auditLog:audit-<ms>-<random>', so "older than 90 days"
+      // is a key-range test the database can do for us (no need to download
+      // the whole log, and no 1,000-row blind spot as it grows).
+      var cutoffKey = 'auditLog:audit-' + (Date.now() - READ_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      for(var round = 0; round < 20; round++){
+        var res = await atdWithClockSkewRetry(function(){
+          return client.from(TABLE).select('key').like('key', 'auditLog:%').lt('key', cutoffKey).like('value->>action', '%.viewed').limit(500);
+        });
+        if(res.error){ window.atdShowDebugError('atdPruneReadAuditLog()', res.error); return; }
+        var staleKeys = (res.data || []).map(function(r){ return r.key; });
+        if(!staleKeys.length) return;
+        var delRes = await atdWithClockSkewRetry(function(){
+          return client.from(TABLE).delete().in('key', staleKeys);
+        });
+        if(delRes.error){ window.atdShowDebugError('atdPruneReadAuditLog() delete', delRes.error); return; }
+        if(staleKeys.length < 500) return;
+      }
     } catch(e){ window.atdShowDebugError('atdPruneReadAuditLog()', e); }
   };
 
@@ -5426,6 +5487,37 @@
       }
     },
 
+    // Bulk read of key + value for everything under a prefix, in a handful of
+    // requests instead of one request per row. The database returns at most
+    // 1,000 rows per request, so this pages through (newest key first). Used
+    // by the audit log, which grows without limit. opts: gteKey / ltKey bound
+    // the key range, valueLike = ['action', '%.viewed'] filters on a JSON
+    // field, limit caps the total rows (default 30,000).
+    listValues: async function (prefix, opts) {
+      opts = opts || {};
+      if (!client) return resolved([]);
+      var out = [];
+      var PAGE = 1000;
+      var maxRows = opts.limit || 30000;
+      try {
+        for (var start = 0; start < maxRows; start += PAGE) {
+          var from = start;
+          var res = await atdWithClockSkewRetry(function () {
+            var q = client.from(TABLE).select('key, value').like('key', prefix + '%');
+            if (opts.gteKey) q = q.gte('key', opts.gteKey);
+            if (opts.ltKey) q = q.lt('key', opts.ltKey);
+            if (opts.valueLike) q = q.like('value->>' + opts.valueLike[0], opts.valueLike[1]);
+            return q.order('key', { ascending: false }).range(from, from + PAGE - 1);
+          });
+          if (res.error) { window.atdShowDebugError('storage.listValues(' + prefix + ')', res.error); break; }
+          var rows = res.data || [];
+          out = out.concat(rows);
+          if (rows.length < PAGE) break;
+        }
+      } catch (e) { window.atdShowDebugError('storage.listValues(' + prefix + ')', e); }
+      return resolved(out);
+    },
+
     signIn: function (email, password) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
       return client.auth.signInWithPassword({ email: email, password: password });
@@ -5485,6 +5577,15 @@
       if (!client) return Promise.reject(new Error('Backend not configured'));
       var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
       return client.auth.resetPasswordForEmail((email || '').trim().toLowerCase(), redirect ? { redirectTo: redirect } : undefined);
+    },
+    // The signed-in user's own access token (used to call Edge Functions that
+    // must know WHO is asking, e.g. send-finance-email). null if signed out.
+    getAccessToken: async function () {
+      if (!client) return null;
+      try {
+        var r = await client.auth.getSession();
+        return (r && r.data && r.data.session && r.data.session.access_token) || null;
+      } catch (e) { return null; }
     },
     changePassword: function (newPassword) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
@@ -6333,6 +6434,108 @@
   window.storage = atdBackendReady ? window.ATDBackend : ATDLocalStorageBackend;
   window.ATDLocalStorageBackend = ATDLocalStorageBackend;
 
+  // ---------------------------------------------------------------------------
+  // Stored-script defence (security audit finding 1, screen layer).
+  //
+  // Text that an applicant types is saved and later shown to staff. The screens
+  // escape names and free text, but some identifier-type fields (application
+  // number, dates, status, receipt numbers, ids) and a few click handlers and
+  // file previews put a stored value into the page as-is, so a value such as
+  //   "><img src=x onerror=...>
+  // would run as script in a staff member's browser. Three small helpers and one
+  // guard on the read paths close that:
+  //   atdH(v)            escape a value for HTML text or an attribute
+  //   atdJs(v)           a value as a JavaScript literal that is safe inside an
+  //                      inline onclick="..." or onclick='...' (JSON, then escaped)
+  //   atdSafeFileUrl(u)  only a data: image/PDF URL (or https/blob) may be placed in
+  //                      an <img src> or <iframe src>; anything else becomes ''
+  // The guard strips < > " ' ` \ & and control characters from identifier-type
+  // fields as records are read (valid values never contain them, so nothing
+  // changes for real data) and hides any record whose storage key holds
+  // < > " ` \ or a control character (the database already refuses such keys).
+  // The database has the same rules (backend/security_input_validation.sql);
+  // this is the second layer.
+  window.atdH = function(s){
+    return String(s == null ? '' : s).replace(/[&<>"'`]/g, function(c){
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c];
+    });
+  };
+  window.atdJs = function(v){ return window.atdH(String(JSON.stringify(v))); };
+  window.atdSafeFileUrl = function(u){
+    if(typeof u !== 'string' || !u) return '';
+    if(/^data:(?:image\/[a-z0-9.+-]+|application\/pdf)(?:;[a-z0-9=._+-]+)*;base64,[A-Za-z0-9+\/]*={0,2}$/i.test(u)) return u;
+    if(/^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=._+-]+)*,[A-Za-z0-9%._~!*()+\/=:;-]*$/i.test(u)) return u;
+    if(/^(?:https:|blob:https?:)\/\/[^\s"'<>`\\]+$/i.test(u)) return u;
+    return '';
+  };
+  (function(){
+    var UNSAFE = /[<>"'`\\&\u0000-\u001f]/;
+    var KEY_BAD = /[<>"`\\\u0000-\u001f]/;
+    var FIELD = /"((?:[A-Za-z]*(?:Date|Number|Code|At|Status|Id|ID)|appNumber|status|submitted|created|date|number|id|licenseType|formVariant|muniId))"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    function cleanText(txt){
+      if(typeof txt !== 'string' || txt.length < 4) return txt;
+      var changed = false;
+      var out = txt.replace(FIELD, function(m, k, raw){
+        if(raw.indexOf('\\') < 0 && !UNSAFE.test(raw)) return m;
+        var dec; try{ dec = JSON.parse('"' + raw + '"'); }catch(e){ dec = raw; }
+        var c = String(dec).replace(/[<>"'`\\&\u0000-\u001f]/g, '');
+        if(c === dec) return m;
+        changed = true;
+        return '"' + k + '":' + JSON.stringify(c);
+      });
+      return changed ? out : txt;
+    }
+    function cleanObj(o){
+      if(o == null || typeof o !== 'object') return o;
+      var t; try{ t = JSON.stringify(o); }catch(e){ return o; }
+      var c = cleanText(t);
+      if(c === t) return o;
+      try{ return JSON.parse(c); }catch(e){ return o; }
+    }
+    function keyOk(k){ return typeof k === 'string' && !KEY_BAD.test(k); }
+    function guard(be){
+      if(!be || be.__atdGuarded) return;
+      be.__atdGuarded = true;
+      var g = be.get, l = be.list, lv = be.listValues;
+      if(typeof g === 'function') be.get = function(){
+        return Promise.resolve(g.apply(be, arguments)).then(function(r){
+          if(r && typeof r.value === 'string') r.value = cleanText(r.value);
+          return r;
+        });
+      };
+      if(typeof l === 'function') be.list = function(){
+        return Promise.resolve(l.apply(be, arguments)).then(function(r){
+          if(r && Array.isArray(r.keys)) r.keys = r.keys.filter(keyOk);
+          return r;
+        });
+      };
+      if(typeof lv === 'function') be.listValues = function(){
+        return Promise.resolve(lv.apply(be, arguments)).then(function(rows){
+          if(!Array.isArray(rows)) return rows;
+          var out = [];
+          for(var i = 0; i < rows.length; i++){
+            var r = rows[i];
+            if(r && r.key != null && !keyOk(r.key)) continue;
+            if(r && r.value && typeof r.value === 'object'){
+              var v = cleanObj(r.value);
+              if(v !== r.value){ r = Object.assign({}, r, { value: v }); }
+            }
+            out.push(r);
+          }
+          return out;
+        });
+      };
+      ['trackApplication', 'trackLinkedJcfApplication', 'getTrackedApplicationFiles', 'walletTransactions', 'listSessions', 'publicVenues', 'publicMuniPaymentTiming'].forEach(function(n){
+        var f = be[n];
+        if(typeof f === 'function') be[n] = function(){ return Promise.resolve(f.apply(be, arguments)).then(cleanObj); };
+      });
+    }
+    guard(window.ATDBackend);
+    guard(window.ATDLocalStorageBackend);
+    guard(window.storage);
+    window.atdCleanLoadedText = cleanText;   // exposed for the local test scripts
+  })();
+
   // ---- Shared "read an uploaded file, auto-resizing large images" helper ----
   // Every upload flow in this app (photo ID, event flier, signatures,
   // regulatory documents, payment receipts) previously read the raw file and
@@ -6543,40 +6746,104 @@
   // exists and backend/SETUP.md for how to finish wiring the Edge Function
   // + Resend account behind it.
   window.atdSendEmail = async function(event, to, data){
-    if(!to) return { ok: false, error: 'no recipient email on file' };
-    // Fix #61: the test site never sends real email, whatever the test
-    // project's Edge Function is (or isn't) configured to do. Reported as a
-    // success so the flow behaves as it would live, and logged so a tester
-    // can see what WOULD have gone out.
+    data = data || {};
+    // Two events are no longer sent by email at all (security audit, finding 2):
+    // the live site sends a secure password-reset link instead of a temporary
+    // password, and a watch-list match is shown on screen and in the in-app
+    // notification rather than emailed to an address typed into the form.
+    if(event === 'temp_password_issued' || event === 'application_watchlist_rejected'){
+      return { ok: false, error: 'this event is not sent by email' };
+    }
+    if(!data.appNumber) return { ok: false, error: 'no application number' };
+    // The test site never sends real email, whatever the test project's
+    // Edge Function is (or isn't) configured to do. Reported as a success so
+    // the flow behaves as it would live, and logged so a tester can see what
+    // WOULD have gone out.
     if(window.ATD_ENV === 'test'){
-      console.info('[TEST ENV] email suppressed:', event, '->', to, data || {});
+      console.info('[TEST ENV] email suppressed:', event, data);
       return { ok: true, id: 'suppressed-test-env' };
     }
+    // The browser sends only the event and a reference. The server looks up
+    // the recipient, the names and the permit number on the application record
+    // and refuses unless the caller is allowed (a signed-in officer of that
+    // municipality, or -- for "application received" -- the tracking code).
+    var ref = {
+      appNumber: data.appNumber,
+      kind: data.kind === 'jcf' ? 'jcf' : 'poa',
+      trackingCode: data.trackingCode || undefined,
+      documentName: data.documentName || undefined,
+      note: data.officerNote || undefined
+    };
     try{
-      const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': window.ATD_SUPABASE_ANON_KEY,
-          'Authorization': 'Bearer ' + window.ATD_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({ event, to, data: data || {} })
-      });
-      const body = await res.json().catch(()=>({}));
-      if(!res.ok || !body.ok){
-        console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', body.error || res.status);
-        return { ok: false, error: body.error || ('HTTP ' + res.status) };
+      var token = window.ATD_SUPABASE_ANON_KEY;
+      try{
+        var t = window.ATDBackend && window.ATDBackend.getAccessToken ? await window.ATDBackend.getAccessToken() : null;
+        if(t) token = t;
+      }catch(e){ /* guest: the anon key stands for "nobody signed in" */ }
+      var lastErr = 'unknown';
+      // The Approved / Rejected email is checked against the saved record, and
+      // the screen saves it a moment after sending, so a "not yet" answer is
+      // retried briefly.
+      for(var attempt = 0; attempt < 3; attempt++){
+        var res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-email-v2', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': window.ATD_SUPABASE_ANON_KEY,
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ event: event, ref: ref })
+        });
+        var body = await res.json().catch(function(){ return {}; });
+        if(res.ok && body.ok) return { ok: true, id: body.id || null };
+        lastErr = body.error || ('HTTP ' + res.status);
+        if(res.status !== 409) break;
+        await new Promise(function(r){ setTimeout(r, 1500); });
       }
-      return { ok: true, id: body.id || null };
+      console.warn('atdSendEmail: ' + event + ' for ' + data.appNumber + ' did not send —', lastErr);
+      return { ok: false, error: lastErr };
     } catch(err){
       // Network error, function not deployed yet, CORS, etc. — never throw
       // into the caller's flow over an email that's a nice-to-have, not a
       // dependency of the action itself.
-      console.warn('atdSendEmail: ' + event + ' to ' + to + ' did not send —', err);
+      console.warn('atdSendEmail: ' + event + ' did not send —', err);
       return { ok: false, error: err && err.message ? err.message : String(err) };
     }
   };
 
+
+  // ---- Finance emails (suspension notices, payment receipts, Accountant invite) ----
+  // Unlike atdSendEmail, this one is sent as the SIGNED-IN admin / accountant
+  // (their own login token), and the browser sends only an event name and a
+  // small reference (application number, agency id, invoice number...). The
+  // send-finance-email Edge Function works out the recipient, the amounts and
+  // the wording from the database records itself, so nothing here can be
+  // pointed at an arbitrary address. Best-effort, like every other email:
+  // never throws, never blocks the action that triggered it.
+  window.atdSendFinanceEmail = async function(event, ref){
+    if(window.ATD_ENV === 'test'){
+      console.info('[TEST ENV] finance email suppressed:', event, ref || {});
+      return { ok: true, suppressed: true };
+    }
+    try{
+      const token = (window.ATDBackend && window.ATDBackend.getAccessToken) ? await window.ATDBackend.getAccessToken() : null;
+      if(!token) return { ok: false, error: 'not signed in' };
+      const res = await fetch(window.ATD_SUPABASE_URL + '/functions/v1/send-finance-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': window.ATD_SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ event, ref: ref || {} })
+      });
+      const body = await res.json().catch(() => ({}));
+      if(!res.ok || !body.ok){
+        console.warn('atdSendFinanceEmail: ' + event + ' did not send —', body.error || res.status);
+        return { ok: false, error: body.error || ('HTTP ' + res.status) };
+      }
+      return { ok: true, id: body.id || null, duplicate: !!body.duplicate };
+    }catch(err){
+      console.warn('atdSendFinanceEmail: ' + event + ' did not send —', err);
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  };
 
   // ---- Forgot password / choose a new password (shared by every portal) ----
   // Real password reset: Supabase Auth emails a one-time link (see
@@ -6900,11 +7167,11 @@
     if(fileData){
       const mime = window.atdGuessMimeFromDataUrl(fileData);
       if(mime.startsWith('image/')){
-        box.innerHTML = `<img src="${fileData}" alt="${title ? title.replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])) : ''}">`;
+        box.innerHTML = `<img src="${atdSafeFileUrl(fileData)}" alt="${title ? title.replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])) : ''}">`;
       } else if(mime === 'application/pdf'){
-        box.innerHTML = `<iframe src="${fileData}"></iframe>`;
+        box.innerHTML = `<iframe src="${atdSafeFileUrl(fileData)}"></iframe>`;
       } else {
-        box.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${fileName || ''}</div>`;
+        box.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${atdH(fileName || '')}</div>`;
       }
     } else {
       box.innerHTML = `<div class="doc-preview-placeholder">Not uploaded yet. Filename: ${fileName || 'N/A'}</div>`;
@@ -7624,21 +7891,249 @@
       // Best-effort — a failed audit write should never block the action.
     }
   };
-  window.atdLoadAuditLogs = async function(){
+  // opts.sinceMs: only entries written after this time (cheap for "last 24 hours").
+  window.atdLoadAuditLogs = async function(opts){
+    opts = opts || {};
     if(!window.storage) return [];
     try{
-      const list = await window.storage.list('auditLog:');
-      const out = [];
-      for(const k of (list.keys || [])){
-        try{
-          const r = await window.storage.get(k);
-          if(r && r.value) out.push(JSON.parse(r.value));
-        }catch(e){ /* skip unreadable record */ }
+      let out = [];
+      if(window.storage.listValues){
+        const rows = await window.storage.listValues('auditLog:', opts.sinceMs ? { gteKey: 'auditLog:audit-' + Math.floor(opts.sinceMs) } : {});
+        for(const r of rows){
+          let v = r.value;
+          if(typeof v === 'string'){ try{ v = JSON.parse(v); }catch(e){ v = null; } }
+          if(v && typeof v === 'object') out.push(v);
+        }
+      } else {
+        const list = await window.storage.list('auditLog:');
+        for(const k of (list.keys || [])){
+          try{
+            const r = await window.storage.get(k);
+            if(r && r.value) out.push(JSON.parse(r.value));
+          }catch(e){ /* skip unreadable record */ }
+        }
       }
       out.sort((a,b) => (b.ts || '').localeCompare(a.ts || ''));
       return out;
     }catch(e){ return []; }
   };
+
+  // ---- Collapsible categories for long lists (shared by every portal) ----
+  // A list that can grow without limit (applications, permits, payments,
+  // venues, notifications ...) is shown as collapsible categories, so it can
+  // be read without endless scrolling. A caller hands over the items and how
+  // to draw one row; this draws a header row per category (name, count,
+  // optional summary chips) and, only for categories that are open, their
+  // rows, in pages. A small "Group by" bar above the table lets people switch
+  // category (or turn grouping off). Short lists (<= threshold) are drawn
+  // flat, exactly as before, and the bar stays hidden.
+  //
+  //   atdRenderGrouped('tbodyId', items, {
+  //     colspan: 7,                       // columns in the table
+  //     rowHtml: (item) => '<tr>…</tr>',  // existing row markup, unchanged
+  //     groupers: [{ id, label, of: item => ({ key, label, rank }) }, …],
+  //     emptyHtml: '<tr><td colspan="7" class="table-empty">…</td></tr>',
+  //     summary: items => 'html chips',   // optional
+  //     threshold: 25, pageSize: 50,
+  //     defaultOpen: 'first' | 'none' | 'all' | (group, index) => bool
+  //   });
+  //
+  // Open/closed state, the chosen grouping and "show more" counts are kept
+  // per list for the session, so redrawing (a filter, a refresh) never snaps
+  // everything shut.
+  (function(){
+    var STATE = {};  // listKey -> { by, open:{}, shown:{} }
+    var CACHE = {};  // listKey -> { items, o }
+    function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+    var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // Ready-made category helpers.
+    window.atdGrp = {
+      // Month from a date / ISO timestamp string; newest month first.
+      month: function(dateStr){
+        var s = String(dateStr || '');
+        var m = /^(\d{4})-(\d{2})/.exec(s);
+        if(!m) return { key: 'none', label: 'No date', rank: 1e9 };
+        var y = +m[1], mo = +m[2];
+        return { key: m[1] + '-' + m[2], label: (MONTHS[mo - 1] || m[2]) + ' ' + y, rank: -(y * 12 + mo) };
+      },
+      year: function(dateStr){
+        var m = /^(\d{4})/.exec(String(dateStr || ''));
+        return m ? { key: m[1], label: m[1], rank: -(+m[1]) } : { key: 'none', label: 'No date', rank: 1e9 };
+      },
+      // A label with an explicit priority order, e.g. atdGrp.ranked(status, ['Pending','Approved']).
+      ranked: function(label, order){
+        var v = label == null || label === '' ? 'Not set' : String(label);
+        var i = order ? order.indexOf(v) : -1;
+        return { key: v, label: v, rank: i >= 0 ? i : (order ? order.length : 0) };
+      },
+      // How long ago an ISO timestamp was: Today / Yesterday / Earlier this week / Last 30 days / Older.
+      age: function(iso){
+        var t = Date.parse(iso);
+        if(isNaN(t)) return { key: 'old', label: 'Older', rank: 4 };
+        var now = new Date(), a = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        var d = new Date(t), b = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+        var days = Math.round((a - b) / 86400000);
+        if(days <= 0) return { key: 'today', label: 'Today', rank: 0 };
+        if(days === 1) return { key: 'yest', label: 'Yesterday', rank: 1 };
+        if(days < 7) return { key: 'week', label: 'Earlier this week', rank: 2 };
+        if(days < 30) return { key: 'month', label: 'Last 30 days', rank: 3 };
+        return { key: 'old', label: 'Older', rank: 4 };
+      },
+      plain: function(label){ var v = label == null || label === '' ? 'Not set' : String(label); return { key: v, label: v, rank: 0 }; },
+      APP_STATUS_ORDER: ['Submitted', 'Payment Received', 'Processing', 'Under Review', 'Assigned', 'Pending Approval', 'Approved', 'Rejected', 'Withdrawn', 'Expired'],
+      // Standard categories for application / filing lists. acc supplies how to
+      // read each field: { status, date, muni, type } (any may be omitted).
+      appGroupers: function(acc){
+        var g = [];
+        if(acc.status) g.push({ id: 'status', label: 'Status', of: function(it){ return window.atdGrp.ranked(acc.status(it), window.atdGrp.APP_STATUS_ORDER); } });
+        if(acc.date) g.push({ id: 'month', label: 'Month', of: function(it){ return window.atdGrp.month(acc.date(it)); } });
+        if(acc.muni) g.push({ id: 'muni', label: 'Municipality', of: function(it){ return window.atdGrp.plain(acc.muni(it)); } });
+        if(acc.type) g.push({ id: 'type', label: 'Permit type', of: function(it){ return window.atdGrp.plain(acc.type(it)); } });
+        return g;
+      },
+      // Compact outcome chips for a group of applications.
+      statusChips: function(items, getStatus){
+        var a = 0, r = 0, p = 0;
+        items.forEach(function(it){ var s = getStatus(it); if(s === 'Approved') a++; else if(s === 'Rejected') r++; else if(s !== 'Withdrawn' && s !== 'Expired') p++; });
+        return (p ? window.atdGrp.chip(p + ' pending', 'warn') : '') + (a ? window.atdGrp.chip(a + ' approved', 'good') : '') + (r ? window.atdGrp.chip(r + ' rejected', 'bad') : '');
+      },
+      chip: function(text, tone){ return '<span class="grp-chip' + (tone ? ' grp-chip-' + tone : '') + '">' + text + '</span>'; },
+      count: function(items, test){ var n = 0; for(var i = 0; i < items.length; i++) if(test(items[i])) n++; return n; },
+      sum: function(items, get){ var t = 0; for(var i = 0; i < items.length; i++) t += Number(get(items[i])) || 0; return t; }
+    };
+
+    function st(listKey, o){
+      var s = STATE[listKey];
+      if(!s){ s = STATE[listKey] = { by: null, open: {}, shown: {} }; }
+      return s;
+    }
+    // The category in use: the person's own pick if they made one (and it
+    // still exists), otherwise the list's first category. Decided at draw
+    // time so a first draw with an empty list can't lock the list to "none".
+    function byOf(s, o){
+      var gs = o.groupers || [];
+      if(s.by === 'none') return 'none';
+      if(s.by != null && gs.some(function(g){ return g.id === s.by; })) return s.by;
+      return gs.length ? gs[0].id : 'none';
+    }
+
+    // Table lists draw <tr> rows; card lists (o.div) draw plain <div> blocks.
+    function moreRow(o, colspan, inner){ return o.div ? '<div class="grp-more-div">' + inner + '</div>' : '<tr class="grp-more"><td colspan="' + colspan + '">' + inner + '</td></tr>'; }
+    function headRow(o, colspan, isOpen, inner){ return o.div ? '<div class="grp-head-div' + (isOpen ? ' open' : '') + '">' + inner + '</div>' : '<tr class="grp-head' + (isOpen ? ' open' : '') + '"><td colspan="' + colspan + '">' + inner + '</td></tr>'; }
+
+    function build(listKey){
+      var c = CACHE[listKey]; if(!c) return '';
+      var o = c.o, items = c.items, s = st(listKey, o);
+      var colspan = o.colspan || 1, page = o.pageSize || 50, threshold = o.threshold == null ? 25 : o.threshold;
+      var by = byOf(s, o), grouper = (o.groupers || []).filter(function(g){ return g.id === by; })[0];
+      if(!items.length) return o.emptyHtml || '';
+      // Flat: short list, or grouping switched off. Still paged so "no
+      // grouping" on a huge list cannot freeze the page.
+      if(items.length <= threshold || !grouper){
+        var flatMax = items.length <= threshold ? items.length : (s.shown.__flat || page * 2);
+        var out = items.slice(0, flatMax).map(function(it, i){ return o.rowHtml(it, i); }).join('');
+        if(items.length > flatMax) out += moreRow(o, colspan, '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-more="__flat">Show ' + Math.min(page * 2, items.length - flatMax) + ' more (' + (items.length - flatMax) + ' not shown)</button>');
+        return out;
+      }
+      var map = {}, order = [];
+      items.forEach(function(it){
+        var g = grouper.of(it) || { key: 'none', label: 'Not set', rank: 0 };
+        var k = String(g.key);
+        if(!map[k]){ map[k] = { key: k, label: g.label, rank: g.rank == null ? 0 : g.rank, items: [] }; order.push(map[k]); }
+        map[k].items.push(it);
+      });
+      order.sort(function(a, b){ return (a.rank - b.rank) || String(a.label).localeCompare(String(b.label)); });
+      var html = '';
+      order.forEach(function(g, gi){
+        var isOpen;
+        if(g.key in s.open) isOpen = !!s.open[g.key];
+        else if(typeof o.defaultOpen === 'function') isOpen = !!o.defaultOpen(g, gi);
+        else if(o.defaultOpen === 'all') isOpen = true;
+        else if(o.defaultOpen === 'none') isOpen = false;
+        else isOpen = gi === 0;
+        var chips = o.summary ? o.summary(g.items, g, grouper.id) : '';
+        html += headRow(o, colspan, isOpen, '<button type="button" class="grp-btn" aria-expanded="' + isOpen + '" data-gl="' + esc(listKey) + '" data-gk="' + esc(g.key) + '"><span class="grp-caret" aria-hidden="true">&#9656;</span><span class="grp-title">' + esc(g.label) + '</span><span class="grp-count">' + g.items.length.toLocaleString('en-US') + '</span><span class="grp-chips">' + (chips || '') + '</span></button>');
+        if(isOpen){
+          var shown = s.shown[g.key] || page;
+          html += g.items.slice(0, shown).map(function(it, i){ return o.rowHtml(it, i); }).join('');
+          if(g.items.length > shown) html += moreRow(o, colspan, '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-more="' + esc(g.key) + '">Show ' + Math.min(page, g.items.length - shown) + ' more (' + (g.items.length - shown).toLocaleString('en-US') + ' not shown in ' + esc(g.label) + ')</button>');
+        }
+      });
+      c.groupCount = order.length; c.groupKeys = order.map(function(g){ return g.key; });
+      return html;
+    }
+
+    function bar(listKey){
+      var c = CACHE[listKey]; if(!c) return;
+      var o = c.o, s = st(listKey, o), tb = document.getElementById(listKey);
+      if(!tb) return;
+      var table = o.div ? tb : tb.closest('table'); if(!table) return;
+      var anchor = o.div ? tb : (table.parentElement && table.parentElement.children.length === 1 && table.parentElement.tagName === 'DIV') ? table.parentElement : table;
+      var id = 'grpbar_' + listKey;
+      var el = document.getElementById(id);
+      var threshold = o.threshold == null ? 25 : o.threshold;
+      var show = (o.groupers && o.groupers.length) && c.items.length > threshold && !o.noBar;
+      if(!show){ if(el) el.style.display = 'none'; return; }
+      if(!el){ el = document.createElement('div'); el.id = id; el.className = 'grp-bar'; anchor.parentNode.insertBefore(el, anchor); }
+      el.style.display = '';
+      var opts = o.groupers.map(function(g){ return '<option value="' + esc(g.id) + '"' + (g.id === byOf(s, o) ? ' selected' : '') + '>' + esc(g.label) + '</option>'; }).join('') + '<option value="none"' + (byOf(s, o) === 'none' ? ' selected' : '') + '>No grouping</option>';
+      var grouped = byOf(s, o) !== 'none';
+      el.innerHTML = '<label for="' + esc(id) + '_sel">Group by</label><select id="' + esc(id) + '_sel" class="grp-by" data-gl="' + esc(listKey) + '">' + opts + '</select>' +
+        (grouped ? '<button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-all="open">Expand all</button><button type="button" class="btn btn-sm" data-gl="' + esc(listKey) + '" data-all="close">Collapse all</button>' : '') +
+        '<span class="grp-total">' + c.items.length.toLocaleString('en-US') + ' item' + (c.items.length === 1 ? '' : 's') + (grouped && c.groupCount ? ' in ' + c.groupCount + ' group' + (c.groupCount === 1 ? '' : 's') : '') + '</span>';
+    }
+
+    function draw(listKey){
+      var c = CACHE[listKey]; if(!c) return;
+      var tb = document.getElementById(listKey); if(!tb) return;
+      tb.innerHTML = build(listKey);
+      bar(listKey);
+    }
+
+    window.atdRenderGrouped = function(listKey, items, o){
+      CACHE[listKey] = { items: items || [], o: o || {} };
+      draw(listKey);
+    };
+    // Forget a list's saved state (rarely needed).
+    window.atdGroupReset = function(listKey){ delete STATE[listKey]; };
+
+    document.addEventListener('click', function(e){
+      var t = e.target && e.target.closest ? e.target.closest('[data-gl]') : null;
+      if(!t || t.tagName === 'SELECT') return;
+      var lk = t.getAttribute('data-gl'), c = CACHE[lk]; if(!c) return;
+      var s = st(lk, c.o);
+      if(t.hasAttribute('data-gk')){
+        var k = t.getAttribute('data-gk');
+        var wasOpen = t.getAttribute('aria-expanded') === 'true';
+        s.open[k] = !wasOpen;
+        // Redraw after this click has finished travelling, so other click
+        // listeners (e.g. "close the panel when clicking outside it") still
+        // find the clicked button attached to the page.
+        setTimeout(function(){
+          draw(lk);
+          var again = document.querySelector('[data-gl="' + lk.replace(/"/g, '\\"') + '"][data-gk="' + k.replace(/"/g, '\\"') + '"]');
+          if(again && again.focus) again.focus();
+        }, 0);
+      } else if(t.hasAttribute('data-more')){
+        var mk = t.getAttribute('data-more'), pg = c.o.pageSize || 50;
+        s.shown[mk] = (s.shown[mk] || (mk === '__flat' ? pg * 2 : pg)) + (mk === '__flat' ? pg * 2 : pg);
+        setTimeout(function(){ draw(lk); }, 0);
+      } else if(t.hasAttribute('data-all')){
+        var open = t.getAttribute('data-all') === 'open';
+        (c.groupKeys || []).forEach(function(gk){ s.open[gk] = open; });
+        setTimeout(function(){ draw(lk); }, 0);
+      }
+    });
+    document.addEventListener('change', function(e){
+      var t = e.target;
+      if(!t || !t.classList || !t.classList.contains('grp-by')) return;
+      var lk = t.getAttribute('data-gl'), c = CACHE[lk]; if(!c) return;
+      var s = st(lk, c.o);
+      s.by = t.value; s.open = {}; s.shown = {};
+      draw(lk);
+    });
+  })();
 
   // ---- Debounce helper ----
   // Several search boxes across the platform (Municipal/JCF Watch List,
@@ -12099,7 +12594,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <button class="btn btn-sm" onclick="renderAuditLogs()">↻ Refresh</button>
           </div>
         </div>
-        <div class="field-hint" style="margin:-6px 0 14px;">Every login (success and failure) and every mutation across all three portals, newest first. Showing the most recent 200 matching events.</div>
+        <div class="field-hint" style="margin:-6px 0 12px;">Every login (success and failure) and every mutation across all three portals, newest first. Entries can never be edited or deleted. Older entries are folded into a monthly summary that you can open at any time.</div>
+        <div class="aud-controls">
+          <label for="admin_auditKeep">Show full detail for the last</label>
+          <select id="admin_auditKeep" onchange="aud_setKeepDays(this.value)">
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+          </select>
+          <span class="aud-count" id="admin_auditCounts"></span>
+        </div>
         <div style="overflow-x:auto;">
           <table>
             <thead>
@@ -12108,6 +12614,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <tbody id="admin_auditLogBody"></tbody>
           </table>
         </div>
+        <div id="admin_auditRecentMore" style="margin-top:10px;"></div>
+      </div>
+      <div class="panel" id="admin_auditArchivePanel">
+        <div class="panel-head"><h2>Earlier activity</h2></div>
+        <div class="field-hint" style="margin:-6px 0 12px;">Summarised by month. Select a month to see what happened and to read every entry.</div>
+        <div id="admin_auditArchive"></div>
       </div>
     </div>
 
@@ -15899,7 +16411,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           const flyerHtml = flyer
             ? '<img class="acct-event-flyer" src="' + flyer + '" alt="' + acctEscapeHtml(eventName) + ' flyer">'
             : '<div class="acct-event-flyer acct-event-flyer-placeholder">' + acctEscapeHtml(eventName) + '</div>';
-          return '<div class="acct-event-card" onclick="acct_openEventModal(\'' + o.key + '\')">' +
+          return '<div class="acct-event-card" onclick="acct_openEventModal(' + atdJs(o.key) + ')">' +
             flyerHtml +
             '<div class="acct-event-info">' +
               '<div class="acct-event-name">' + acctEscapeHtml(eventName) + '</div>' +
@@ -15956,7 +16468,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         html += '<div class="acct-tile"><div class="acct-tile-label">' + acctEscapeHtml(o.rec.status || 'Submitted') + '</div>' +
           '<div class="acct-tile-title">' + acctEscapeHtml(label) + '</div>' +
           '<div class="acct-tile-sub">' + acctEscapeHtml(number) + ' · Submitted ' + acctEscapeHtml(o.rec.submittedDate || '') + '</div>' +
-          '<button class="btn btn-sm" onclick="acct_viewApplication(\'' + o.type + '\',\'' + o.key + '\')">View application</button></div>';
+          '<button class="btn btn-sm" onclick="acct_viewApplication(' + atdJs(o.type) + ',' + atdJs(o.key) + ')">View application</button></div>';
       });
       html += '</div>';
     }
@@ -16302,8 +16814,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       container.innerHTML = '<h2>History</h2><p class="col-desc">You haven\'t submitted any applications yet.</p>';
       return;
     }
-    let html = '<h2>History</h2>';
-    owned.forEach(function(o){
+    container.innerHTML = '<h2>History</h2><div id="acct_historyList"></div>';
+    const histCard = function(o){
+      let html = '';
       const label = o.type === 'poa' ? 'Places of Amusement License' : 'JCF Noise Abatement Permit';
       const number = o.type === 'poa' ? o.rec.appNumber : o.rec.jcfAppNumber;
       // Cancel is only meaningful on the Municipal Corporation (poa) side —
@@ -16315,14 +16828,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(o.type === 'poa' && !terminal){
         cancelHtml = o.rec.cancellationRequested
           ? '<span class="badge badge-amber" style="margin-left:8px;">Cancellation requested</span>'
-          : '<button class="btn btn-sm" style="margin-left:8px;" onclick="acct_requestCancellation(\'' + o.key + '\')">Cancel</button>';
+          : '<button class="btn btn-sm" style="margin-left:8px;" onclick="acct_requestCancellation(' + atdJs(o.key) + ')">Cancel</button>';
       }
       html += '<div class="acct-app-card">' +
         '<div><div class="main">' + acctEscapeHtml(label) + ' — ' + acctEscapeHtml(number) + '</div>' +
         '<div class="sub">Status: ' + acctEscapeHtml(o.rec.status || 'Submitted') + ' · Submitted ' + acctEscapeHtml(o.rec.submittedDate || '') + '</div></div>' +
-        '<div><button class="btn btn-sm" onclick="acct_viewApplication(\'' + o.type + '\',\'' + o.key + '\')">View</button>' + cancelHtml + '</div></div>';
-    });
-    container.innerHTML = html;
+        '<div><button class="btn btn-sm" onclick="acct_viewApplication(' + atdJs(o.type) + ',' + atdJs(o.key) + ')">View</button>' + cancelHtml + '</div></div>';
+      return html;
+    };
+    atdRenderGrouped('acct_historyList', owned, { div: true, threshold: 10, pageSize: 25, defaultOpen: 'first',
+      groupers: [
+        { id: 'year', label: 'Year', of: function(o){ return atdGrp.year(o.rec.submittedDate); } },
+        { id: 'status', label: 'Status', of: function(o){ return atdGrp.ranked(o.rec.status || 'Submitted', atdGrp.APP_STATUS_ORDER); } },
+        { id: 'type', label: 'Licence type', of: function(o){ return atdGrp.plain(o.type === 'poa' ? 'Places of Amusement' : 'JCF Noise Abatement'); } }
+      ],
+      summary: function(items){ return atdGrp.statusChips(items, function(o){ return o.rec.status || 'Submitted'; }); },
+      rowHtml: histCard });
   }
   window.acct_renderHistory = acct_renderHistory;
 
@@ -16384,19 +16905,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return '<div class="acct-app-card">' +
         '<div><div class="main">Permit ' + acctEscapeHtml(p.number || '') + '</div>' +
         '<div class="sub">' + acctEscapeHtml(p.permitTypeLabel || '') + ' · Issued ' + acctEscapeHtml(p.issuedDate || '') + ' · Expires ' + acctEscapeHtml(p.expiresDate || '') + '</div></div>' +
-        '<button class="btn btn-sm" onclick="acct_viewPermit(\'' + o.key + '\')">View &amp; Print</button></div>';
+        '<button class="btn btn-sm" onclick="acct_viewPermit(' + atdJs(o.key) + ')">View &amp; Print</button></div>';
     }
 
     let html = '<h2>Permits</h2>';
     if(annualPermits.length){
-      html += '<div class="section-title" style="margin-top:8px;">Annual Permits</div>';
-      html += annualPermits.map(permitCardHtml).join('');
+      html += '<div class="section-title" style="margin-top:8px;">Annual Permits</div><div id="acct_permitsAnnualList"></div>';
     }
     if(specialPermits.length){
-      html += '<div class="section-title" style="margin-top:' + (annualPermits.length ? '20px' : '8px') + ';">Special Permits</div>';
-      html += specialPermits.map(permitCardHtml).join('');
+      html += '<div class="section-title" style="margin-top:' + (annualPermits.length ? '20px' : '8px') + ';">Special Permits</div><div id="acct_permitsSpecialList"></div>';
     }
     container.innerHTML = html;
+    const permitGroupers = [
+      { id: 'year', label: 'Year issued', of: function(o){ return atdGrp.year((o.rec.permit || {}).issuedDate); } },
+      { id: 'month', label: 'Month issued', of: function(o){ return atdGrp.month((o.rec.permit || {}).issuedDate); } }
+    ];
+    if(annualPermits.length) atdRenderGrouped('acct_permitsAnnualList', annualPermits, { div: true, threshold: 8, pageSize: 25, groupers: permitGroupers, rowHtml: permitCardHtml });
+    if(specialPermits.length) atdRenderGrouped('acct_permitsSpecialList', specialPermits, { div: true, threshold: 8, pageSize: 25, groupers: permitGroupers, rowHtml: permitCardHtml });
   }
   window.acct_renderPermits = acct_renderPermits;
 
@@ -16553,8 +17078,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += '<p class="col-desc" style="margin-top:20px;">No wallet activity yet. If an application is ever refunded, a Credit Note or Municipal Credit is added here instead of a cash refund.</p>';
     } else {
       html += '<h3 style="margin-top:24px; margin-bottom:6px; font-size:15px;">Activity</h3>';
-      html += '<div class="acct-app-card" style="flex-direction:column; align-items:stretch; gap:0;">';
-      transactions.forEach(function(t){
+      html += '<div class="acct-app-card" style="flex-direction:column; align-items:stretch; gap:0;"><div id="acct_walletActivity"></div></div>';
+    }
+    container.innerHTML = html;
+    if(transactions.length){
+      const walletRow = function(t){
+        let html = '';
         const isCredit = Number(t.amount) > 0;
         const dateStr = (t.issuedAt || '').slice(0,10);
         const isMunicipal = t.creditSource === 'municipal';
@@ -16564,10 +17093,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           '<div class="sub">' + acctEscapeHtml(dateStr) + (t.appNumber ? ' · ' + acctEscapeHtml(t.appNumber) : '') + ' · <span class="badge ' + (isMunicipal ? 'badge-blue' : 'badge-gray') + '" style="font-size:10px;">' + acctEscapeHtml(sourceTag) + '</span></div></div>' +
           '<div style="font-weight:700; color:' + (isCredit ? '#1a7f37' : '#c0392b') + '; white-space:nowrap;">' + (isCredit ? '+' : '-') + acctFormatCurrency(Math.abs(Number(t.amount) || 0)) + '</div>' +
           '</div>';
-      });
-      html += '</div>';
+        return html;
+      };
+      atdRenderGrouped('acct_walletActivity', transactions, { div: true, threshold: 15, pageSize: 30, defaultOpen: 'first',
+        groupers: [ { id: 'month', label: 'Month', of: function(t){ return atdGrp.month(t.issuedAt); } }, { id: 'kind', label: 'Credits and uses', of: function(t){ return atdGrp.ranked(Number(t.amount) > 0 ? 'Credits received' : 'Credit used', ['Credits received', 'Credit used']); } } ],
+        summary: function(items){ return atdGrp.chip(acctFormatCurrency(atdGrp.sum(items, function(t){ return t.amount; })) + ' net', ''); },
+        rowHtml: walletRow });
     }
-    container.innerHTML = html;
   }
   window.acct_renderWallet = acct_renderWallet;
 
@@ -16696,7 +17228,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!dataUrl){ showToastFallback('That image is too large — please use a file under 500KB.'); return; }
     acct_pendingLogoData = dataUrl;
     acct_pendingLogoName = file.name;
-    document.getElementById('acct_logoPreview').outerHTML = '<img class="acct-photo-preview" id="acct_logoPreview" src="' + dataUrl + '">';
+    document.getElementById('acct_logoPreview').outerHTML = '<img class="acct-photo-preview" id="acct_logoPreview" src="' + atdSafeFileUrl(dataUrl) + '">';
   }
   window.acct_logoChosen = acct_logoChosen;
 
@@ -17079,16 +17611,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       badge.classList.add('hidden');
     }
 
-    body.innerHTML = acctNotifItems.length ? acctNotifItems.map(n => `
-      <div class="notif-item ${n.read ? '' : 'unread'}" onclick="acct_openNotification(${JSON.stringify(n.id)})">
+    atdRenderGrouped('acct_notifPanelBody', acctNotifItems, { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: n => `
+      <div class="notif-item ${n.read ? '' : 'unread'}" onclick="acct_openNotification(${atdJs(n.id)})">
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
           <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
-          <button class="icon-btn notif-delete-btn" title="Delete" onclick="event.stopPropagation(); acct_deleteNotification(${JSON.stringify(n.id)})">&times;</button>
+          <button class="icon-btn notif-delete-btn" title="Delete" onclick="event.stopPropagation(); acct_deleteNotification(${atdJs(n.id)})">&times;</button>
         </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${acct_notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `).join('') : '<div class="notif-empty">No notifications yet.</div>';
+    ` });
   }
 
   function acct_toggleNotifPanel(event){
@@ -17177,7 +17709,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!dataUrl){ showToastFallback('That image is too large — please use a file under 500KB.'); return; }
     acct_pendingPhotoData = dataUrl;
     acct_pendingPhotoName = file.name;
-    document.getElementById('acct_photoPreview').outerHTML = '<img class="acct-photo-preview" id="acct_photoPreview" src="' + dataUrl + '">';
+    document.getElementById('acct_photoPreview').outerHTML = '<img class="acct-photo-preview" id="acct_photoPreview" src="' + atdSafeFileUrl(dataUrl) + '">';
   }
   window.acct_photoChosen = acct_photoChosen;
 
@@ -18155,7 +18687,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const shortDate = acctEscapeHtml(mdDays.length > 1 ? `${shortFmt(mdDays[0].date)} – ${shortFmt(mdDays[mdDays.length - 1].date)}` : shortFmt(nextDay));
       return `
         <tr>
-          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication('${a.key}'); return false;">${acctEscapeHtml(eo.eventName || rec.jcfAppNumber || 'Event')}</a><br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(vi.venueName || 'N/A')}</span></td>
+          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication(${atdJs(String(a.key))}); return false;">${acctEscapeHtml(eo.eventName || rec.jcfAppNumber || 'Event')}</a><br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(vi.venueName || 'N/A')}</span></td>
           <td title="${acctEscapeHtml(window.atdJcfDatesText(eo) || eo.dateOfEvent)}">${shortDate}</td>
           <td>${acctEscapeHtml(String(eo.patronsExpected || '—'))}</td>
           <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
@@ -18206,7 +18738,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const sevBadge = { Critical: 'badge-red', High: 'badge-amber', Medium: 'badge-gray' }[severity];
       return `
         <tr>
-          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication('${r.a.key}'); return false;">${acctEscapeHtml(rec.jcfAppNumber || '')}</a></td>
+          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication(${atdJs(String(r.a.key))}); return false;">${acctEscapeHtml(rec.jcfAppNumber || '')}</a></td>
           <td>${acctEscapeHtml(eventLabel)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(venueName)}</span></td>
           <td>${acctEscapeHtml(issue)}</td>
           <td><span class="badge ${sevBadge}">${severity}</span></td>
@@ -18359,17 +18891,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       badge.classList.add('hidden');
     }
 
-    const items = jcfdNotifPersisted.map(n => `
-      <div class="notif-item ${n.read ? '' : 'unread'}" onclick='jcfd_notifGoToApp(${JSON.stringify(n.appNumber)}); jcfd_markNotificationRead(${JSON.stringify(n.id)})'>
+    atdRenderGrouped('jcfd_notifPanelBody', jcfdNotifPersisted, { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: n => `
+      <div class="notif-item ${n.read ? '' : 'unread'}" onclick='jcfd_notifGoToApp(${atdJs(n.appNumber)}); jcfd_markNotificationRead(${atdJs(n.id)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
           <div class="notif-msg">${acctEscapeHtml(n.message)}</div>
         </div>
         <div class="notif-meta"><span>${acctEscapeHtml(n.appNumber || '')}</span><span>${jcfd_notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `);
-
-    body.innerHTML = items.length ? items.join('') : '<div class="notif-empty">No notifications yet.</div>';
+    ` });
   }
   window.jcfd_renderNotifBell = jcfd_renderNotifBell;
 
@@ -18469,6 +18999,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // the two never drift out of sync. `rowDot` is the same "needs attention"
   // marker function jcfd_renderApplications already built (see its own
   // comment) -- pass a no-op (() => '') to render without it.
+  const jcfdStatusOf = a => atdGrp.ranked(jcfd_statusBadgeLabel(a.rec), ['Submitted', 'Assigned', 'Processing', 'Under Review', 'Approved', 'Rejected']);
+  const jcfdSpecialGroupers = () => [
+    { id: 'status', label: 'Status', of: jcfdStatusOf },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.rec.submittedDate) },
+    { id: 'officer', label: 'Assigned officer', of: a => atdGrp.plain(a.rec.assignedOfficerName || 'Unassigned') },
+    { id: 'venue', label: 'Venue', of: a => atdGrp.plain((a.rec.venueInfo && a.rec.venueInfo.venueName) || 'N/A') }
+  ];
+  const jcfdAnnualGroupers = () => [
+    { id: 'status', label: 'Status', of: jcfdStatusOf },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.rec.submittedDate) },
+    { id: 'officer', label: 'Assigned officer', of: a => atdGrp.plain(a.rec.assignedOfficerName || 'Unassigned') }
+  ];
+  const jcfdAppSummary = (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.rec.status || 'Submitted');
   function jcfd_specialAppRowHtml(a, rowDot){
     const eo = a.rec.eventOverview || {};
     const vi = a.rec.venueInfo || {};
@@ -18480,7 +19023,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <td>${acctEscapeHtml(window.atdJcfDatesText(eo) || 'N/A')}</td>
       <td>${acctEscapeHtml(a.rec.assignedOfficerName || 'Unassigned')}</td>
       <td>${jcfd_statusBadge(a.rec)}</td>
-      <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+      <td><button class="btn btn-sm" onclick="jcfd_openApplication(${atdJs(String(a.key))})">View</button></td>
     </tr>`;
   }
   function jcfd_annualAppRowHtml(a, rowDot){
@@ -18492,7 +19035,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
       <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
       <td>${jcfd_statusBadge(a.rec)}</td>
-      <td><button class="btn btn-sm" onclick="jcfd_openApplication('${a.key}')">View</button></td>
+      <td><button class="btn btn-sm" onclick="jcfd_openApplication(${atdJs(String(a.key))})">View</button></td>
     </tr>`;
   }
 
@@ -18510,13 +19053,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
     const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
 
-    specialBody.innerHTML = specialVisible.length
-      ? specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('')
-      : `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No Special Event applications found.</td></tr>`;
-
-    annualBody.innerHTML = annualVisible.length
-      ? annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('')
-      : `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No Annual applications found.</td></tr>`;
+    atdRenderGrouped('jcfd_dashboardSpecialBody', specialVisible, { colspan: 8, rowHtml: a => jcfd_specialAppRowHtml(a, rowDot), groupers: jcfdSpecialGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No Special Event applications found.</td></tr>` });
+    atdRenderGrouped('jcfd_dashboardAnnualBody', annualVisible, { colspan: 6, rowHtml: a => jcfd_annualAppRowHtml(a, rowDot), groupers: jcfdAnnualGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:20px;">No Annual applications found.</td></tr>` });
   }
 
   async function jcfd_renderApplications(){
@@ -18564,21 +19104,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const specialVisible = visible.filter(a => a.rec.formVariant !== 'Annual');
     const annualVisible = visible.filter(a => a.rec.formVariant === 'Annual');
 
-    if(!specialVisible.length){
-      specialBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">
-        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}
-      </td></tr>`;
-    } else {
-      specialBody.innerHTML = specialVisible.map(a => jcfd_specialAppRowHtml(a, rowDot)).join('');
-    }
-
-    if(!annualVisible.length){
-      annualBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">
-        ${jcfdCurrentUser.role === JCFD_ROLE_OFFICER ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}
-      </td></tr>`;
-    } else {
-      annualBody.innerHTML = annualVisible.map(a => jcfd_annualAppRowHtml(a, rowDot)).join('');
-    }
+    const isOfficer = jcfdCurrentUser.role === JCFD_ROLE_OFFICER;
+    atdRenderGrouped('jcfd_applicationsBodySpecial', specialVisible, { colspan: 8, rowHtml: a => jcfd_specialAppRowHtml(a, rowDot), groupers: jcfdSpecialGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;">${isOfficer ? 'No Special Event applications have been assigned to you yet.' : 'No Special Event applications found for your jurisdiction yet.'}</td></tr>` });
+    atdRenderGrouped('jcfd_applicationsBodyAnnual', annualVisible, { colspan: 6, rowHtml: a => jcfd_annualAppRowHtml(a, rowDot), groupers: jcfdAnnualGroupers(), summary: jcfdAppSummary,
+      emptyHtml: `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px;">${isOfficer ? 'No Annual applications have been assigned to you yet.' : 'No Annual applications found for your jurisdiction yet.'}</td></tr>` });
   }
   window.jcfd_renderApplications = jcfd_renderApplications;
   // Debounced wrapper for the search box's oninput — jcfd_renderApplications()
@@ -19904,7 +20434,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div class="field-group"><label for="jcfd_assignSelect">Assign to</label>
             <select id="jcfd_assignSelect">
               <option value="">Select an officer/station</option>
-              ${branchOfficers.map(o => `<option value="${o.id}" ${rec.assignedOfficerId===o.id?'selected':''}>${acctEscapeHtml(o.name)}</option>`).join('')}
+              ${branchOfficers.map(o => `<option value="${atdH(o.id)}" ${rec.assignedOfficerId===o.id?'selected':''}>${acctEscapeHtml(o.name)}</option>`).join('')}
             </select>
           </div>
         </div>
@@ -20030,9 +20560,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="record-sub wl-trn"><span>TRN: ${acctEscapeHtml(formatTrnDisplayJcfd(subj.trn))}</span>${badges.join(' ')}</div>
             ${flagNotes.join('')}</div>
             <div class="action-btn-row">
-              ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${JSON.stringify(subj.trn)})'>View JCF file</button>` : ''}
-              ${jcfd_hasPerm('watchlist') && jcfEntry && jcfEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jcfd_unflagFromCard(${JSON.stringify(subj.trn)})'>Unflag</button>` : ''}
-              ${jcfd_hasPerm('watchlist') && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${JSON.stringify({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
+              ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${atdJs(subj.trn)})'>View JCF file</button>` : ''}
+              ${jcfd_hasPerm('watchlist') && jcfEntry && jcfEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jcfd_unflagFromCard(${atdJs(subj.trn)})'>Unflag</button>` : ''}
+              ${jcfd_hasPerm('watchlist') && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${atdJs({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
             </div></div>`;
         }
         if(!jcfd_hasPerm('watchlist')){
@@ -21072,10 +21602,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     `;
 
     if(!breached.length){
-      body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>`;
+      atdRenderGrouped('jcfd_slaBreachesBody', [], { emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>` });
       return;
     }
-    body.innerHTML = breached.map(r =>`
+    atdRenderGrouped('jcfd_slaBreachesBody', breached, { colspan: 8, defaultOpen: 'all', groupers: [ { id: 'stage', label: 'Stage', of: r => atdGrp.plain(r.label) }, { id: 'role', label: 'Responsible role', of: r => atdGrp.plain(r.responsibleRole) }, { id: 'late', label: 'How late', of: r => { const d = r.overdueDays || 0; return d >= 7 ? { key: 'w', label: 'A week or more', rank: 0 } : d >= 1 ? { key: 'd', label: '1 to 6 days', rank: 1 } : { key: 'h', label: 'Under a day', rank: 2 }; } } ], rowHtml: r =>`
       <tr>
         <td>${acctEscapeHtml(r.a.rec.jcfAppNumber || '')}</td>
         <td>${r.a.rec.linkedTrackingCode ? acctEscapeHtml(r.a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -21084,9 +21614,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(r.responsibleRole)}</td>
         <td><span class="badge badge-red">${r.overdueHours < 24 ? r.overdueHours + ' hr' : r.overdueDays + ' day' + (r.overdueDays === 1 ? '' : 's')} overdue</span></td>
         <td>${jcfd_statusBadge(r.a.rec)}</td>
-        <td><button class="btn btn-sm" onclick="jcfd_openApplication('${r.a.key}')">View</button></td>
+        <td><button class="btn btn-sm" onclick="jcfd_openApplication(${atdJs(String(r.a.key))})">View</button></td>
       </tr>
-    `).join('');
+    ` });
   }
   window.jcfd_renderSlaBreaches = jcfd_renderSlaBreaches;
 
@@ -21122,7 +21652,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(String(y.year))}</td>
         <td>${acctEscapeHtml(y.archivedDate)}</td>
         <td>${(y.applications || []).length}</td>
-        <td><button class="btn btn-sm" onclick='jcfd_viewArchiveYear(${JSON.stringify(String(y.year))})'>View</button></td>
+        <td><button class="btn btn-sm" onclick='jcfd_viewArchiveYear(${atdJs(String(y.year))})'>View</button></td>
       </tr>
     `).join('');
   }
@@ -21178,7 +21708,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!record) return;
     document.getElementById('archiveViewTitle').textContent = `${record.year} Licensing Year`;
     document.getElementById('archiveViewSub').textContent = `Archived ${record.archivedDate}${record.archivedBy ? ' by ' + record.archivedBy : ''} — ${(record.applications || []).length} application(s).`;
-    document.getElementById('archiveViewBody').innerHTML = (record.applications || []).map(a => `
+    atdGroupReset('archiveViewBody');
+    atdRenderGrouped('archiveViewBody', record.applications || [], { colspan: 5, emptyHtml: `<tr><td colspan="5" class="table-empty">Nothing was archived for this year.</td></tr>`,
+      groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status),
+      rowHtml: a => `
       <tr>
         <td>${acctEscapeHtml(a.jcfAppNumber || '')}</td>
         <td>${a.trackingCode ? acctEscapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -21186,7 +21719,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(a.submitted || '')}</td>
         <td>${jcfd_statusBadge({status: a.status})}</td>
       </tr>
-    `).join('');
+    ` });
     document.getElementById('archiveViewModal').classList.remove('hidden');
   }
   window.jcfd_viewArchiveYear = jcfd_viewArchiveYear;
@@ -21531,7 +22064,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       : '';
 
     if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind)){
-      document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${status}</span>` +
+      document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${atdH(status)}</span>` +
         (status === 'Rejected' && officerNote ? `<div class="readback-row">Previous note: ${acctEscapeHtml(officerNote)}</div>` : '');
       const canReviewDoc = jcfd_hasPerm('checklist');
       document.getElementById('jcfd_docNoteGroup').classList.remove('hidden');
@@ -21567,9 +22100,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     const mime = jcfd_guessMime(dataUrl);
     if(mime === 'application/pdf'){
-      box.innerHTML = `<iframe src="${dataUrl}" style="width:100%; height:60vh; border:none;"></iframe>`;
+      box.innerHTML = `<iframe src="${atdSafeFileUrl(dataUrl)}" style="width:100%; height:60vh; border:none;"></iframe>`;
     } else {
-      box.innerHTML = `<img src="${dataUrl}" alt="${acctEscapeHtml(title)}" style="max-width:100%; border-radius:8px;">`;
+      box.innerHTML = `<img src="${atdSafeFileUrl(dataUrl)}" alt="${acctEscapeHtml(title)}" style="max-width:100%; border-radius:8px;">`;
     }
   }
   window.jcfd_openDocModal = jcfd_openDocModal;
@@ -21683,7 +22216,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(applicantEmail){
         if(window.atdSendEmail){
           window.atdSendEmail('document_rejected', applicantEmail, {
-            appNumber: rec.jcfAppNumber, applicantName: (rec.eventOverview && rec.eventOverview.promoterName) || '',
+            kind: 'jcf', appNumber: String(jcfdActiveAppKey || '').replace(/^jcfApplication:/, ''), applicantName: (rec.eventOverview && rec.eventOverview.promoterName) || '',
             documentName: label, officerNote: note, municipalityName: rec.municipalityName || ''
           });
         }
@@ -21833,7 +22366,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     list.sort((a,b) => (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
     if(!list.length){
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No one on the JCF Watch List yet.</td></tr>`;
+      atdRenderGrouped('jcfd_watchlistBody', [], { emptyHtml: `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No one on the JCF Watch List yet.</td></tr>` });
       return;
     }
 
@@ -21843,9 +22376,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         ? `<span class="badge badge-red">Flagged by Municipal Corporation${muniFlag.reason ? ' — ' + acctEscapeHtml(muniFlag.reason) : ''}</span>`
         : (muniFlag ? '<span class="badge badge-gray">Cleared (Municipal)</span>' : '<span class="badge badge-gray">Not flagged</span>');
       const viewOnclick = w._muniOnly
-        ? `jcfd_openMuniOnlyWatchlistViewModal(${JSON.stringify(w.trn)})`
-        : `jcfd_openWatchlistViewModal(${JSON.stringify(w.trn)})`;
-      return `<tr>
+        ? `jcfd_openMuniOnlyWatchlistViewModal(${atdJs(w.trn)})`
+        : `jcfd_openWatchlistViewModal(${atdJs(w.trn)})`;
+      return { w, html: `<tr>
         <td>${acctEscapeHtml(w.fullName)}</td>
         <td>${acctEscapeHtml(w.type)}</td>
         <td>${acctEscapeHtml(formatTrnDisplayJcfd(w.trn))}</td>
@@ -21853,9 +22386,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${w._muniOnly ? '<span class="badge badge-gray">Not on JCF list</span>' : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>')}</td>
         <td>${muniCell}</td>
         <td><button class="btn btn-sm" onclick='${viewOnclick}'>View file</button></td>
-      </tr>`;
+      </tr>` };
     }));
-    body.innerHTML = rows.join('');
+    atdRenderGrouped('jcfd_watchlistBody', rows, { colspan: 7, rowHtml: x => x.html, groupers: [
+      { id: 'status', label: 'Status', of: x => atdGrp.ranked(x.w._muniOnly ? 'Not on JCF list' : (x.w.status === 'Active' ? 'Active' : 'Cleared'), ['Active', 'Not on JCF list', 'Cleared']) },
+      { id: 'type', label: 'Type', of: x => atdGrp.plain(x.w.type) },
+      { id: 'month', label: 'Month flagged', of: x => atdGrp.month(x.w.flaggedDate) }
+    ] });
   }
   window.jcfd_renderWatchlist = jcfd_renderWatchlist;
   // Debounced wrapper for the search box's oninput — jcfd_renderWatchlist()
@@ -22069,10 +22606,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     issued.sort((a,b) => (b.rec.permit.issuedDate || '').localeCompare(a.rec.permit.issuedDate || ''));
 
     if(!issued.length){
-      body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No permits have been issued yet.</td></tr>`;
+      atdRenderGrouped('jcfd_permitsListBody', [], { emptyHtml: `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:30px;">No permits have been issued yet.</td></tr>` });
       return;
     }
-    body.innerHTML = issued.map(a => {
+    atdRenderGrouped('jcfd_permitsListBody', issued, { colspan: 7, groupers: [
+      { id: 'month', label: 'Month issued', of: a => atdGrp.month(a.rec.permit.issuedDate) },
+      { id: 'year', label: 'Year issued', of: a => atdGrp.year(a.rec.permit.issuedDate) },
+      { id: 'event', label: 'Event', of: a => atdGrp.plain(a.rec.permit.eventName) }
+    ], rowHtml: a => {
       const p = a.rec.permit;
       return `<tr>
         <td>${acctEscapeHtml(p.number)}</td>
@@ -22081,9 +22622,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(p.issuedDate || '')}</td>
         <td>${acctEscapeHtml(p.expiresDate || '')}</td>
         <td>${acctEscapeHtml(a.rec.jcfAppNumber || '')}</td>
-        <td><button class="btn btn-sm" onclick='jcfd_viewIssuedPermit(${JSON.stringify(a.key)})'>View / Print</button></td>
+        <td><button class="btn btn-sm" onclick='jcfd_viewIssuedPermit(${atdJs(a.key)})'>View / Print</button></td>
       </tr>`;
-    }).join('');
+    } });
   }
   window.jcfd_renderPermitsList = jcfd_renderPermitsList;
   // Debounced wrapper for the search box's oninput — same
@@ -22469,7 +23010,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
-            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
+            ${crestDataUrl ? `<img src="${atdSafeFileUrl(crestDataUrl)}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
             <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
@@ -22496,7 +23037,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <p class="permit-doc-body">${acctEscapeHtml(templates.jcfAnnualPermitClosingText || '')}</p>
 
         <div class="permit-doc-signature">
-          ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
+          ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="Signature">` : `<div class="sig-line"></div>`}
         </div>
         <div class="permit-doc-cfo"><strong>Snr. Superintendent of Police</strong><br><strong>i/c ${acctEscapeHtml(p.parish || '')} Division</strong></div>
 
@@ -22533,7 +23074,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JCFD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
-            ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
+            ${crestDataUrl ? `<img src="${atdSafeFileUrl(crestDataUrl)}" alt="JCF coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JCFD_CREST_SVG}
             <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
             <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
           </div>
@@ -22563,7 +23104,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <p class="permit-doc-body">${acctEscapeHtml(templates.jcfPermitClosingText || '')}</p>
 
         <div class="permit-doc-signature">
-          ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
+          ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="Signature">` : `<div class="sig-line"></div>`}
         </div>
         <div class="permit-doc-cfo"><strong>Snr. Superintendent of Police</strong><br><strong>i/c ${acctEscapeHtml(p.parish || '')} Division</strong></div>
 
@@ -23039,7 +23580,7 @@ function poa_renderAdLocationModalBody(){
             const nextDate = poa_nextAvailableLocationDate(currentLoc, currentDate, maxAds, key);
             note = `<div class="field-hint" style="color:var(--red);">"${poa_escapeHtml(currentLoc)}" already has ${maxAds} advertisement${maxAds === 1 ? '' : 's'} up during that period.` +
               (nextDate
-                ? ` The next available start date is <strong>${poa_escapeHtml(nextDate)}</strong>. <a href="#" onclick='poa_applyNextAvailableDate(${JSON.stringify(pt.type)}, ${i}, ${JSON.stringify(nextDate)}); return false;'>Use ${poa_escapeHtml(nextDate)}</a>.`
+                ? ` The next available start date is <strong>${poa_escapeHtml(nextDate)}</strong>. <a href="#" onclick='poa_applyNextAvailableDate(${atdJs(pt.type)}, ${i}, ${atdJs(nextDate)}); return false;'>Use ${poa_escapeHtml(nextDate)}</a>.`
                 : ` No open date was found in the next 2 years — please choose a different location.`) +
               `</div>`;
           }
@@ -23049,12 +23590,12 @@ function poa_renderAdLocationModalBody(){
       html += `<div class="field-group" style="margin-bottom:10px;">
         <label>${poa_escapeHtml(pt.type)} — Sign ${i + 1}</label>
         <div class="field-row">
-          <select style="flex:1;" onchange='poa_setAdLocationAssignment(${JSON.stringify(pt.type)}, ${i}, this.value)'>
+          <select style="flex:1;" onchange='poa_setAdLocationAssignment(${atdJs(pt.type)}, ${i}, this.value)'>
             <option value="" ${currentLoc ? '' : 'selected'}>Select a location</option>
             ${options}
           </select>
           <input type="date" style="flex:1;" min="${today}" value="${currentDate}" ${currentLoc ? '' : 'disabled'}
-            onchange='poa_setAdLocationStartDate(${JSON.stringify(pt.type)}, ${i}, this.value)'>
+            onchange='poa_setAdLocationStartDate(${atdJs(pt.type)}, ${i}, this.value)'>
         </div>
         ${note}
       </div>`;
@@ -23363,7 +23904,7 @@ function onApplyParishChange(){
 
   const match = MUNICIPALITIES.find(m => m.parishes.includes(parish));
   if(match){
-    muniSelect.innerHTML = `<option value="${match.id}">${match.name}</option>`;
+    muniSelect.innerHTML = `<option value="${atdH(match.id)}">${match.name}</option>`;
     muniSelect.value = String(match.id);
     muniSelect.disabled = true; // auto-derived from parish — one municipality per parish
   } else {
@@ -26690,6 +27231,7 @@ async function submitApp(){
     if(record.applicant && record.applicant.email){
       window.atdSendEmail('application_submitted', record.applicant.email, {
         appNumber,
+        trackingCode: record.trackingCode,
         applicantName: record.applicant.name,
         municipalityName: record.municipalityName
       });
@@ -28247,7 +28789,7 @@ function renderMmNoiseDocuments(){
         <div class="mm-doc-label">${poa_escapeHtml(label)} *</div>
         <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
         ${status === 'Rejected' && officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(officerNote)}"</div>` : ''}
-        <input type="file" id="mmNoiseDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmNoiseDocFileChosen(${JSON.stringify(kind)}, ${JSON.stringify(label)}, this)'>
+        <input type="file" id="mmNoiseDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmNoiseDocFileChosen(${atdJs(kind)}, ${atdJs(label)}, this)'>
       </div>
     `;
   }).join('');
@@ -28482,7 +29024,7 @@ async function printNoticeOfApplication(previewRecord){
       <div style="display:flex; align-items:center; justify-content:center; gap:16px; margin:10px 0 14px;">
         <img src="${ATENDIFY_LOGO_B64}" alt="Atendify logo" style="height:56px; width:auto; object-fit:contain;">
         ${logo
-          ? `<img src="${logo}" alt="${poa_escapeHtml(r.municipalityName || 'Municipal Corporation')} logo" style="height:56px; width:auto; object-fit:contain;">`
+          ? `<img src="${atdSafeFileUrl(logo)}" alt="${poa_escapeHtml(r.municipalityName || 'Municipal Corporation')} logo" style="height:56px; width:auto; object-fit:contain;">`
           : `<div style="height:56px; width:70px; border:1px solid #999; border-radius:4px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px;">LOGO OF MC</div>`}
       </div>
       <div class="nl-muni">${poa_escapeHtml(r.municipalityName)}</div>
@@ -28590,10 +29132,10 @@ function renderMmDocuments(){
         ${status === 'Rejected' && doc.officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(doc.officerNote)}"</div>` : ''}
         ${showNaCheckbox ? `
         <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; color:var(--text-muted); cursor:pointer;">
-          <input type="checkbox" onchange='mmDocNotApplicableToggled(this, ${JSON.stringify(docName)})'>
+          <input type="checkbox" onchange='mmDocNotApplicableToggled(this, ${atdJs(docName)})'>
           Not applicable to my event
         </label>` : ''}
-        <input type="file" id="mmDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmDocFileChosen(${i}, ${JSON.stringify(docName)}, this)'>
+        <input type="file" id="mmDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmDocFileChosen(${i}, ${atdJs(docName)}, this)'>
       </div>
     `;
   }).join('');
@@ -28655,7 +29197,7 @@ function renderMmJcfDocuments(){
         <div class="mm-doc-label">${poa_escapeHtml(docName)} *</div>
         <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
         ${status === 'Rejected' && doc.officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(doc.officerNote)}"</div>` : ''}
-        <input type="file" id="mmJcfDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmJcfDocFileChosen(${i}, ${JSON.stringify(docName)}, this)'>
+        <input type="file" id="mmJcfDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmJcfDocFileChosen(${i}, ${atdJs(docName)}, this)'>
       </div>
     `;
   }).join('');
@@ -28928,7 +29470,7 @@ function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataU
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          ? `<img class="pd-logo pd-logo-agency" src="${atdSafeFileUrl(logoDataUrl)}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
           : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
@@ -28960,7 +29502,7 @@ function poa_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataU
       <div class="permit-doc-annual-dated">Dated this: <strong>${poa_escapeHtml(poa_formatShortDate(p.issuedDate))}</strong> on behalf of the Parish of ${poa_escapeHtml((parishName || '').toUpperCase())}</div>
 
       <div class="permit-doc-signature">
-        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+        ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="CEO signature">` : `<div class="sig-line"></div>`}
       </div>
       <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${poa_escapeHtml(p.municipalityName)}</strong></div>
 
@@ -28985,7 +29527,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          ? `<img class="pd-logo pd-logo-agency" src="${atdSafeFileUrl(logoDataUrl)}" alt="${poa_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
           : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
@@ -29017,7 +29559,7 @@ function poa_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, logoDataUrl){
       <div>On behalf of the <strong>${poa_escapeHtml(p.municipalityName)}.</strong></div>
 
       <div class="permit-doc-signature">
-        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+        ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="CEO signature">` : `<div class="sig-line"></div>`}
       </div>
       <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${poa_escapeHtml(p.municipalityName)}</strong></div>
 
@@ -30131,10 +30673,10 @@ async function renderMuniBilling(){
   document.getElementById('billingDueDateText').textContent = periodEnd || '—';
 
   // ---- Past Invoices ----
-  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.slice().reverse() : [];
+  const invoices = Array.isArray(m.subscriptionInvoices) ? m.subscriptionInvoices.map((inv, i) => Object.assign({}, inv, { _idx: i })).reverse() : [];
   const invoicesBody = document.getElementById('billingInvoicesBody');
-  invoicesBody.innerHTML = invoices.length ? invoices.map((inv, revIdx) => {
-    const idx = invoices.length - 1 - revIdx;
+  atdRenderGrouped('billingInvoicesBody', invoices, { colspan: 5, threshold: 12, groupers: [ { id: 'year', label: 'Year', of: inv => atdGrp.year(inv.periodEnd || inv.issuedDate) } ], emptyHtml: `<tr><td colspan="5" class="table-empty">No invoices yet.</td></tr>`, rowHtml: (inv) => {
+    const idx = inv._idx;
     return `
     <tr>
       <td class="cell-primary">${muni_escapeHtml(inv.invoiceNumber)}</td>
@@ -30146,7 +30688,7 @@ async function renderMuniBilling(){
         <button class="btn btn-sm" onclick="muniPrintReceipt(${idx})">Receipt</button>
       </td>
     </tr>
-  `; }).join('') : `<tr><td colspan="5" class="table-empty">No invoices yet.</td></tr>`;
+  `; } });
 
   // ---- Payment Method ----
   document.getElementById('billingPaymentMethodText').textContent = m.paymentMethodLabel
@@ -30489,10 +31031,10 @@ async function renderSlaBreaches(){
   `;
 
   if(!breached.length){
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>`;
+    atdRenderGrouped('slaBreachesBody', [], { emptyHtml: `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:20px;">No open applications have breached an SLA stage right now.</td></tr>` });
     return;
   }
-  body.innerHTML = breached.map(r =>`
+  atdRenderGrouped('slaBreachesBody', breached, Object.assign({ rowHtml: r =>`
     <tr>
       <td>${muni_escapeHtml(r.a.appNumber)}</td>
       <td>${r.a.trackingCode ? muni_escapeHtml(r.a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -30501,9 +31043,9 @@ async function renderSlaBreaches(){
       <td>${muni_escapeHtml(r.responsibleRole)}</td>
       <td><span class="badge badge-red">${r.overdueHours < 24 ? r.overdueHours + ' hr' : r.overdueDays + ' day' + (r.overdueDays === 1 ? '' : 's')} overdue</span></td>
       <td>${muni_statusBadge(r.a.status)}</td>
-      <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(r.a.id)})'>View</button></td>
+      <td><button class="btn btn-sm" onclick='muni_openAppModal(${atdJs(r.a.id)})'>View</button></td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: [ { id: 'stage', label: 'Stage', of: r => atdGrp.plain(r.label) }, { id: 'role', label: 'Responsible role', of: r => atdGrp.plain(r.responsibleRole) }, { id: 'late', label: 'How late', of: r => { const d = r.overdueDays || 0; return d >= 7 ? { key: 'w', label: 'A week or more', rank: 0 } : d >= 1 ? { key: 'd', label: '1 to 6 days', rank: 1 } : { key: 'h', label: 'Under a day', rank: 2 }; } } ], defaultOpen: 'all' }));
 }
 
 // ==================== Licensing Year Archive ====================
@@ -30538,7 +31080,7 @@ async function renderArchiveYears(){
       <td>${muni_escapeHtml(String(y.year))}</td>
       <td>${muni_escapeHtml(y.archivedDate)}</td>
       <td>${(y.applications || []).length}</td>
-      <td><button class="btn btn-sm" onclick='viewArchiveYear(${JSON.stringify(String(y.year))})'>View</button></td>
+      <td><button class="btn btn-sm" onclick='viewArchiveYear(${atdJs(String(y.year))})'>View</button></td>
     </tr>
   `).join('');
 }
@@ -30590,7 +31132,10 @@ async function viewArchiveYear(year){
   if(!record) return;
   document.getElementById('archiveViewTitle').textContent = `${record.year} Licensing Year`;
   document.getElementById('archiveViewSub').textContent = `Archived ${record.archivedDate}${record.archivedBy ? ' by ' + record.archivedBy : ''} — ${(record.applications || []).length} application(s).`;
-  document.getElementById('archiveViewBody').innerHTML = (record.applications || []).map(a => `
+  atdGroupReset('archiveViewBody');
+  atdRenderGrouped('archiveViewBody', record.applications || [], { colspan: 5, emptyHtml: `<tr><td colspan="5" class="table-empty">Nothing was archived for this year.</td></tr>`,
+    groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status),
+    rowHtml: a => `
     <tr>
       <td>${muni_escapeHtml(a.appNumber || '')}</td>
       <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
@@ -30598,7 +31143,7 @@ async function viewArchiveYear(year){
       <td>${muni_escapeHtml(a.submitted || '')}</td>
       <td>${muni_statusBadge(a.status)}</td>
     </tr>
-  `).join('');
+  ` });
   document.getElementById('archiveViewModal').classList.remove('hidden');
 }
 
@@ -31153,7 +31698,7 @@ function muni_venuePermitsSectionHtml(permits, editable){
         <div class="dr-label">${muni_escapeHtml(p.label)}${p.number ? ' — ' + muni_escapeHtml(p.number) : ''}${p.manual ? ' <span class="cell-sub">(added manually)</span>' : ''}</div>
         <div class="dr-value">
           ${muni_permitValidityBadgeHtml(p.expiresDate)}
-          ${editable && p.manual ? ` <button type="button" class="icon-btn" title="Remove" onclick='removeManualVenuePermit(${JSON.stringify(p.id)})'>&times;</button>` : ''}
+          ${editable && p.manual ? ` <button type="button" class="icon-btn" title="Remove" onclick='removeManualVenuePermit(${atdJs(p.id)})'>&times;</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -31260,8 +31805,8 @@ function renderPendingVenues(){
         <td>${muni_escapeHtml(v.sourceAppNumber || '—')}${srcExtra ? `<div class="cell-sub">Multi-day — additional location, ${muni_escapeHtml(muni_extraVenueDayText(srcExtra))} (${srcExtra.days.length} ${srcExtra.days.length === 1 ? 'day' : 'days'})</div>` : (srcUse.days > 1 ? `<div class="cell-sub">Multi-day — main venue, used on ${srcUse.days} days</div>` : '')}</td>
         <td>
           <div class="row-actions">
-            <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${JSON.stringify(v.id)})'>Accept</button>
-            <button class="btn btn-sm btn-danger" onclick='openVenueRejectModal(${JSON.stringify(v.id)})'>Reject</button>
+            <button class="btn btn-sm btn-primary" onclick='openVenueAcceptModal(${atdJs(v.id)})'>Accept</button>
+            <button class="btn btn-sm btn-danger" onclick='openVenueRejectModal(${atdJs(v.id)})'>Reject</button>
           </div>
         </td>
       </tr>
@@ -31279,12 +31824,12 @@ function renderVenues(){
   list.sort((a,b)=> a.name.localeCompare(b.name));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="6" class="table-empty">No venues found.</td></tr>`;
+    atdRenderGrouped('venuesBody', [], { emptyHtml: `<tr><td colspan="6" class="table-empty">No venues found.</td></tr>` });
     return;
   }
 
   const canManage = hasPerm('review');
-  body.innerHTML = list.map(v => {
+  atdRenderGrouped('venuesBody', list, { colspan: 6, rowHtml: v => {
     const location = [v.streetNumber, v.streetName, v.district].filter(Boolean).join(', ') || '—';
     return `
       <tr>
@@ -31297,26 +31842,29 @@ function renderVenues(){
         <td>${venueStatusBadge(v)}</td>
         <td>
           <div class="row-actions">
-            <button class="icon-btn" title="View" onclick='openVenueViewModal(${JSON.stringify(v.id)})'>
+            <button class="icon-btn" title="View" onclick='openVenueViewModal(${atdJs(v.id)})'>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
             ${canManage ? `
-            <button class="icon-btn" title="Edit" onclick='openVenueModal(${JSON.stringify(v.id)})'>
+            <button class="icon-btn" title="Edit" onclick='openVenueModal(${atdJs(v.id)})'>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn" title="${v.flagged ? 'Unflag' : 'Flag'}" onclick='${v.flagged ? `unflagVenue(${JSON.stringify(v.id)})` : `openFlagVenueModal(${JSON.stringify(v.id)})`}'>
+            <button class="icon-btn" title="${v.flagged ? 'Unflag' : 'Flag'}" onclick='${v.flagged ? `unflagVenue(${atdJs(v.id)})` : `openFlagVenueModal(${atdJs(v.id)})`}'>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
             </button>
-            <button class="icon-btn" title="Delete" onclick='deleteVenue(${JSON.stringify(v.id)})'>
+            <button class="icon-btn" title="Delete" onclick='deleteVenue(${atdJs(v.id)})'>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
             </button>` : ''}
           </div>
         </td>
       </tr>
     `;
-  }).join('');
+  }, groupers: [
+    { id: 'status', label: 'Status', of: v => atdGrp.ranked(v.rejected ? 'Rejected' : v.flagged ? 'Flagged' : v.active ? 'Active' : 'Inactive', ['Flagged', 'Rejected', 'Active', 'Inactive']) },
+    { id: 'district', label: 'District', of: v => atdGrp.plain(v.district) },
+    { id: 'letter', label: 'First letter', of: v => { const c = String(v.name || '#').trim().charAt(0).toUpperCase(); const L = /[A-Z]/.test(c) ? c : '#'; return { key: L, label: L, rank: L === '#' ? 99 : L.charCodeAt(0) }; } }
+  ], defaultOpen: 'all', threshold: 40 });
 }
-
 async function deleteVenue(id){
   if(!hasPerm('review')){
     muni_showToast("You don't have permission to manage venues.");
@@ -31943,10 +32491,10 @@ function renderAdItems(){
       <td>${a.requiresLocation ? '<span class="badge badge-green">Required</span>' : '<span style="color:var(--text-muted);">Not required</span>'}</td>
       <td>
         <div class="row-actions">
-          <button class="icon-btn" title="Edit" onclick='openAdModal(${JSON.stringify(a.id)})'>
+          <button class="icon-btn" title="Edit" onclick='openAdModal(${atdJs(a.id)})'>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
-          <button class="icon-btn" title="${canManageCategories ? 'Remove' : tierLockTitle}" ${canManageCategories ? '' : 'disabled'} onclick='deleteAdItem(${JSON.stringify(a.id)})'>
+          <button class="icon-btn" title="${canManageCategories ? 'Remove' : tierLockTitle}" ${canManageCategories ? '' : 'disabled'} onclick='deleteAdItem(${atdJs(a.id)})'>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
@@ -32411,8 +32959,8 @@ function renderPromotions(){
         <td>${redemptionCount}</td>
         <td>${badge}</td>
         <td>
-          <button class="btn btn-sm" onclick="openPromotionModal('${p.id}')">Edit</button>
-          <button class="btn btn-sm" onclick="togglePromotionStatus('${p.id}')">${p.status === 'Active' ? 'Deactivate' : 'Activate'}</button>
+          <button class="btn btn-sm" onclick="openPromotionModal(${atdJs(String(p.id))})">Edit</button>
+          <button class="btn btn-sm" onclick="togglePromotionStatus(${atdJs(String(p.id))})">${p.status === 'Active' ? 'Deactivate' : 'Activate'}</button>
         </td>
       </tr>`;
     }).join('');
@@ -32426,10 +32974,10 @@ function renderPromoRedemptionLog(){
   const myIds = new Set(myPromotions().map(p => p.id));
   const list = [...promoRedemptions.filter(r => myIds.has(r.promotionId))].sort((a,b)=> (b.redeemedDate || '').localeCompare(a.redeemedDate || ''));
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="6" class="table-empty">No promotion redemptions yet.</td></tr>`;
+    atdRenderGrouped('promoRedemptionBody', [], { emptyHtml: `<tr><td colspan="6" class="table-empty">No promotion redemptions yet.</td></tr>` });
     return;
   }
-  body.innerHTML = list.map(r => `
+  atdRenderGrouped('promoRedemptionBody', list, Object.assign({ rowHtml: r => `
     <tr>
       <td>${muni_escapeHtml(r.redeemedDate || '')}</td>
       <td class="cell-primary">${muni_escapeHtml(r.promoterName || '')}</td>
@@ -32437,7 +32985,7 @@ function renderPromoRedemptionLog(){
       <td>${muni_escapeHtml(r.promotionName || '')}<div class="cell-sub">${muni_escapeHtml(r.promotionCode || '')}</div></td>
       <td>${muni_escapeHtml(r.appNumber || '')}</td>
       <td>${muni_formatCurrency(r.discountAmount)}</td>
-    </tr>`).join('');
+    </tr>` }, { colspan: 6, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.redeemedDate) }, { id: 'promo', label: 'Promotion', of: r => atdGrp.plain(r.promotionName) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.discountAmount)) + ' discounted', '') }));
 }
 
 function openPromotionModal(id){
@@ -32806,17 +33354,17 @@ async function renderWatchlist(){
   list.sort((a,b)=> (b.flaggedDate || '').localeCompare(a.flaggedDate || ''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="5" class="table-empty">No one on the watchlist yet.</td></tr>`;
+    atdRenderGrouped('watchlistBody', [], { emptyHtml: `<tr><td colspan="5" class="table-empty">No one on the watchlist yet.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(w => {
+  atdRenderGrouped('watchlistBody', list, { rowHtml: w => {
     const badge = w._jcfActive
       ? '<span class="badge badge-red">Flagged (JCF)</span>'
       : (w.status === 'Active' ? '<span class="badge badge-red">Active</span>' : '<span class="badge badge-gray">Cleared</span>');
     const viewOnclick = w._jcfOnly
-      ? `openJcfOnlyWatchlistViewModal(${JSON.stringify(w.trn)})`
-      : `openWatchlistViewModal(${JSON.stringify(w.trn)})`;
+      ? `openJcfOnlyWatchlistViewModal(${atdJs(w.trn)})`
+      : `openWatchlistViewModal(${atdJs(w.trn)})`;
     return `
     <tr>
       <td class="cell-primary">${muni_escapeHtml(w.fullName)}</td>
@@ -32828,9 +33376,12 @@ async function renderWatchlist(){
       </td>
     </tr>
   `;
-  }).join('');
+  }, colspan: 5, groupers: [
+    { id: 'status', label: 'Status', of: w => atdGrp.ranked(w._jcfActive ? 'Flagged (JCF)' : (w.status === 'Active' ? 'Active' : 'Cleared'), ['Flagged (JCF)', 'Active', 'Cleared']) },
+    { id: 'month', label: 'Month flagged', of: w => atdGrp.month(w.flaggedDate) },
+    { id: 'by', label: 'Flagged by', of: w => atdGrp.plain(w.flaggedBy) }
+  ] });
 }
-
 // Read-only view for a TRN that only appears on the JCF Watch List (no
 // Municipal Corporation record exists for it) — there's nothing for a
 // Municipal officer to clear/reactivate here since it isn't their flag.
@@ -33299,11 +33850,11 @@ function renderPermitsList(){
   issued.sort((a,b)=> (b.permit.issuedDate || '').localeCompare(a.permit.issuedDate || ''));
 
   if(!issued.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No permits have been issued yet.</td></tr>`;
+    atdRenderGrouped('permitsListBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No permits have been issued yet.</td></tr>` });
     return;
   }
 
-  body.innerHTML = issued.map(a => {
+  atdRenderGrouped('permitsListBody', issued, { rowHtml: a => {
     const p = a.permit;
     return `
       <tr>
@@ -33314,12 +33865,15 @@ function renderPermitsList(){
         <td>${muni_escapeHtml(p.issuedDate)}</td>
         <td>${muni_escapeHtml(p.expiresDate)}</td>
         <td>${muni_escapeHtml(a.appNumber)}</td>
-        <td><button class="btn btn-sm" onclick='viewIssuedPermit(${JSON.stringify(a.id)})'>View / Print</button></td>
+        <td><button class="btn btn-sm" onclick='viewIssuedPermit(${atdJs(a.id)})'>View / Print</button></td>
       </tr>
     `;
-  }).join('');
+  }, colspan: 8, groupers: [
+    { id: 'month', label: 'Month issued', of: a => atdGrp.month(a.permit && a.permit.issuedDate) },
+    { id: 'type', label: 'Permit type', of: a => atdGrp.plain(a.permit && a.permit.permitTypeLabel) },
+    { id: 'year', label: 'Year issued', of: a => atdGrp.year(a.permit && a.permit.issuedDate) }
+  ] });
 }
-
 // Fix: the Issued Permits tab's "View / Print" button used to call
 // muni_openAppModal(), which navigates to the full Application Details page
 // — the underlying application, comments, checklist and all — rather than
@@ -33612,7 +34166,7 @@ function muni_statusBadge(status){
     'Withdrawn': 'badge-gray',
     'Expired': 'badge-red'
   };
-  return `<span class="badge ${map[status] || 'badge-gray'}">${status}</span>`;
+  return `<span class="badge ${map[status] || 'badge-gray'}">${atdH(status)}</span>`;
 }
 function muni_formatCurrency(amount){
   return 'J$' + Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33808,10 +34362,10 @@ function muni_renderPaymentsTable(){
   const total = rows.reduce((sum, r) => sum + (r.amount || 0), 0);
   if(summaryEl) summaryEl.textContent = `Total: ${muni_formatCurrency(total)} across ${rows.length} record${rows.length === 1 ? '' : 's'}`;
   if(!rows.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>`;
+    atdRenderGrouped('muni_paymentsBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>` });
     return;
   }
-  body.innerHTML = rows.map(r => `
+  atdRenderGrouped('muni_paymentsBody', rows, Object.assign({ rowHtml: r => `
     <tr>
       <td>${muni_escapeHtml(muni_formatPaymentDate(r.date))}</td>
       <td class="cell-primary">${muni_escapeHtml(r.appNumber)}</td>
@@ -33822,7 +34376,7 @@ function muni_renderPaymentsTable(){
       <td>${muni_escapeHtml(r.receiptNumber || '—')}</td>
       <td>${muni_escapeHtml(r.notes || '—')}</td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.date) }, { id: 'type', label: 'Payment type', of: r => atdGrp.plain(r.type) }, { id: 'licence', label: 'Licence type', of: r => atdGrp.plain(r.licenseType) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.amount)), '') }));
 }
 window.muni_renderPaymentsTable = muni_renderPaymentsTable;
 
@@ -33867,10 +34421,10 @@ function muni_renderRecentApps(){
   }
   body.innerHTML = recent.map(a => `
     <tr>
-      <td class="cell-primary">${a.appNumber}</td>
+      <td class="cell-primary">${atdH(a.appNumber)}</td>
       <td>${muni_escapeHtml(a.applicant)}</td>
-      <td>${a.licenseType}</td>
-      <td>${a.submitted}</td>
+      <td>${atdH(a.licenseType)}</td>
+      <td>${atdH(a.submitted)}</td>
       <td>${muni_statusBadge(a.status)}</td>
     </tr>
   `).join('');
@@ -34352,7 +34906,7 @@ function muni_renderCeoActions(){
     const sevBadge = { Critical: 'badge-red', High: 'badge-amber', Medium: 'badge-gray' }[severity];
     return `
       <tr>
-        <td class="cell-primary"><a href="#" onclick='muni_openAppModal(${JSON.stringify(r.a.appNumber)}); return false;'>${muni_escapeHtml(r.a.appNumber)}</a></td>
+        <td class="cell-primary"><a href="#" onclick='muni_openAppModal(${atdJs(r.a.appNumber)}); return false;'>${muni_escapeHtml(r.a.appNumber)}</a></td>
         <td>${muni_escapeHtml(eventLabel)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${muni_escapeHtml(venueName)}</span></td>
         <td>${muni_escapeHtml(issue)}</td>
         <td><span class="badge ${sevBadge}">${severity}</span></td>
@@ -34433,39 +34987,41 @@ function muni_renderApplications(){
   );
   const rowDot = appNumber => attentionAppNumbers.has(appNumber) ? `<span class="notif-row-dot" title="Needs attention"></span>` : '';
 
+  const muniAppGroupers = (colsExtra) => atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted, muni: a => venueNameOf(a) }).map(g => g.id === 'muni' ? Object.assign(g, { label: 'Venue' }) : g);
+  const muniAppSummary = (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status);
   if(!specialVisible.length){
-    specialBody.innerHTML = `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>`;
+    atdRenderGrouped('muni_applicationsBodySpecial', [], { emptyHtml: `<tr><td colspan="9" class="table-empty">No Special Event applications match your filters.</td></tr>` });
   } else {
-    specialBody.innerHTML = specialVisible.map(a => `
+    atdRenderGrouped('muni_applicationsBodySpecial', specialVisible, { colspan: 9, rowHtml: a => `
       <tr>
-        <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
+        <td class="cell-primary">${rowDot(a.appNumber)}${atdH(a.appNumber)}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
         <td>${muni_escapeHtml(a.businessOrEvent)}</td>
-        <td>${a.date}${a.dayCount > 1 ? `<div class="cell-sub">to ${muni_escapeHtml(a.endDate)} (${a.dayCount} days)</div>` : ''}</td>
-        <td>${a.submitted}</td>
+        <td>${atdH(a.date)}${a.dayCount > 1 ? `<div class="cell-sub">to ${muni_escapeHtml(a.endDate)} (${atdH(a.dayCount)} days)</div>` : ''}</td>
+        <td>${atdH(a.submitted)}</td>
         <td>${muni_statusBadge(a.status)}</td>
-        <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
+        <td><button class="btn btn-sm" onclick='muni_openAppModal(${atdJs(a.id)})'>View</button></td>
       </tr>
-    `).join('');
+    `, groupers: muniAppGroupers(), summary: muniAppSummary });
   }
 
   if(!annualVisible.length){
-    annualBody.innerHTML = `<tr><td colspan="8" class="table-empty">No Annual applications match your filters.</td></tr>`;
+    atdRenderGrouped('muni_applicationsBodyAnnual', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No Annual applications match your filters.</td></tr>` });
   } else {
-    annualBody.innerHTML = annualVisible.map(a => `
+    atdRenderGrouped('muni_applicationsBodyAnnual', annualVisible, { colspan: 8, rowHtml: a => `
       <tr>
-        <td class="cell-primary">${rowDot(a.appNumber)}${a.appNumber}</td>
+        <td class="cell-primary">${rowDot(a.appNumber)}${atdH(a.appNumber)}</td>
         <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
         <td>${muni_escapeHtml(a.businessOrEvent)}</td>
-        <td>${a.submitted}</td>
+        <td>${atdH(a.submitted)}</td>
         <td>${muni_statusBadge(a.status)}</td>
-        <td><button class="btn btn-sm" onclick='muni_openAppModal(${JSON.stringify(a.id)})'>View</button></td>
+        <td><button class="btn btn-sm" onclick='muni_openAppModal(${atdJs(a.id)})'>View</button></td>
       </tr>
-    `).join('');
+    `, groupers: muniAppGroupers(), summary: muniAppSummary });
   }
 }
 
@@ -34501,10 +35057,10 @@ function renderUsers(){
         <td>${u.status === 'Active' ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Suspended</span>'}</td>
         <td>
           <div class="row-actions">
-            <button class="icon-btn" title="Edit" onclick="openUserModal(${u.id})">
+            <button class="icon-btn" title="Edit" onclick="openUserModal(${atdH(u.id)})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn" title="Reset password" onclick="resetUserPassword(${u.id})">
+            <button class="icon-btn" title="Reset password" onclick="resetUserPassword(${atdH(u.id)})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
             </button>
             <button class="icon-btn" title="${u.status === 'Active' ? 'Suspend' : 'Activate'}" onclick="toggleUserStatus(${u.id})">
@@ -34825,7 +35381,7 @@ async function muni_openManualAppModal(){
   const venueSelect = document.getElementById('manualAppVenueSelect');
   const list = myVenues().filter(v => !v.pendingApproval && v.active !== false).sort((a,b)=>a.name.localeCompare(b.name));
   venueSelect.value = '';
-  venueSelect.innerHTML = '<option value="">+ Enter venue manually</option>' + list.map(v => `<option value="${v.id}">${muni_escapeHtml(v.name)}</option>`).join('');
+  venueSelect.innerHTML = '<option value="">+ Enter venue manually</option>' + list.map(v => `<option value="${atdH(v.id)}">${muni_escapeHtml(v.name)}</option>`).join('');
   document.getElementById('manualAppVenueManualFields').classList.remove('hidden');
 
   document.getElementById('muniManualAppModal').classList.remove('hidden');
@@ -35580,7 +36136,7 @@ function renderSubmissionColumn(a){
           <div class="cell-sub">${d.uploaded ? muni_escapeHtml(fileName) : 'Not yet uploaded'}</div>
         </div>
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="badge ${statusClass}">${d.status}</span>
+          <span class="badge ${statusClass}">${atdH(d.status)}</span>
           <button class="btn btn-sm" ${d.uploaded ? '' : 'disabled'} onclick="openFixedDocModal('${key}')">View</button>${uploadCtl}
         </div>
       </div>`;
@@ -35649,7 +36205,7 @@ function renderSubmissionColumn(a){
       const canUploadManually = !d.uploaded && d.status !== 'Not Applicable' && r.entrySource === 'manual' && hasPerm('review');
       const regUploadInputId = `manualRegDocUpload_${docIdx}`;
       const regUploadCtl = canUploadManually ? `
-          <input type="file" id="${regUploadInputId}" class="manual-doc-upload-input" onchange='muni_uploadRegulatoryDoc(${JSON.stringify(name)}, this)'>
+          <input type="file" id="${regUploadInputId}" class="manual-doc-upload-input" onchange='muni_uploadRegulatoryDoc(${atdJs(name)}, this)'>
           <button class="btn btn-sm btn-primary" onclick="document.getElementById('${regUploadInputId}').click()">Upload</button>` : '';
       html += `
         <div class="doc-review-row">
@@ -35658,8 +36214,8 @@ function renderSubmissionColumn(a){
             <div class="cell-sub">${d.uploaded ? `${muni_escapeHtml(d.fileName || 'Uploaded file')} · ${muni_escapeHtml(d.uploadedDate || '')}` : d.status === 'Not Applicable' ? 'Applicant declared: Not Applicable' : 'Not yet uploaded'}</div>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
-            <span class="badge ${statusClass}">${d.status}</span>
-            <button class="btn btn-sm" ${canReview ? '' : 'disabled'} onclick='openDocModal(${JSON.stringify(name)})'>View</button>${regUploadCtl}
+            <span class="badge ${statusClass}">${atdH(d.status)}</span>
+            <button class="btn btn-sm" ${canReview ? '' : 'disabled'} onclick='openDocModal(${atdJs(name)})'>View</button>${regUploadCtl}
           </div>
         </div>`;
     });
@@ -35976,7 +36532,7 @@ async function renderAppDetail(){
       }
       cardsHtml += `</div><div class="action-btn-row">`;
       if(wlEntry){
-        cardsHtml += `<button class="btn btn-sm" onclick='openWatchlistViewModal(${JSON.stringify(wlEntry.trn)})'>View watchlist file</button>`;
+        cardsHtml += `<button class="btn btn-sm" onclick='openWatchlistViewModal(${atdJs(wlEntry.trn)})'>View watchlist file</button>`;
       }
       if(hasPerm('review') && !jcfActive && !wlActive){
         // Photo ID data (for the applicant/company subject only — directors
@@ -35988,7 +36544,7 @@ async function renderAppDetail(){
         // inlining a large base64 image straight into this onclick attribute
         // would be both wasteful and exactly the kind of thing that caused
         // submission failures elsewhere in this app.
-        cardsHtml += `<button class="btn btn-danger btn-sm" onclick='flagWatchlistSubject(${JSON.stringify(a.id)}, ${JSON.stringify(subj.trn)})'>Flag this ${muni_escapeHtml(subj.type.toLowerCase())}</button>`;
+        cardsHtml += `<button class="btn btn-danger btn-sm" onclick='flagWatchlistSubject(${atdJs(a.id)}, ${atdJs(subj.trn)})'>Flag this ${muni_escapeHtml(subj.type.toLowerCase())}</button>`;
       }
       cardsHtml += `</div></div>`;
     }
@@ -36157,7 +36713,7 @@ async function renderAppDetail(){
             <div class="cell-sub">${muni_escapeHtml(req.reason)}</div>
             <div class="cell-sub">Requested by ${muni_escapeHtml(req.requestedBy)} on ${muni_escapeHtml(req.requestedDate)}</div>
           </div>
-          <span class="badge ${mcStatusClass}">${req.status}</span>
+          <span class="badge ${mcStatusClass}">${atdH(req.status)}</span>
         </div>`;
       if(req.status === 'Approved'){
         cardsHtml += `<div class="readback-row">Approved by ${muni_escapeHtml(req.decidedBy)} on ${muni_escapeHtml(req.decidedDate)} — ${muni_formatCurrency(req.amount)} credited to the applicant's Municipal Credit wallet (${muni_escapeHtml(myMunicipalityName())} only).</div>`;
@@ -36210,7 +36766,7 @@ async function renderAppDetail(){
             <div class="cell-sub">${muni_escapeHtml(req.reason)}</div>
             <div class="cell-sub">Requested by ${muni_escapeHtml(req.requestedBy)} on ${muni_escapeHtml(req.requestedDate)}</div>
           </div>
-          <span class="badge ${reqStatusClass}">${req.status}</span>
+          <span class="badge ${reqStatusClass}">${atdH(req.status)}</span>
         </div>`;
       if(req.receiptNumber || req.applicantFileName){
         cardsHtml += `<div class="readback-row">Receipt #: ${muni_escapeHtml(req.receiptNumber || '—')}${req.applicantFileName ? ` · Uploaded by applicant: ${muni_escapeHtml(req.applicantFileName)}` : ''}
@@ -36442,7 +36998,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTarge
       <div class="permit-doc-top">
         <img class="pd-logo" src="${ATENDIFY_LOGO_B64}" alt="Atendify logo">
         ${logoDataUrl
-          ? `<img class="pd-logo pd-logo-agency" src="${logoDataUrl}" alt="${muni_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
+          ? `<img class="pd-logo pd-logo-agency" src="${atdSafeFileUrl(logoDataUrl)}" alt="${muni_escapeHtml(p.municipalityName || 'Municipal Corporation')} logo" style="justify-self:center;">`
           : `<div style="height:100px; width:120px; border:1px solid #999; border-radius:4px; display:flex; align-items:flex-end; justify-content:center; text-align:center; font-size:9px; font-weight:600; color:#666; line-height:1.15; padding:2px; justify-self:center; align-self:end;">LOGO OF MC</div>`}
         <div class="permit-doc-qr">
           <div class="qr-box" id="${qrTargetId}"></div>
@@ -36474,7 +37030,7 @@ function muni_buildAnnualPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTarge
       <div class="permit-doc-annual-dated">Dated this: <strong>${muni_escapeHtml(muni_formatShortDate_permit(p.issuedDate))}</strong> on behalf of the Parish of ${muni_escapeHtml((parishName || '').toUpperCase())}</div>
 
       <div class="permit-doc-signature">
-        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+        ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="CEO signature">` : `<div class="sig-line"></div>`}
       </div>
       <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${muni_escapeHtml(p.municipalityName)}</strong></div>
 
@@ -36534,7 +37090,7 @@ function muni_buildPermitDocHtml(p, signatureDataUrl, logoDataUrl, qrTargetId){
       <div>On behalf of the <strong>${muni_escapeHtml(p.municipalityName)}.</strong></div>
 
       <div class="permit-doc-signature">
-        ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="CEO signature">` : `<div class="sig-line"></div>`}
+        ${signatureDataUrl ? `<img src="${atdSafeFileUrl(signatureDataUrl)}" alt="CEO signature">` : `<div class="sig-line"></div>`}
       </div>
       <div class="permit-doc-cfo"><strong>Chief Executive Officer</strong><br><strong>${muni_escapeHtml(p.municipalityName)}</strong></div>
 
@@ -36595,9 +37151,9 @@ function openDocModal(docName){
   } else if(d.fileData){
     const mime = guessMimeFromDataUrl(d.fileData);
     if(mime.startsWith('image/')){
-      previewBox.innerHTML = `<img src="${d.fileData}" alt="${muni_escapeHtml(docName)}">`;
+      previewBox.innerHTML = `<img src="${atdSafeFileUrl(d.fileData)}" alt="${muni_escapeHtml(docName)}">`;
     } else if(mime === 'application/pdf'){
-      previewBox.innerHTML = `<iframe src="${d.fileData}"></iframe>`;
+      previewBox.innerHTML = `<iframe src="${atdSafeFileUrl(d.fileData)}"></iframe>`;
     } else {
       previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${muni_escapeHtml(d.fileName || '')}</div>`;
     }
@@ -36606,7 +37162,7 @@ function openDocModal(docName){
   }
 
   const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red', 'Not Applicable': 'badge-amber' }[d.status] || 'badge-gray';
-  document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${d.status}</span>` +
+  document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${atdH(d.status)}</span>` +
     (d.status === 'Rejected' && d.officerNote ? `<div class="readback-row">Previous note: ${muni_escapeHtml(d.officerNote)}</div>` : '');
 
   document.getElementById('docNoteInput').value = d.officerNote || '';
@@ -36642,9 +37198,9 @@ function renderApplicantFilePreview(title, fileName, fileData){
   if(fileData){
     const mime = guessMimeFromDataUrl(fileData);
     if(mime.startsWith('image/')){
-      previewBox.innerHTML = `<img src="${fileData}" alt="${muni_escapeHtml(title)}">`;
+      previewBox.innerHTML = `<img src="${atdSafeFileUrl(fileData)}" alt="${muni_escapeHtml(title)}">`;
     } else if(mime === 'application/pdf'){
-      previewBox.innerHTML = `<iframe src="${fileData}"></iframe>`;
+      previewBox.innerHTML = `<iframe src="${atdSafeFileUrl(fileData)}"></iframe>`;
     } else {
       previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${muni_escapeHtml(fileName || '')}</div>`;
     }
@@ -36928,7 +37484,7 @@ async function openFixedDocModal(key){
   document.getElementById('docPreviewBox').innerHTML = `<div class="doc-preview-placeholder">${window.atdLoadingHtml('Loading preview…')}</div>`;
 
   const statusClass = { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[d.status] || 'badge-gray';
-  document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${d.status}</span>` +
+  document.getElementById('docStatusRow').innerHTML = `<span class="badge ${statusClass}">${atdH(d.status)}</span>` +
     (d.status === 'Rejected' && d.officerNote ? `<div class="readback-row">Previous note: ${muni_escapeHtml(d.officerNote)}</div>` : '');
   document.getElementById('docNoteInput').value = d.officerNote || '';
 
@@ -38640,31 +39196,24 @@ function renderNotifBell(){
     badge.classList.add('hidden');
   }
 
-  const items = [];
-  notifBreaches.forEach(n=>{
-    items.push(`
-      <div class="notif-item unread" onclick='notifGoToApp(${JSON.stringify(n.appNumber)})'>
+  const notifRow = n => n.__breach ? `
+      <div class="notif-item unread" onclick='notifGoToApp(${atdJs(n.appNumber)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
           <div class="notif-msg"><span class="badge badge-red" style="margin-right:6px;">SLA</span>${muni_escapeHtml(n.message)}</div>
         </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>Overdue</span></div>
       </div>
-    `);
-  });
-  notifPersisted.forEach(n=>{
-    items.push(`
-      <div class="notif-item ${n.read ? '' : 'unread'}" onclick='notifGoToApp(${JSON.stringify(n.appNumber)}); markNotificationRead(${JSON.stringify(n.id)})'>
+    ` : `
+      <div class="notif-item ${n.read ? '' : 'unread'}" onclick='notifGoToApp(${atdJs(n.appNumber)}); markNotificationRead(${atdJs(n.id)})'>
         <div class="notif-row">
           <span class="notif-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
           <div class="notif-msg">${muni_escapeHtml(n.message)}</div>
         </div>
         <div class="notif-meta"><span>${muni_escapeHtml(n.appNumber || '')}</span><span>${notifTimeAgo(n.createdAt)}</span></div>
       </div>
-    `);
-  });
-
-  body.innerHTML = items.length ? items.join('') : '<div class="notif-empty">No notifications yet.</div>';
+    `;
+  atdRenderGrouped('notifPanelBody', notifBreaches.map(n => Object.assign({}, n, { __breach: true })).concat(notifPersisted), { div: true, noBar: true, threshold: 12, pageSize: 30, groupers: [ { id: 'age', label: 'When', of: n => n.__breach ? { key: 'now', label: 'Overdue now', rank: -1 } : atdGrp.age(n.createdAt) } ], defaultOpen: (g) => g.rank <= 1, emptyHtml: '<div class="notif-empty">No notifications yet.</div>', rowHtml: notifRow });
 }
 
 function toggleNotifPanel(event){
@@ -39132,21 +39681,21 @@ function admin_renderAccountDeletionRequests(){
   const body = document.getElementById('admin_deletionRequestsBody');
   if(!body) return;
   if(!adminAccountDeletionRequests.length){
-    body.innerHTML = '<tr><td colspan="4" class="empty-state">No pending deletion requests.</td></tr>';
+    atdRenderGrouped('admin_deletionRequestsBody', [], { emptyHtml: '<tr><td colspan="4" class="empty-state">No pending deletion requests.</td></tr>' });
     return;
   }
-  body.innerHTML = adminAccountDeletionRequests.map(r => `
+  atdRenderGrouped('admin_deletionRequestsBody', adminAccountDeletionRequests, Object.assign({ rowHtml: r => `
     <tr>
       <td>${admin_escapeHtml(r.name)}</td>
       <td>${admin_escapeHtml(r.email)}</td>
       <td>${admin_escapeHtml(r.requestedDate ? new Date(r.requestedDate).toLocaleString() : 'Unknown')}</td>
       <td>
         <div class="btn-row" style="justify-content:flex-end;">
-          <button class="btn btn-sm" onclick="admin_openDeclineDeletionModal('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Decline</button>
-          <button class="btn btn-sm btn-danger" onclick="admin_approveAccountDeletion('${admin_escapeHtml(r.email).replace(/'/g, "\\'")}')">Approve &amp; delete</button>
+          <button class="btn btn-sm" onclick="admin_openDeclineDeletionModal(${atdJs(r.email)})">Decline</button>
+          <button class="btn btn-sm btn-danger" onclick="admin_approveAccountDeletion(${atdJs(r.email)})">Approve &amp; delete</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>` }, { colspan: 4, groupers: [ { id: 'month', label: 'Month requested', of: r => atdGrp.month(r.requestedDate) } ] }));
 }
 
 // Declining requires a reason (see #admin_declineDeletionModal in the HTML)
@@ -39822,18 +40371,22 @@ async function admin_renderNationalOverview(){
   const pvBody = document.getElementById('admin_ovwPaymentVerificationBody');
   if(pvBody){
     const sortedAwaiting = [...awaitingFeeVerification].sort((a,b) => (a.submitted || '').localeCompare(b.submitted || ''));
-    pvBody.innerHTML = sortedAwaiting.length
-      ? sortedAwaiting.map(a => `
+    const pvRow = a => `
           <tr>
             <td class="cell-primary">${admin_paymentAlertBadge(a)}${admin_escapeHtml(a.appNumber)}</td>
             <td>${admin_escapeHtml(a.applicant)}</td>
             <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
             <td>${admin_formatCurrency(a.applicationFee || 0)}</td>
             <td>${admin_escapeHtml(a.submitted)}</td>
-            <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">Review</button></td>
+            <td><button class="btn btn-sm" onclick="admin_openAppModal(${atdJs(String(a.id))})">Review</button></td>
           </tr>
-        `).join('')
-      : `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`;
+        `;
+    atdRenderGrouped('admin_ovwPaymentVerificationBody', sortedAwaiting, {
+      colspan: 6, rowHtml: pvRow,
+      groupers: [ { id: 'muni', label: 'Municipality', of: a => atdGrp.plain(agencyNameByMuniId(a.muniId)) }, { id: 'month', label: 'Month submitted', of: a => atdGrp.month(a.submitted) } ],
+      summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), 'warn'),
+      emptyHtml: `<tr><td colspan="6" class="table-empty">No applications are awaiting payment verification.</td></tr>`
+    });
   }
 
   // ---- Applications ----
@@ -40018,7 +40571,7 @@ async function admin_renderNationalOverview(){
         <td>${admin_formatCurrency(billed)}</td>
         <td>${admin_formatCurrency(collected)}</td>
         <td>${admin_formatCurrency(pending)}</td>
-        <td>${pendingApps.length ? `<button class="btn btn-sm" onclick="admin_settleMuniRemittance(${JSON.stringify(m.muniNumber)})">Mark remitted</button>` : '—'}</td>
+        <td>${pendingApps.length ? `<button class="btn btn-sm" onclick="admin_settleMuniRemittance(${atdJs(m.muniNumber)})">Mark remitted</button>` : '—'}</td>
       </tr>`;
     }).join('') || `<tr><td colspan="6" class="table-empty">No municipalities yet.</td></tr>`;
   }
@@ -40029,7 +40582,7 @@ async function admin_renderNationalOverview(){
     const activeStaff = muniUsers.filter(u => u.status === 'Active').length;
     const pendingIntegrations = await admin_countPendingIntegrations();
     const activeLockouts = window.atdCountActiveLockouts ? await window.atdCountActiveLockouts() : 0;
-    const auditLogs = window.atdLoadAuditLogs ? await window.atdLoadAuditLogs() : [];
+    const auditLogs = window.atdLoadAuditLogs ? await window.atdLoadAuditLogs({ sinceMs: Date.now() - 24*60*60*1000 }) : [];
     const since24h = new Date(Date.now() - 24*60*60*1000).toISOString();
     const recentFailedLogins = auditLogs.filter(e => e.action === 'login.failed' && e.ts >= since24h).length;
     const securityAlerts = activeLockouts + recentFailedLogins;
@@ -40104,7 +40657,7 @@ function admin_statusBadge(status){
     'Withdrawn': 'badge-gray',
     'Expired': 'badge-red'
   };
-  return `<span class="badge ${map[status] || 'badge-gray'}">${status}</span>`;
+  return `<span class="badge ${map[status] || 'badge-gray'}">${atdH(status)}</span>`;
 }
 
 function admin_renderRecentApps(){
@@ -40116,11 +40669,11 @@ function admin_renderRecentApps(){
   }
   body.innerHTML = recent.map(a => `
     <tr>
-      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${atdH(a.appNumber)}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
-      <td>${a.licenseType}</td>
+      <td>${atdH(a.licenseType)}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
-      <td>${a.submitted}</td>
+      <td>${atdH(a.submitted)}</td>
       <td>${admin_statusBadge(a.status)}</td>
     </tr>
   `).join('');
@@ -40171,22 +40724,22 @@ function admin_renderApplications(){
   list.sort((a,b)=> (b.submitted||'').localeCompare(a.submitted||''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="8" class="table-empty">No applications match your filters.</td></tr>`;
+    atdRenderGrouped('admin_applicationsBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No applications match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(a => `
+  atdRenderGrouped('admin_applicationsBody', list, Object.assign({ rowHtml: a => `
     <tr>
-      <td class="cell-primary">${admin_paymentAlertBadge(a)}${a.appNumber}</td>
+      <td class="cell-primary">${admin_paymentAlertBadge(a)}${atdH(a.appNumber)}</td>
       <td>${admin_escapeHtml(a.applicant)}</td>
-      <td>${a.licenseType}</td>
+      <td>${atdH(a.licenseType)}</td>
       <td>${admin_escapeHtml(agencyNameByMuniId(a.muniId))}</td>
-      <td>${admin_escapeHtml(a.businessOrEvent)}<div class="cell-sub">${a.date}${a.dayCount > 1 ? ' to ' + admin_escapeHtml(a.endDate) + ' (' + a.dayCount + ' days)' : ''}</div></td>
-      <td>${a.submitted}</td>
+      <td>${admin_escapeHtml(a.businessOrEvent)}<div class="cell-sub">${atdH(a.date)}${a.dayCount > 1 ? ' to ' + admin_escapeHtml(a.endDate) + ' (' + atdH(a.dayCount) + ' days)' : ''}</div></td>
+      <td>${atdH(a.submitted)}</td>
       <td>${admin_statusBadge(a.status)}</td>
-      <td><button class="btn btn-sm" onclick="admin_openAppModal('${a.id}')">View</button></td>
+      <td><button class="btn btn-sm" onclick="admin_openAppModal(${atdJs(String(a.id))})">View</button></td>
     </tr>
-  `).join('');
+  ` }, { colspan: 8, groupers: atdGrp.appGroupers({ status: a => a.status, date: a => a.submitted, muni: a => agencyNameByMuniId(a.muniId), type: a => a.licenseType === 'Annual' ? 'Annual licence' : 'Special Event licence' }), summary: (items, g, by) => by === 'status' ? '' : atdGrp.statusChips(items, a => a.status) }));
 }
 
 // ---------------- Agency accounts (grouped into per-type cards) ----------------
@@ -40229,16 +40782,16 @@ function agencyRowHtml(m){
       <td>${m.status === 'Active' ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Suspended</span>'}</td>
       <td>
         <div class="row-actions">
-          <button class="icon-btn" title="Edit" onclick="openAgencyModal(${m.id})">
+          <button class="icon-btn" title="Edit" onclick="openAgencyModal(${atdH(m.id)})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
-          <button class="icon-btn" title="Reset password" onclick="resetAgencyPassword(${m.id})">
+          <button class="icon-btn" title="Reset password" onclick="resetAgencyPassword(${atdH(m.id)})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
           </button>
           <button class="icon-btn" title="${m.status === 'Active' ? 'Suspend' : 'Activate'}" onclick="toggleAgencyStatus(${m.id})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </button>
-          <button class="icon-btn" title="Delete" onclick="deleteAgency(${m.id})">
+          <button class="icon-btn" title="Delete" onclick="deleteAgency(${atdH(m.id)})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
@@ -40329,7 +40882,7 @@ function generateAgencyPassword(){
 
 function populateAgencyRoleSelect(selectedRoleId){
   const select = document.getElementById('agencyRole');
-  select.innerHTML = roles.map(r => `<option value="${r.id}">${admin_escapeHtml(r.name)}</option>`).join('');
+  select.innerHTML = roles.map(r => `<option value="${atdH(r.id)}">${admin_escapeHtml(r.name)}</option>`).join('');
   select.value = selectedRoleId || (roles[0] ? roles[0].id : '');
 }
 
@@ -40357,7 +40910,7 @@ function populateLinkedMuniSelect(selectedId){
     corporations.map(a => {
       const tier = a.subscriptionTier || 'Premium';
       const ineligible = !allowedTiers.includes(tier);
-      return `<option value="${a.id}">${admin_escapeHtml(a.name)}${a.muniNumber ? ' (#' + a.muniNumber + ')' : ''}${ineligible ? ' — ' + admin_escapeHtml(tier) + ' tier, not eligible' : ''}</option>`;
+      return `<option value="${atdH(a.id)}">${admin_escapeHtml(a.name)}${a.muniNumber ? ' (#' + a.muniNumber + ')' : ''}${ineligible ? ' — ' + admin_escapeHtml(tier) + ' tier, not eligible' : ''}</option>`;
     }).join('');
   select.value = selectedId || '';
 
@@ -40643,9 +41196,12 @@ async function resetAgencyPassword(id){
 async function toggleAgencyStatus(id){
   const m = agencies.find(m => m.id === id);
   m.status = m.status === 'Active' ? 'Suspended' : 'Active';
+  if(m.status === 'Suspended'){ m.suspendedBy = adminActorEmail; m.suspendedDate = admin_todayIso(); }
+  else { m.reinstatedBy = adminActorEmail; m.reinstatedDate = admin_todayIso(); m.suspendedReason = ''; }
   await window.atdSaveAgency(m);
   await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'agency.statusChange', details: `${m.name} is now ${m.status.toLowerCase()}.`, muniId: m.muniNumber });
-  admin_showToast(`${m.name} is now ${m.status.toLowerCase()}.`);
+  const mail = await window.atdSendFinanceEmail(m.status === 'Suspended' ? 'agency_suspended' : 'agency_reinstated', { agencyId: m.id });
+  admin_showToast(`${m.name} is now ${m.status.toLowerCase()}.${fin_emailNote(mail, m.status === 'Suspended' ? 'suspension notice' : 'reinstatement notice')}`);
   admin_renderAll();
 }
 
@@ -40679,10 +41235,10 @@ function renderRoles(){
         <td>${count}</td>
         <td>
           <div class="row-actions">
-            <button class="icon-btn" title="Edit" onclick="openRoleModal(${r.id})">
+            <button class="icon-btn" title="Edit" onclick="openRoleModal(${atdH(r.id)})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="icon-btn" title="Delete" onclick="deleteRole(${r.id})">
+            <button class="icon-btn" title="Delete" onclick="deleteRole(${atdH(r.id)})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
             </button>
           </div>
@@ -40981,9 +41537,9 @@ async function admin_openApplicationFeeReceiptModal(){
   if(fileData){
     const mime = admin_guessMimeFromDataUrl(fileData);
     if(mime.startsWith('image/')){
-      previewBox.innerHTML = `<img src="${fileData}" alt="${admin_escapeHtml(title)}">`;
+      previewBox.innerHTML = `<img src="${atdSafeFileUrl(fileData)}" alt="${admin_escapeHtml(title)}">`;
     } else if(mime === 'application/pdf'){
-      previewBox.innerHTML = `<iframe src="${fileData}"></iframe>`;
+      previewBox.innerHTML = `<iframe src="${atdSafeFileUrl(fileData)}"></iframe>`;
     } else {
       previewBox.innerHTML = `<div class="doc-preview-placeholder">Preview not available for this file type. Filename: ${admin_escapeHtml(fileName)}</div>`;
     }
@@ -41359,11 +41915,11 @@ function renderVenueRegistry(){
   list.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="12" class="table-empty">No venues match your filters.</td></tr>`;
+    atdRenderGrouped('admin_venueRegistryBody', [], { emptyHtml: `<tr><td colspan="12" class="table-empty">No venues match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(v => {
+  atdRenderGrouped('admin_venueRegistryBody', list, Object.assign({ rowHtml: v => {
     const eventCount = admin_venuePreviousEvents(v).length;
     const violationCount = admin_allVenueViolations(v).length;
     return `
@@ -41379,10 +41935,10 @@ function renderVenueRegistry(){
         <td>${admin_escapeHtml(v.healthStatus || '—')}</td>
         <td>${eventCount}</td>
         <td>${violationCount}</td>
-        <td><button class="btn btn-sm" onclick="admin_openVenueRegistryModal('${v.id}')">View</button></td>
+        <td><button class="btn btn-sm" onclick="admin_openVenueRegistryModal(${atdJs(String(v.id))})">View</button></td>
       </tr>
     `;
-  }).join('');
+  } }, { colspan: 12, groupers: [ { id: 'muni', label: 'Municipality', of: v => atdGrp.plain(agencyNameByMuniId(v.muniId)) }, { id: 'license', label: 'Licence status', of: v => atdGrp.plain(v.licenseStatus) }, { id: 'risk', label: 'Risk class', of: v => atdGrp.plain(v.riskClassification) } ], summary: items => { const f = atdGrp.count(items, v => v.flagged); return f ? atdGrp.chip(f + ' flagged', 'bad') : ''; } }));
 }
 
 function admin_openVenueRegistryModal(id){
@@ -41420,16 +41976,17 @@ function admin_openVenueRegistryModal(id){
     : `No applications on file yet for this venue under ${agencyNameByMuniId(v.muniId)}.`;
 
   const eventsBody = document.getElementById('venueRegistryEventsBody');
-  eventsBody.innerHTML = events.length
-    ? [...events].sort((a,b) => (b.submitted||'').localeCompare(a.submitted||'')).map(a => `
+  atdGroupReset('venueRegistryEventsBody');
+  atdRenderGrouped('venueRegistryEventsBody', [...events].sort((a,b) => (b.submitted||'').localeCompare(a.submitted||'')), { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No previous events on file.</td></tr>`,
+    groupers: [ { id: 'year', label: 'Year', of: a => atdGrp.year(a.submitted) }, { id: 'status', label: 'Status', of: a => atdGrp.ranked(a.status, atdGrp.APP_STATUS_ORDER) } ],
+    rowHtml: a => `
         <tr>
           <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
           <td>${admin_escapeHtml(a.businessOrEvent || '—')}</td>
           <td>${admin_escapeHtml(a.date || a.submitted || '—')}</td>
           <td>${admin_statusBadge(a.status)}</td>
         </tr>
-      `).join('')
-    : `<tr><td colspan="4" class="table-empty">No previous events on file.</td></tr>`;
+      ` });
 
   admin_renderVenueViolations(v);
 
@@ -41465,16 +42022,17 @@ function admin_allVenueViolations(v){
 function admin_renderVenueViolations(v){
   const body = document.getElementById('venueRegistryViolationsBody');
   const violations = admin_allVenueViolations(v);
-  body.innerHTML = violations.length
-    ? violations.map(vi => `
+  atdGroupReset('venueRegistryViolationsBody');
+  atdRenderGrouped('venueRegistryViolationsBody', violations, { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No violations on file.</td></tr>`,
+    groupers: [ { id: 'year', label: 'Year', of: vi => atdGrp.year(vi.date) }, { id: 'sev', label: 'Severity', of: vi => atdGrp.ranked(vi.severity || 'Minor', ['Severe', 'Moderate', 'Minor']) }, { id: 'src', label: 'Source', of: vi => atdGrp.plain(vi.source) } ],
+    rowHtml: vi => `
         <tr>
           <td>${admin_escapeHtml(vi.date || '—')}</td>
           <td><span class="badge ${vi.severity === 'Severe' ? 'badge-red' : (vi.severity === 'Moderate' ? 'badge-amber' : 'badge-gray')}">${admin_escapeHtml(vi.severity || 'Minor')}</span></td>
           <td>${admin_escapeHtml(vi.description || '')}</td>
           <td><span class="badge ${vi.source === 'Municipal Corporation' ? 'badge-blue' : 'badge-gray'}">${admin_escapeHtml(vi.source)}</span></td>
         </tr>
-      `).join('')
-    : `<tr><td colspan="4" class="table-empty">No violations on file.</td></tr>`;
+      ` });
 }
 
 // Writes the full venue record (municipal fields untouched + these
@@ -41583,11 +42141,11 @@ function renderAdminUsers(){
   list.sort((a,b) => agencyNameByMuniId(a.muniId).localeCompare(agencyNameByMuniId(b.muniId)) || a.name.localeCompare(b.name));
 
   if(!list.length){
-    body.innerHTML = `<tr><td colspan="7" class="table-empty">No staff accounts match your filters.</td></tr>`;
+    atdRenderGrouped('admin_usersBody', [], { emptyHtml: `<tr><td colspan="7" class="table-empty">No staff accounts match your filters.</td></tr>` });
     return;
   }
 
-  body.innerHTML = list.map(u => `
+  atdRenderGrouped('admin_usersBody', list, Object.assign({ rowHtml: u => `
     <tr>
       <td class="cell-primary">${admin_escapeHtml(u.name)}</td>
       <td>${admin_escapeHtml(u.email)}<div class="cell-sub">${admin_escapeHtml(u.phone || '')}</div></td>
@@ -41597,19 +42155,19 @@ function renderAdminUsers(){
       <td>${admin_escapeHtml(u.created || '')}</td>
       <td>
         <div class="row-actions">
-          <button class="icon-btn" title="Reset password" onclick="adminResetUserPassword(${u.id})">
+          <button class="icon-btn" title="Reset password" onclick="adminResetUserPassword(${atdH(u.id)})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
           </button>
           <button class="icon-btn" title="${u.status === 'Active' ? 'Suspend' : 'Activate'}" onclick="adminToggleUserStatus(${u.id})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 11-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           </button>
-          <button class="icon-btn" title="Delete" onclick="adminDeleteUser(${u.id})">
+          <button class="icon-btn" title="Delete" onclick="adminDeleteUser(${atdH(u.id)})">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
           </button>
         </div>
       </td>
     </tr>
-  `).join('');
+  ` }, { colspan: 7, groupers: [ { id: 'muni', label: 'Municipality', of: u => atdGrp.plain(agencyNameByMuniId(u.muniId)) }, { id: 'role', label: 'Role', of: u => atdGrp.plain(u.role) }, { id: 'status', label: 'Status', of: u => atdGrp.ranked(u.status, ['Active', 'Suspended']) } ], summary: items => { const s = atdGrp.count(items, u => u.status !== 'Active'); return s ? atdGrp.chip(s + ' suspended', 'warn') : ''; } }));
 }
 
 async function adminResetUserPassword(id){
@@ -41666,6 +42224,37 @@ function admin_downloadCsv(filename, headers, rows){
 }
 
 // ---------------- Audit Logs ----------------
+// Entries newer than the chosen number of days are listed in full; older ones
+// are folded into one summary per month (counts by portal and action, failed
+// logins, busiest accounts), opened on demand. Nothing is deleted or hidden:
+// every entry is still one click away, and the filters apply to both parts.
+let audKeepDays = 30;
+try{ const v = parseInt(localStorage.getItem('atdAuditKeepDays'), 10); if([7,14,30,60,90].indexOf(v) >= 0) audKeepDays = v; }catch(e){}
+let audRecentShown = 300;
+const audOpenMonths = new Set();
+const audMonthShown = {};
+let audAll = [];
+const AUD_PORTAL = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
+const AUD_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function aud_setKeepDays(v){
+  audKeepDays = parseInt(v, 10) || 30;
+  try{ localStorage.setItem('atdAuditKeepDays', String(audKeepDays)); }catch(e){}
+  audRecentShown = 300;
+  aud_render();
+}
+window.aud_setKeepDays = aud_setKeepDays;
+
+function aud_rowHtml(e){
+  return `<tr>
+      <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
+      <td><span class="badge badge-gray">${admin_escapeHtml(AUD_PORTAL[e.portal] || e.portal || 'unknown')}</span></td>
+      <td>${admin_escapeHtml(e.actor)}${e.actorRole ? `<div class="cell-sub">${admin_escapeHtml(e.actorRole)}</div>` : ''}${e._dbEmail ? `<div class="cell-sub" title="Stamped by the database from the signed-in account; it cannot be set by the browser.">Verified account: ${admin_escapeHtml(e._dbEmail)}</div>` : ''}</td>
+      <td>${admin_escapeHtml(e.action)}</td>
+      <td>${admin_escapeHtml(e.details)}</td>
+    </tr>`;
+}
+
 async function renderAuditLogs(){
   const body = document.getElementById('admin_auditLogBody');
   if(!body) return;
@@ -41676,42 +42265,122 @@ async function renderAuditLogs(){
   // runs here rather than on every sign-in. Not awaited, so it never delays
   // the table below from rendering with whatever's already loaded.
   if(window.atdPruneReadAuditLog) window.atdPruneReadAuditLog();
-  const logs = await window.atdLoadAuditLogs();
+  audAll = await window.atdLoadAuditLogs();
+  const keepEl = document.getElementById('admin_auditKeep');
+  if(keepEl) keepEl.value = String(audKeepDays);
+  aud_render();
+}
+
+function aud_render(){
+  const body = document.getElementById('admin_auditLogBody');
+  if(!body) return;
+  const logs = audAll;
 
   const actionFilterEl = document.getElementById('admin_auditActionFilter');
   const currentAction = actionFilterEl.value;
   const actionTypes = [...new Set(logs.map(e => e.action))].sort();
   actionFilterEl.innerHTML = '<option value="">All action types</option>' +
-    actionTypes.map(a => `<option value="${a}">${admin_escapeHtml(a)}</option>`).join('');
+    actionTypes.map(a => `<option value="${admin_escapeHtml(a)}">${admin_escapeHtml(a)}</option>`).join('');
   actionFilterEl.value = currentAction;
 
   const search = document.getElementById('admin_auditSearch').value.trim().toLowerCase();
   const portalFilter = document.getElementById('admin_auditPortalFilter').value;
   const actionFilterVal = actionFilterEl.value;
 
-  let list = logs.filter(e => {
-    const matchesSearch = !search || (e.actor || '').toLowerCase().includes(search) || (e.details || '').toLowerCase().includes(search);
+  const filtered = logs.filter(e => {
+    const matchesSearch = !search || (e.actor || '').toLowerCase().includes(search) || (e._dbEmail || '').toLowerCase().includes(search) || (e.details || '').toLowerCase().includes(search);
     const matchesPortal = !portalFilter || e.portal === portalFilter;
     const matchesAction = !actionFilterVal || e.action === actionFilterVal;
     return matchesSearch && matchesPortal && matchesAction;
-  }).slice(0, 200);
+  });
 
-  if(!list.length){
-    body.innerHTML = `<tr><td colspan="5" class="table-empty">No matching audit events yet.</td></tr>`;
+  // Split at midnight, N days ago, so "30 days" always means whole days.
+  const cut = new Date(); cut.setHours(0, 0, 0, 0); cut.setDate(cut.getDate() - audKeepDays);
+  const cutIso = cut.toISOString();
+  const recent = filtered.filter(e => (e.ts || '') >= cutIso);
+  const older = filtered.filter(e => (e.ts || '') < cutIso);
+
+  // ----- recent, in full -----
+  const shown = recent.slice(0, audRecentShown);
+  body.innerHTML = shown.length ? shown.map(aud_rowHtml).join('') : `<tr><td colspan="5" class="table-empty">No matching audit events in the last ${audKeepDays} days.</td></tr>`;
+  const moreEl = document.getElementById('admin_auditRecentMore');
+  if(moreEl) moreEl.innerHTML = recent.length > shown.length ? `<button class="btn btn-sm" onclick="aud_showMoreRecent()">Show ${Math.min(300, recent.length - shown.length)} more (${recent.length - shown.length} not shown)</button>` : '';
+
+  // ----- earlier, one summary per month -----
+  const groups = {};
+  older.forEach(e => {
+    const k = String(e.ts || '').slice(0, 7) || 'unknown';
+    (groups[k] = groups[k] || []).push(e);
+  });
+  const keys = Object.keys(groups).sort().reverse();
+  const num = n => Number(n).toLocaleString('en-US');
+  const countsEl = document.getElementById('admin_auditCounts');
+  if(countsEl) countsEl.textContent = `${num(recent.length)} recent · ${num(older.length)} earlier in ${keys.length} month${keys.length === 1 ? '' : 's'} · ${num(logs.length)} in total`;
+  const host = document.getElementById('admin_auditArchive');
+  const panel = document.getElementById('admin_auditArchivePanel');
+  if(panel) panel.style.display = (logs.length && !older.length && !(logs.some(e => (e.ts || '') < cutIso))) ? 'none' : '';
+  if(!host) return;
+  if(!keys.length){
+    host.innerHTML = `<div class="fin-empty-note">${logs.some(e => (e.ts || '') < cutIso) ? 'No earlier entries match the filters.' : 'Nothing is older than ' + audKeepDays + ' days yet. Entries will be folded into monthly summaries here as they age.'}</div>`;
     return;
   }
-
-  const portalLabel = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
-  body.innerHTML = list.map(e => `
-    <tr>
-      <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
-      <td><span class="badge badge-gray">${admin_escapeHtml(portalLabel[e.portal] || e.portal || 'unknown')}</span></td>
-      <td>${admin_escapeHtml(e.actor)}${e.actorRole ? `<div class="cell-sub">${admin_escapeHtml(e.actorRole)}</div>` : ''}</td>
-      <td>${admin_escapeHtml(e.action)}</td>
-      <td>${admin_escapeHtml(e.details)}</td>
-    </tr>
-  `).join('');
+  host.innerHTML = keys.map(k => aud_monthHtml(k, groups[k])).join('');
 }
+window.renderAuditLogs = renderAuditLogs;
+
+function aud_showMoreRecent(){ audRecentShown += 300; aud_render(); }
+window.aud_showMoreRecent = aud_showMoreRecent;
+
+function aud_monthHtml(key, list){
+  const num = n => Number(n).toLocaleString('en-US');
+  const [y, m] = key.split('-');
+  const title = AUD_MONTHS[(parseInt(m, 10) || 1) - 1] ? `${AUD_MONTHS[parseInt(m, 10) - 1]} ${y}` : key;
+  const open = audOpenMonths.has(key);
+  const byPortal = {};
+  list.forEach(e => { const p = AUD_PORTAL[e.portal] || e.portal || 'unknown'; byPortal[p] = (byPortal[p] || 0) + 1; });
+  const failed = list.filter(e => e.action === 'login.failed').length;
+  const logins = list.filter(e => e.action === 'login.success').length;
+  const chips = Object.keys(byPortal).sort((a, b) => byPortal[b] - byPortal[a]).map(p => `<span class="aud-chip">${admin_escapeHtml(p)} <b>${num(byPortal[p])}</b></span>`).join('')
+    + (failed ? `<span class="aud-chip aud-chip-bad">${num(failed)} failed login${failed === 1 ? '' : 's'}</span>` : '');
+  const id = 'aud_m_' + key;
+  return `<div class="aud-month${open ? ' open' : ''}" id="${id}">
+    <button type="button" class="aud-month-head" aria-expanded="${open}" aria-controls="${id}_body" onclick="aud_toggleMonth('${key}')">
+      <span class="aud-caret" aria-hidden="true">&#9656;</span>
+      <span class="aud-month-title">${admin_escapeHtml(title)}</span>
+      <span class="aud-month-count">${num(list.length)} event${list.length === 1 ? '' : 's'}</span>
+      <span class="aud-month-chips">${chips}</span>
+    </button>
+    <div class="aud-month-body" id="${id}_body"${open ? '' : ' hidden'}>${open ? aud_monthBodyHtml(key, list, { num, logins, failed }) : ''}</div>
+  </div>`;
+}
+
+function aud_monthBodyHtml(key, list, ctx){
+  const num = ctx.num;
+  // Top actions and busiest accounts, as small bars.
+  const byAction = {}, byActor = {};
+  list.forEach(e => { byAction[e.action] = (byAction[e.action] || 0) + 1; const a = e._dbEmail || e.actor || 'unknown'; byActor[a] = (byActor[a] || 0) + 1; });
+  const topA = Object.keys(byAction).sort((a, b) => byAction[b] - byAction[a]).slice(0, 6);
+  const topU = Object.keys(byActor).sort((a, b) => byActor[b] - byActor[a]).slice(0, 5);
+  const maxA = Math.max(1, ...topA.map(k => byAction[k])), maxU = Math.max(1, ...topU.map(k => byActor[k]));
+  const bars = (keys, map, max) => keys.map(k => `<div class="fin-hrow aud-hrow"><div class="fin-hlabel" title="${admin_escapeHtml(k)}">${admin_escapeHtml(k)}</div><div class="fin-htrack"><span class="fin-seg" style="width:${(map[k] / max * 100).toFixed(1)}%; background:var(--dvz-1);"></span></div><div class="fin-hvalue">${num(map[k])}</div></div>`).join('');
+  const shownN = audMonthShown[key] || 100;
+  const rows = list.slice(0, shownN);
+  return `<div class="aud-summary">
+      <div><div class="aud-sub">Most common actions</div>${bars(topA, byAction, maxA)}</div>
+      <div><div class="aud-sub">Busiest accounts</div>${bars(topU, byActor, maxU)}</div>
+      <div class="aud-facts"><div><b>${num(ctx.logins)}</b> successful sign-in${ctx.logins === 1 ? '' : 's'}</div><div><b>${num(ctx.failed)}</b> failed sign-in${ctx.failed === 1 ? '' : 's'}</div><div><b>${num(Object.keys(byActor).length)}</b> different account${Object.keys(byActor).length === 1 ? '' : 's'}</div></div>
+    </div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Time</th><th>Portal</th><th>Actor</th><th>Action</th><th>Details</th></tr></thead><tbody>${rows.map(aud_rowHtml).join('')}</tbody></table></div>
+    ${list.length > rows.length ? `<div style="margin-top:10px;"><button class="btn btn-sm" onclick="aud_monthMore('${key}')">Show ${Math.min(100, list.length - rows.length)} more (${num(list.length - rows.length)} not shown)</button></div>` : ''}`;
+}
+
+function aud_toggleMonth(key){
+  if(audOpenMonths.has(key)) audOpenMonths.delete(key); else audOpenMonths.add(key);
+  aud_render();
+}
+function aud_monthMore(key){ audMonthShown[key] = (audMonthShown[key] || 100) + 100; aud_render(); }
+window.aud_toggleMonth = aud_toggleMonth;
+window.aud_monthMore = aud_monthMore;
 
 async function admin_exportAuditCsv(){
   const logs = await window.atdLoadAuditLogs();
@@ -41915,17 +42584,26 @@ async function saveSecurityPolicy(){
 async function renderLoginActivity(){
   const body = document.getElementById('admin_loginActivityBody');
   if(!body) return;
-  const logs = await window.atdLoadAuditLogs();
-  const logins = logs.filter(e => e.action === 'login.success' || e.action === 'login.failed').slice(0, 50);
+  const logs = await window.atdLoadAuditLogs({ sinceMs: Date.now() - 90*24*60*60*1000 });
+  const logins = logs.filter(e => e.action === 'login.success' || e.action === 'login.failed');
   const portalLabel = { admin: 'Admin', muni: 'Municipal Officer', jcf: 'JCF Officer' };
-  body.innerHTML = logins.map(e => `
+  atdRenderGrouped('admin_loginActivityBody', logins, { colspan: 4, emptyHtml: `<tr><td colspan="4" class="table-empty">No login activity yet.</td></tr>`,
+    groupers: [
+      { id: 'month', label: 'Month', of: e => atdGrp.month(e.ts) },
+      { id: 'day', label: 'Day', of: e => { const d = String(e.ts || '').slice(0, 10); const t = Date.parse(d); return /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(t) ? { key: d, label: new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }), rank: -t } : { key: 'none', label: 'No date', rank: 1e15 }; } },
+      { id: 'outcome', label: 'Outcome', of: e => atdGrp.ranked(e.action === 'login.failed' ? 'Failed' : 'Success', ['Failed', 'Success']) },
+      { id: 'portal', label: 'Portal', of: e => atdGrp.plain(portalLabel[e.portal] || e.portal || 'unknown') },
+      { id: 'who', label: 'Account', of: e => atdGrp.plain(e.actor) }
+    ],
+    summary: items => { const f = atdGrp.count(items, e => e.action === 'login.failed'); return f ? atdGrp.chip(f + ' failed', 'bad') : ''; },
+    rowHtml: e => `
     <tr>
       <td>${admin_escapeHtml((e.ts || '').replace('T', ' ').slice(0, 19))}</td>
       <td><span class="badge badge-gray">${admin_escapeHtml(portalLabel[e.portal] || e.portal || 'unknown')}</span></td>
       <td>${admin_escapeHtml(e.actor)}</td>
       <td>${e.action === 'login.success' ? '<span class="badge badge-green">Success</span>' : '<span class="badge badge-red">Failed</span>'}</td>
     </tr>
-  `).join('') || `<tr><td colspan="4" class="table-empty">No login activity yet.</td></tr>`;
+  ` });
 }
 
 function renderSecurityPage(){
@@ -41973,7 +42651,7 @@ function renderBilling(){
     // run yet.
     const tierOptions = window.MUNI_SUBSCRIPTION_TIERS || ['Essential', 'Standard', 'Premium'];
     const tierCell = m.type === 'Municipal Corporation'
-      ? `<select onchange="adminSetAgencyTier(${m.id}, this.value)">
+      ? `<select onchange="adminSetAgencyTier(${atdH(m.id)}, this.value)">
           ${tierOptions.map(t => `<option value="${t}" ${(m.subscriptionTier || 'Premium') === t ? 'selected' : ''}>${t}</option>`).join('')}
         </select>`
       : '<span style="color:var(--text-muted);">Not tiered</span>';
@@ -41986,7 +42664,7 @@ function renderBilling(){
         <td>${admin_escapeHtml(lastBilled)}</td>
         <td>${admin_escapeHtml(nextDue)}</td>
         <td>${overdue ? '<span class="badge badge-red">Overdue</span>' : '<span class="badge badge-green">Current</span>'}</td>
-        <td><button class="btn btn-sm" onclick="adminMarkAgencyPaid(${m.id})">Mark as paid</button></td>
+        <td><button class="btn btn-sm" onclick="adminMarkAgencyPaid(${atdH(m.id)})">Mark as paid</button></td>
       </tr>
     `;
   }).join('');
@@ -42086,7 +42764,12 @@ async function adminMarkAgencyPaid(id){
   // today. (The Atendify Accountant's console asks for the date received and
   // an optional reference first -- see fin_openPaidModal.)
   const ok = await fin_markSubscriptionPaid(id, {});
-  if(ok) renderBilling();
+  if(ok){
+    const m = agencies.find(x => x.id === id);
+    const mail = m ? await fin_emailSubscriptionReceipt(m, false) : null;
+    if(mail) admin_showToast(`${m.name} marked as paid.${fin_emailNote(mail, 'receipt')}`);
+    renderBilling();
+  }
 }
 
 // ==================== Atendify Accountant: finance console ====================
@@ -42114,6 +42797,9 @@ async function adminMarkAgencyPaid(id){
 // fixed allow-list of payment/suspension fields (see backend/accountant_role.sql).
 let finPeriod = 'all';
 let finPayFilter = 'pending';
+// The ticked walk-in applications (by application number), kept as data so
+// they survive the list being collapsed, paged or redrawn.
+const finWalkSel = new Set();
 let finFinanceUsers = [];
 
 function fin_ymd(d){
@@ -42855,8 +43541,7 @@ function fin_renderPayments(){
   const pendingCount = applications.filter(a => !fin_isWalkin(a) && a.applicationFeePaid && !a.applicationFeeVerified).length;
   const badge = document.getElementById('fin_pendingCount');
   if(badge) badge.textContent = pendingCount ? String(pendingCount) : '';
-  const shown = list.slice(0, 200);
-  body.innerHTML = shown.map(a => {
+  const payRow = a => {
     const pay = (a.raw && a.raw.applicationFeePayment) || {};
     const channel = fin_isWalkin(a) ? 'Walk-in (collected by MC)' : (pay.method ? admin_escapeHtml(pay.method) + (pay.referenceNumber ? ' · ' + admin_escapeHtml(pay.referenceNumber) : '') : '—');
     const key = JSON.stringify(a.appNumber).replace(/"/g, '&quot;');
@@ -42878,9 +43563,22 @@ function fin_renderPayments(){
       <td>${fin_payStatus(a)}</td>
       <td style="white-space:nowrap;">${actions}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8" class="table-empty">${finPayFilter === 'pending' ? 'No fee payments are waiting for verification.' : 'Nothing matches this filter.'}</td></tr>`;
+  };
+  const payStatusLabel = a => a.applicationFeeVerified ? (a.applicationFeeRemitted ? 'Received from municipality' : 'Verified') : fin_isWalkin(a) ? 'Walk-in, not yet received' : a.applicationFeePaid ? 'Awaiting verification' : 'Not yet paid';
+  const payGroupers = [
+    { id: 'muni', label: 'Municipality', of: a => atdGrp.plain(fin_muniName(a.muniId)) },
+    { id: 'month', label: 'Month', of: a => atdGrp.month(a.applicationFeeVerified ? (a.applicationFeeVerifiedDate || a.submitted) : a.submitted) },
+    { id: 'status', label: 'Payment status', of: a => atdGrp.ranked(payStatusLabel(a), ['Awaiting verification', 'Walk-in, not yet received', 'Not yet paid', 'Verified', 'Received from municipality']) },
+    { id: 'type', label: 'Permit type', of: a => atdGrp.plain(a.licenseType) }
+  ];
+  if(finPayFilter === 'verified') payGroupers.unshift(payGroupers.splice(1, 1)[0]);
+  atdRenderGrouped('fin_paymentsBody', list, {
+    colspan: 8, rowHtml: payRow, groupers: payGroupers,
+    summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), ''),
+    emptyHtml: `<tr><td colspan="8" class="table-empty">${finPayFilter === 'pending' ? 'No fee payments are waiting for verification.' : 'Nothing matches this filter.'}</td></tr>`
+  });
   const more = document.getElementById('fin_payMore');
-  if(more) more.textContent = list.length > shown.length ? `Showing the first ${shown.length} of ${list.length}. Narrow the filter to see the rest.` : '';
+  if(more) more.textContent = '';
 }
 window.fin_renderPayments = fin_renderPayments;
 
@@ -42890,6 +43588,16 @@ async function fin_viewReceipt(appNumber){
 }
 window.fin_viewReceipt = fin_viewReceipt;
 
+// A short sentence to add to a toast saying what happened to the email.
+function fin_emailNote(res, what){
+  const list = Array.isArray(res) ? res : [res];
+  const bad = list.find(r => r && !r.ok);
+  if(bad) return /no email/i.test(bad.error || '') ? ` No email address is on file, so no ${what} was sent.` : ` The ${what} email could not be sent.`;
+  if(list.some(r => r && r.suppressed)) return ` (Test site: the ${what} email was not actually sent.)`;
+  if(list.every(r => !r || r.duplicate)) return '';
+  return ` A ${what} was emailed.`;
+}
+
 async function fin_verifyFee(appNumber){
   const a = applications.find(x => x.id === appNumber);
   if(!a) return;
@@ -42898,7 +43606,9 @@ async function fin_verifyFee(appNumber){
   const ok = await fin_patchApplication(a, { applicationFeeVerified: true, applicationFeeVerifiedBy: adminActorEmail, applicationFeeVerifiedDate: admin_todayIso() });
   if(!ok) return;
   await fin_audit('application.applicationFeeVerified', `${a.appNumber}: Atendify application fee verified.`, a.muniId);
-  admin_showToast(`Application fee verified for ${a.appNumber}.`);
+  // Online payers get a receipt; walk-in fees were paid to the municipality, not to Atendify.
+  const mail = fin_isWalkin(a) ? null : await window.atdSendFinanceEmail('application_fee_receipt', { appNumber: a.appNumber });
+  admin_showToast(`Application fee verified for ${a.appNumber}.${mail ? fin_emailNote(mail, 'receipt') : ''}`);
   fin_renderAll();
 }
 window.fin_verifyFee = fin_verifyFee;
@@ -42941,8 +43651,8 @@ function fin_renderSubs(){
     let susp = '';
     if(isMc){
       susp = m.status === 'Suspended'
-        ? `<button class="btn btn-sm" onclick="fin_openSuspendModal(${m.id})">Reinstate</button>`
-        : `<button class="btn btn-sm btn-danger" onclick="fin_openSuspendModal(${m.id})">Suspend</button>`;
+        ? `<button class="btn btn-sm" onclick="fin_openSuspendModal(${atdH(m.id)})">Reinstate</button>`
+        : `<button class="btn btn-sm btn-danger" onclick="fin_openSuspendModal(${atdH(m.id)})">Suspend</button>`;
     }
     const reason = (m.status === 'Suspended' && m.suspendedReason) ? `<div class="cell-sub">${admin_escapeHtml(m.suspendedReason)}</div>` : '';
     return `<tr>
@@ -42955,7 +43665,7 @@ function fin_renderSubs(){
       <td>${admin_escapeHtml(st.nextDue || '—')}</td>
       <td>${badge}</td>
       <td>${acct}</td>
-      <td style="white-space:nowrap;"><button class="btn btn-sm btn-primary" onclick="fin_openPaidModal(${m.id})">Mark as paid</button> ${susp}</td>
+      <td style="white-space:nowrap;"><button class="btn btn-sm btn-primary" onclick="fin_openPaidModal(${atdH(m.id)})">Mark as paid</button> ${susp}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="10" class="table-empty">No agency accounts yet.</td></tr>`;
 }
@@ -42975,7 +43685,7 @@ function fin_openPaidModal(id){
     ${(m.type === 'Municipal Corporation' && m.status === 'Suspended') ? `<label style="display:flex; gap:8px; align-items:center; font-size:13.5px; margin-bottom:14px;"><input type="checkbox" id="fin_paidReinstate" checked> This municipality is suspended &mdash; reinstate it now that it has paid</label>` : ''}
     <div class="modal-actions">
       <button class="btn" onclick="fin_closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="fin_confirmPaid(${m.id})">Mark as paid</button>
+      <button class="btn btn-primary" onclick="fin_confirmPaid(${atdH(m.id)})">Mark as paid</button>
     </div>`);
 }
 window.fin_openPaidModal = fin_openPaidModal;
@@ -42987,16 +43697,27 @@ async function fin_confirmPaid(id){
   const reinstate = !!(document.getElementById('fin_paidReinstate') || {}).checked;
   const ok = await fin_markSubscriptionPaid(id, { paidDate, reference });
   if(!ok) return;
-  if(reinstate){
-    const m = agencies.find(x => x.id === id);
-    if(m && await fin_patchAgency(m, { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() })){
-      await fin_audit('agency.statusChange', `${m.name} reinstated after payment.`, m.muniNumber);
-      admin_showToast(`${m.name} marked as paid and reinstated.`);
-    }
+  let reinstated = false;
+  const m = agencies.find(x => x.id === id);
+  if(reinstate && m && await fin_patchAgency(m, { status: 'Active', suspendedReason: '', reinstatedBy: adminActorEmail, reinstatedDate: admin_todayIso() })){
+    await fin_audit('agency.statusChange', `${m.name} reinstated after payment.`, m.muniNumber);
+    reinstated = true;
   }
-  fin_closeModal(); fin_renderAll();
+  fin_closeModal();
+  if(m){
+    const mail = await fin_emailSubscriptionReceipt(m, reinstated);
+    admin_showToast(`${m.name} marked as paid${reinstated ? ' and reinstated' : ''}.${mail ? fin_emailNote(mail, 'receipt') : ''}`);
+  }
+  fin_renderAll();
 }
 window.fin_confirmPaid = fin_confirmPaid;
+
+// Emails the paid-invoice receipt for the invoice that was just recorded.
+async function fin_emailSubscriptionReceipt(m, reinstated){
+  const inv = (m.subscriptionInvoices || []).slice(-1)[0];
+  if(!inv || inv.status !== 'Paid') return null;
+  return window.atdSendFinanceEmail('subscription_receipt', { agencyId: m.id, invoiceNumber: inv.invoiceNumber, reinstated: !!reinstated });
+}
 
 // Shared by this console and the Super Admin's own Subscription & Licensing
 // "Mark as paid" button (adminMarkAgencyPaid). Records a Paid invoice against
@@ -43042,7 +43763,7 @@ function fin_openSuspendModal(id, prefillReason){
       <p class="modal-sub">Its officers will be able to sign in again and applicants will be able to choose this municipality once more.${m.suspendedReason ? ' Suspended for: ' + admin_escapeHtml(m.suspendedReason) : ''}</p>
       <div class="modal-actions">
         <button class="btn" onclick="fin_closeModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="fin_confirmSuspend(${m.id}, false)">Reinstate</button>
+        <button class="btn btn-primary" onclick="fin_confirmSuspend(${atdH(m.id)}, false)">Reinstate</button>
       </div>`);
     return;
   }
@@ -43055,11 +43776,11 @@ function fin_openSuspendModal(id, prefillReason){
   const def = prefillReason || (bits.length ? bits.join('. ') + '.' : '');
   fin_openModal(`
     <h3>Suspend ${admin_escapeHtml(m.name)}?</h3>
-    <p class="modal-sub">While suspended, this municipality's officers cannot sign in, a saved session will not reopen after a refresh, and applicants cannot choose it for new applications. Applications already submitted are kept untouched. You can reinstate it at any time.</p>
-    <div class="field-group"><label for="fin_suspendReason">Reason (shown in the audit log)</label><textarea id="fin_suspendReason" rows="3" maxlength="300" placeholder="e.g. Subscription unpaid since 2026-09-01">${admin_escapeHtml(def)}</textarea></div>
+    <p class="modal-sub">A notice with the reason below will be emailed to the municipality. While suspended, this municipality's officers cannot sign in, a saved session will not reopen after a refresh, and applicants cannot choose it for new applications. Applications already submitted are kept untouched. You can reinstate it at any time.</p>
+    <div class="field-group"><label for="fin_suspendReason">Reason (shown in the audit log and in the notice emailed to the municipality)</label><textarea id="fin_suspendReason" rows="3" maxlength="300" placeholder="e.g. Subscription unpaid since 2026-09-01">${admin_escapeHtml(def)}</textarea></div>
     <div class="modal-actions">
       <button class="btn" onclick="fin_closeModal()">Cancel</button>
-      <button class="btn btn-danger" onclick="fin_confirmSuspend(${m.id}, true)">Suspend municipality</button>
+      <button class="btn btn-danger" onclick="fin_confirmSuspend(${atdH(m.id)}, true)">Suspend municipality</button>
     </div>`);
 }
 window.fin_openSuspendModal = fin_openSuspendModal;
@@ -43078,8 +43799,9 @@ async function fin_confirmSuspend(id, suspend){
   const ok = await fin_patchAgency(m, patch);
   if(!ok) return;
   await fin_audit('agency.statusChange', suspend ? `${m.name} suspended: ${patch.suspendedReason}` : `${m.name} reinstated.`, m.muniNumber);
-  admin_showToast(`${m.name} is now ${suspend ? 'suspended' : 'active'}.`);
   fin_closeModal();
+  const mail = await window.atdSendFinanceEmail(suspend ? 'agency_suspended' : 'agency_reinstated', { agencyId: m.id });
+  admin_showToast(`${m.name} is now ${suspend ? 'suspended' : 'active'}.${fin_emailNote(mail, suspend ? 'suspension notice' : 'reinstatement notice')}`);
   fin_renderAll();
 }
 window.fin_confirmSuspend = fin_confirmSuspend;
@@ -43118,20 +43840,12 @@ function fin_renderWalkins(){
         <div class="panel-tools">
           <button class="btn btn-sm" onclick="fin_selectAllWalkins(${mid})">Select all</button>
           <button class="btn btn-sm btn-primary" onclick="fin_openReceiveModal(${mid})">Mark selected as received</button>
-          <button class="btn btn-sm ${susp ? '' : 'btn-danger'}" onclick="fin_openSuspendModal(${g.m.id}, ${JSON.stringify('Walk-in application fees owed to Atendify: ' + admin_formatCurrency(total) + '.').replace(/"/g, '&quot;')})">${susp ? 'Reinstate' : 'Suspend'}</button>
+          <button class="btn btn-sm ${susp ? '' : 'btn-danger'}" onclick="fin_openSuspendModal(${atdH(g.m.id)}, ${JSON.stringify('Walk-in application fees owed to Atendify: ' + admin_formatCurrency(total) + '.').replace(/"/g, '&quot;')})">${susp ? 'Reinstate' : 'Suspend'}</button>
         </div>
       </div>
       <div style="overflow-x:auto;"><table>
         <thead><tr><th style="width:34px;"></th><th>Application #</th><th>Applicant</th><th>Permit</th><th>Entered</th><th>Atendify fee</th><th>Stage</th></tr></thead>
-        <tbody>${g.apps.map(a => `<tr>
-          <td><input type="checkbox" class="fin-walkin-cb" data-muni="${admin_escapeHtml(String(g.m.muniNumber))}" value="${admin_escapeHtml(String(a.appNumber))}" aria-label="Select ${admin_escapeHtml(String(a.appNumber))}"></td>
-          <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
-          <td>${admin_escapeHtml(a.applicant)}</td>
-          <td>${admin_escapeHtml(a.licenseType || '—')}</td>
-          <td>${admin_escapeHtml(a.submitted || '—')}</td>
-          <td>${admin_formatCurrency(a.applicationFee)}</td>
-          <td>${a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Collected at counter · awaiting remittance</span>' : '<span class="badge">Payment not yet verified by MC</span>'}</td>
-        </tr>`).join('')}</tbody>
+        <tbody id="fin_wk_${admin_escapeHtml(String(g.m.muniNumber))}"></tbody>
       </table></div>
     </div>`;
   }).join('');
@@ -43151,22 +43865,50 @@ function fin_renderWalkins(){
         <td><button class="btn btn-sm" onclick="fin_unverifyFee(${JSON.stringify(a.appNumber).replace(/"/g, '&quot;')})">Undo</button></td>
       </tr>`).join('') || `<tr><td colspan="7" class="table-empty">Nothing has been marked as received yet.</td></tr>`}</tbody>
     </table></div></div>`;
-  // Keep any ticked boxes across a background refresh.
-  const ticked = new Set(Array.from(host.querySelectorAll('.fin-walkin-cb:checked')).map(cb => cb.value));
   host.innerHTML = html;
-  host.querySelectorAll('.fin-walkin-cb').forEach(cb => { if(ticked.has(cb.value)) cb.checked = true; });
+  // Each municipality's list is drawn in collapsible categories; the ticked
+  // applications are remembered in finWalkSel (not read back from the page),
+  // so ticks survive collapsing, paging and background refreshes.
+  const walkRow = a => `<tr>
+          <td><input type="checkbox" class="fin-walkin-cb" data-muni="${admin_escapeHtml(String(a.muniId))}" value="${admin_escapeHtml(String(a.appNumber))}"${finWalkSel.has(String(a.appNumber)) ? ' checked' : ''} aria-label="Select ${admin_escapeHtml(String(a.appNumber))}"></td>
+          <td class="cell-primary">${admin_escapeHtml(a.appNumber)}</td>
+          <td>${admin_escapeHtml(a.applicant)}</td>
+          <td>${admin_escapeHtml(a.licenseType || '—')}</td>
+          <td>${admin_escapeHtml(a.submitted || '—')}</td>
+          <td>${admin_formatCurrency(a.applicationFee)}</td>
+          <td>${a.applicationFeeCollectedByMuni ? '<span class="badge badge-amber">Collected at counter · awaiting remittance</span>' : '<span class="badge">Payment not yet verified by MC</span>'}</td>
+        </tr>`;
+  groups.forEach(g => {
+    atdRenderGrouped('fin_wk_' + String(g.m.muniNumber), g.apps, {
+      colspan: 7, rowHtml: walkRow, pageSize: 50, defaultOpen: 'all',
+      groupers: [
+        { id: 'stage', label: 'Stage', of: a => atdGrp.ranked(a.applicationFeeCollectedByMuni ? 'Collected at counter, awaiting remittance' : 'Payment not yet verified by the municipality', ['Collected at counter, awaiting remittance']) },
+        { id: 'month', label: 'Month entered', of: a => atdGrp.month(a.submitted) }
+      ],
+      summary: items => atdGrp.chip(admin_formatCurrency(atdGrp.sum(items, a => a.applicationFee)), '')
+    });
+  });
 }
 
+document.addEventListener('change', e => {
+  const cb = e.target;
+  if(cb && cb.classList && cb.classList.contains('fin-walkin-cb')){
+    if(cb.checked) finWalkSel.add(String(cb.value)); else finWalkSel.delete(String(cb.value));
+  }
+});
+
 function fin_selectAllWalkins(muniId){
-  const boxes = Array.from(document.querySelectorAll('.fin-walkin-cb')).filter(cb => cb.dataset.muni === String(muniId));
-  const allOn = boxes.length && boxes.every(cb => cb.checked);
-  boxes.forEach(cb => { cb.checked = !allOn; });
+  // Every application this municipality still owes, whether or not its row is currently drawn.
+  const owing = applications.filter(a => fin_isWalkin(a) && String(a.muniId) === String(muniId) && fin_owed(a) > 0).map(a => String(a.appNumber));
+  const allOn = owing.length && owing.every(n => finWalkSel.has(n));
+  owing.forEach(n => { if(allOn) finWalkSel.delete(n); else finWalkSel.add(n); });
+  fin_renderWalkins();
 }
 window.fin_selectAllWalkins = fin_selectAllWalkins;
 
 let finReceiveSelection = [];
 function fin_openReceiveModal(muniId){
-  const nums = Array.from(document.querySelectorAll('.fin-walkin-cb:checked')).filter(cb => cb.dataset.muni === String(muniId)).map(cb => cb.value);
+  const nums = applications.filter(a => String(a.muniId) === String(muniId) && finWalkSel.has(String(a.appNumber))).map(a => String(a.appNumber));
   if(!nums.length){ admin_showToast('Tick the applications whose fees you have received first.'); return; }
   const apps = nums.map(n => applications.find(a => String(a.appNumber) === n)).filter(a => a && fin_owed(a) > 0);
   if(!apps.length) return;
@@ -43203,7 +43945,11 @@ async function fin_confirmReceive(){
   if(done.length){
     const total = done.reduce((s, a) => s + (a.applicationFee || 0), 0);
     await fin_audit('remittance.settled', `${fin_muniName(done[0].muniId)}: received ${admin_formatCurrency(total)} across ${done.length} walk-in application(s) (${done.map(a => a.appNumber).join(', ')})${ref ? ', ref ' + ref : ''}.`, done[0].muniId);
-    admin_showToast(`Marked ${admin_formatCurrency(total)} across ${done.length} application${done.length === 1 ? '' : 's'} as received.`);
+    const byMuni = {};
+    done.forEach(a => { (byMuni[a.muniId] = byMuni[a.muniId] || []).push(a.appNumber); });
+    const mails = [];
+    for(const mid of Object.keys(byMuni)) mails.push(await window.atdSendFinanceEmail('remittance_receipt', { muniNumber: mid, appNumbers: byMuni[mid] }));
+    admin_showToast(`Marked ${admin_formatCurrency(total)} across ${done.length} application${done.length === 1 ? '' : 's'} as received.${fin_emailNote(mails, 'receipt')}`);
   }
   if(done.length < apps.length) admin_showToast('Some applications could not be updated — please try again.');
   fin_renderAll();
@@ -43259,6 +44005,7 @@ function fin_renderUsers(){
       <td>${active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-red">Suspended</span>'}</td>
       <td>${admin_escapeHtml(u.created || '')}</td>
       <td style="white-space:nowrap;">
+        ${active ? `<button class="btn btn-sm" onclick="fin_resendInvite(${em})">Resend invite</button>` : ''}
         <button class="btn btn-sm" onclick="fin_setUserState(${em}, '${active ? 'disable' : 'enable'}')">${active ? 'Suspend' : 'Reactivate'}</button>
         <button class="btn btn-sm btn-danger" onclick="fin_setUserState(${em}, 'remove')">Remove</button>
       </td>
@@ -43296,9 +44043,22 @@ async function fin_saveUser(){
   await fin_audit('financeUser.create', `Assigned ${name} (${email}) as Atendify Accountant.`);
   fin_closeUserModal();
   fin_renderUsers();
-  admin_showToast(`${name} can now open the Admin login, choose "Create your password" with ${email}, and sign in to the Finance console.`);
+  const mail = await window.atdSendFinanceEmail('accountant_invite', { email });
+  const how = `${name} can open the Admin login, choose "Create your password" with ${email}, and sign in to the Finance console.`;
+  if(mail.suppressed) admin_showToast(`${name} assigned. ${how} (Test site: the invitation email was not actually sent.)`);
+  else if(mail.ok) admin_showToast(`${name} has been emailed an invitation to ${email}.`);
+  else admin_showToast(`${name} assigned, but the invitation email could not be sent. ${how}`);
 }
 window.fin_saveUser = fin_saveUser;
+
+async function fin_resendInvite(email){
+  if(adminRole !== 'admin') return;
+  const u = finFinanceUsers.find(x => x.email === email);
+  if(!u) return;
+  const mail = await window.atdSendFinanceEmail('accountant_invite', { email });
+  admin_showToast(mail.suppressed ? `(Test site: the invitation email to ${email} was not actually sent.)` : mail.ok ? (mail.duplicate ? `An invitation was already sent to ${email} within the last hour.` : `Invitation emailed to ${email}.`) : `The invitation email could not be sent to ${email}.`);
+}
+window.fin_resendInvite = fin_resendInvite;
 
 async function fin_setUserState(email, action){
   if(adminRole !== 'admin') return;
@@ -44960,7 +45720,7 @@ async function photoIdFileChosen(input){
 function renderPhotoIdPreview(){
   const wrap = document.getElementById('jcf_photoIdPreviewWrap');
   if(photoIdFileData){
-    wrap.innerHTML = `<img src="${photoIdFileData}" alt="Photo ID" style="max-width:100%; border-radius:6px;"><div class="fu-label">${jcf_escapeHtml(photoIdFileName)}</div>`;
+    wrap.innerHTML = `<img src="${atdSafeFileUrl(photoIdFileData)}" alt="Photo ID" style="max-width:100%; border-radius:6px;"><div class="fu-label">${jcf_escapeHtml(photoIdFileName)}</div>`;
     document.getElementById('photoIdPreviewLeftImg').src = photoIdFileData;
     document.getElementById('photoIdPreviewLeftWrap').classList.remove('hidden');
   } else {
