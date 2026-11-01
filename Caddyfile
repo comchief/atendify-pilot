@@ -23,10 +23,9 @@
 	# /admin) falls back to index.html, which decides what to show client-side.
 	try_files {path} /index.html
 
-	# Security headers (audit finding 7). Report-only for now: to enforce, change
-	# Content-Security-Policy-Report-Only to Content-Security-Policy.
+	# Security headers (audit finding 7). Enforcing.
 	header {
-		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://jrzpvuxarzmekoteviah.supabase.co wss://jrzpvuxarzmekoteviah.supabase.co; frame-src data: blob: https://www.youtube.com https://player.vimeo.com; media-src 'self' data: blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://jrzpvuxarzmekoteviah.supabase.co wss://jrzpvuxarzmekoteviah.supabase.co; frame-src data: blob: https://www.youtube.com https://player.vimeo.com; media-src 'self' data: blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
