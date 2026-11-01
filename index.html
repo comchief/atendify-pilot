@@ -5899,6 +5899,14 @@
       if (res.error) { window.atdShowDebugError('municipalCreditLog()', res.error); return { ok: false, error: 'Could not load the credit log. Please try again.' }; }
       return res.data || { ok: false, error: 'No answer from the service.' };
     },
+    // Finance-only view of every application, for the Atendify Accountant
+    // (security_accountant_lockdown.sql): [{ key, value }].
+    acctApplications: async function () {
+      if (!client) return [];
+      var res = await atdWithClockSkewRetry(function () { return client.rpc('atd_acct_applications'); });
+      if (res.error) { window.atdShowDebugError('acctApplications()', res.error); return []; }
+      return res.data || [];
+    },
     // Every Municipal Credit request for the signed-in officer's municipality
     // (the database only returns their own).
     municipalCreditRequests: async function () {
@@ -30536,6 +30544,18 @@ function muni_logout(){
 function hasPerm(key){
   return !!(currentUser && currentUser.permissions && currentUser.permissions[key]);
 }
+// A "payment-only" officer (e.g. the municipal Accountant) can verify and
+// record payments but holds none of the review / approve permissions. That
+// role sees the payment-relevant parts of an application only: no personal
+// details, uploaded documents, tracking code or PDF export.
+function muni_paymentOnly(){
+  return hasPerm('payment') && !hasPerm('review') && !hasPerm('approve') && !hasPerm('approveCapped');
+}
+// Tracking code for display; withheld from payment-only officers.
+function muni_tc(a, fallback){
+  if(muni_paymentOnly()) return '—';
+  return (a && a.trackingCode) || (a && a.raw && a.raw.trackingCode) || (fallback === undefined ? '' : fallback);
+}
 
 function myMunicipalityName(){
   return muniNameById(currentUser.muniId);
@@ -31133,7 +31153,7 @@ async function renderSlaBreaches(){
   atdRenderGrouped('slaBreachesBody', breached, Object.assign({ rowHtml: r =>`
     <tr>
       <td>${muni_escapeHtml(r.a.appNumber)}</td>
-      <td>${r.a.trackingCode ? muni_escapeHtml(r.a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${muni_tc(r.a) ? muni_escapeHtml(muni_tc(r.a)) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${muni_escapeHtml(r.a.applicant)}</td>
       <td>${muni_escapeHtml(r.label)}</td>
       <td>${muni_escapeHtml(r.responsibleRole)}</td>
@@ -31234,7 +31254,7 @@ async function viewArchiveYear(year){
     rowHtml: a => `
     <tr>
       <td>${muni_escapeHtml(a.appNumber || '')}</td>
-      <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${muni_tc(a) ? muni_escapeHtml(muni_tc(a)) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${muni_escapeHtml(a.applicant || '')}</td>
       <td>${muni_escapeHtml(a.submitted || '')}</td>
       <td>${muni_statusBadge(a.status)}</td>
@@ -35235,7 +35255,7 @@ function muni_renderApplications(){
   document.getElementById('catCountRejected').textContent = all.filter(a => appCategoryOf(a.status) === 'Rejected').length;
 
   let list = all.filter(a=>{
-    const matchesSearch = !search || a.applicant.toLowerCase().includes(search) || a.appNumber.toLowerCase().includes(search) || (a.trackingCode || '').toLowerCase().includes(search);
+    const matchesSearch = !search || a.applicant.toLowerCase().includes(search) || a.appNumber.toLowerCase().includes(search) || (muni_paymentOnly() ? '' : (a.trackingCode || '')).toLowerCase().includes(search);
     const matchesStatus = !statusFilter || a.status === statusFilter;
     const matchesCategory = !currentAppCategory || appCategoryOf(a.status) === currentAppCategory;
     return matchesSearch && matchesStatus && matchesCategory;
@@ -35269,7 +35289,7 @@ function muni_renderApplications(){
     atdRenderGrouped('muni_applicationsBodySpecial', specialVisible, { colspan: 9, rowHtml: a => `
       <tr>
         <td class="cell-primary">${rowDot(a.appNumber)}${atdH(a.appNumber)}</td>
-        <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+        <td>${muni_tc(a) ? muni_escapeHtml(muni_tc(a)) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
         <td>${muni_escapeHtml(a.businessOrEvent)}</td>
@@ -35287,7 +35307,7 @@ function muni_renderApplications(){
     atdRenderGrouped('muni_applicationsBodyAnnual', annualVisible, { colspan: 8, rowHtml: a => `
       <tr>
         <td class="cell-primary">${rowDot(a.appNumber)}${atdH(a.appNumber)}</td>
-        <td>${a.trackingCode ? muni_escapeHtml(a.trackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+        <td>${muni_tc(a) ? muni_escapeHtml(muni_tc(a)) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${muni_escapeHtml(a.applicant)}</td>
         <td>${muni_escapeHtml(venueNameOf(a))}</td>
         <td>${muni_escapeHtml(a.businessOrEvent)}</td>
@@ -36273,7 +36293,7 @@ function renderSubmissionColumn(a){
   const isCompany = r.applicant && r.applicant.type === 'Company';
 
   // Applicant Information
-  let html = `<div class="panel"><div class="detail-section-title">Applicant Information</div>`;
+  let html = '<!--PD-->' + `<div class="panel"><div class="detail-section-title">Applicant Information</div>`;
   html += detailRow('Account type', r.applicant.type);
   html += detailRow(isCompany ? 'Company name' : 'Full name', r.applicant.name);
   html += detailRow('Phone number', r.applicant.phone);
@@ -36294,7 +36314,7 @@ function renderSubmissionColumn(a){
       html += detailRow('Company Directors', 'None on file');
     }
   }
-  html += `</div>`;
+  html += `</div><!--/PD-->`;
 
   // Amusement Information
   const isAnnual = r.amusement && r.amusement.licenseType === 'Annual';
@@ -36327,6 +36347,7 @@ function renderSubmissionColumn(a){
   // -- see poa_applyAnnualCapacityFields).
   const showGroundsCapMuni = !isAnnual || r.venue.useOfVenue === 'Grounds Only' || r.venue.useOfVenue === 'Grounds and Building';
   const showBuildingCapMuni = isAnnual && (r.venue.useOfVenue === 'Building Only' || r.venue.useOfVenue === 'Grounds and Building');
+  html += '<!--PD-->';
   html += `<div class="panel"><div class="detail-section-title">Venue Information</div>`;
   html += detailRow(isAnnual ? 'Business name' : 'Venue name', r.venue.name);
   html += detailRow('Address', [r.venue.addr1, r.venue.addr2, r.venue.district].filter(Boolean).join(', '));
@@ -36391,10 +36412,12 @@ function renderSubmissionColumn(a){
     }
     html += `</div>`;
   }
+  html += '<!--/PD-->';
 
   // Uploaded Documents
   const docList = r.regulatoryDocList || [];
   const docs = r.regulatoryDocuments || {};
+  html += '<!--PD-->';
   html += `<div class="panel"><div class="detail-section-title">Uploaded Documents</div>`;
   html += `<div class="doc-review-list">`;
 
@@ -36512,6 +36535,7 @@ function renderSubmissionColumn(a){
   }
   html += `</div>`; // close .doc-review-list
   html += `</div>`; // close .panel
+  html += '<!--/PD-->';
 
   // Application Costs
   // Application Fee is paid directly to Atendify by the applicant, separate
@@ -36592,6 +36616,18 @@ function renderSubmissionColumn(a){
   html += detailRow('Total (incl. Atendify fee)', muni_formatCurrency(r.costs.total));
   html += `</div>`;
 
+  if(muni_paymentOnly()){
+    // Payment-only officers: drop personal / document sections, show a
+    // minimal applicant panel (enough to match the payment to the person).
+    html = html.replace(/<!--PD-->[\s\S]*?<!--\/PD-->/g, '');
+    const lim = `<div class="panel"><div class="detail-section-title">Applicant</div>`
+      + detailRow('Account type', r.applicant.type)
+      + detailRow(isCompany ? 'Company name' : 'Full name', r.applicant.name)
+      + `<p class="no-permission-note" style="margin:10px 0 0;">Personal details, uploaded documents and the tracking code are not shown for your role. They are available to officers who review and approve applications.</p></div>`;
+    html = lim + html;
+  } else {
+    html = html.replace(/<!--\/?PD-->/g, '');
+  }
   col.innerHTML = html;
 }
 
@@ -36709,7 +36745,7 @@ async function renderAppDetail(){
 
   const isManualEntry = !!(a.raw && a.raw.entrySource === 'manual');
   document.getElementById('detailAppNumber').innerHTML = muni_escapeHtml(a.appNumber) + (isManualEntry ? ' <span class="badge-manual-entry" title="Created by a Supervisor on behalf of a walk-in customer">Manual Entry</span>' : '');
-  document.getElementById('detailAppSub').textContent = `${a.applicant} · Submitted ${a.submitted} · Tracking Code: ${a.trackingCode || '—'}`;
+  document.getElementById('detailAppSub').textContent = `${a.applicant} · Submitted ${a.submitted}${muni_paymentOnly() ? '' : ' · Tracking Code: ' + (a.trackingCode || '—')}`;
   document.getElementById('detailStatusBadge').innerHTML = muni_statusBadge(a.status);
   muni_refreshExportButton(a);
   // Keep the reference number visible in the sticky topbar too, so it
@@ -36718,7 +36754,7 @@ async function renderAppDetail(){
   // too, since that's the number the applicant actually has in hand when
   // they call or email in about their case.
   const muniTopbarTitleEl = document.getElementById('muni_topbarTitle');
-  if(muniTopbarTitleEl) muniTopbarTitleEl.textContent = `Application Details — ${a.appNumber} (Tracking Code: ${a.trackingCode || '—'})`;
+  if(muniTopbarTitleEl) muniTopbarTitleEl.textContent = `Application Details — ${a.appNumber} ${muni_paymentOnly() ? '' : ' (Tracking Code: ' + (a.trackingCode || '—') + ')'}`;
 
   // Stepper
   const stepper = document.getElementById('statusStepper');
@@ -38891,7 +38927,7 @@ function muni_pdfWhen(iso){
   return w.date + (w.time ? ' · ' + w.time : '');
 }
 function muni_canExportPdf(a){
-  return !!a && (a.status === 'Approved' || a.status === 'Rejected');
+  return !!a && !muni_paymentOnly() && (a.status === 'Approved' || a.status === 'Rejected');
 }
 // Keeps the header button in step with the open application.
 function muni_refreshExportButton(a){
@@ -38900,8 +38936,9 @@ function muni_refreshExportButton(a){
   if(!btn) return;
   const ok = muni_canExportPdf(a);
   btn.disabled = !ok || !!window.__muniPdfBusy;
-  btn.title = ok ? 'Download the whole application file as one PDF' : 'Available once the application has been approved or denied';
-  if(hint) hint.textContent = ok ? '' : 'Available after a decision';
+  const restricted = muni_paymentOnly();
+  btn.title = ok ? 'Download the whole application file as one PDF' : (restricted ? 'Not available for your role' : 'Available once the application has been approved or denied');
+  if(hint) hint.textContent = ok ? '' : (restricted ? 'Not available for your role' : 'Available after a decision');
 }
 
 async function muni_fetchStoredFile(key){
@@ -39893,14 +39930,28 @@ let adminAgencyTierEligibility = {};
 async function admin_loadApplications(){
   if(!window.storage){ applications = []; return; }
   try{
-    const listResult = await window.storage.list('application:');
-    const keys = (listResult && listResult.keys) || [];
+    // An Atendify Accountant gets a finance-only view of each application from
+    // the database (no contact details, ID numbers, documents or comments);
+    // the Super Admin reads the full records.
+    let entries = null;
+    if(adminRole === 'accountant' && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.acctApplications){
+      const rows = await window.ATDBackend.acctApplications();
+      entries = (rows || []).map(r => ({ key: r.key, rec: r.value }));
+    } else {
+      const listResult = await window.storage.list('application:');
+      const keys = (listResult && listResult.keys) || [];
+      entries = [];
+      for(const key of keys){
+        try{
+          const result = await window.storage.get(key);
+          if(result && result.value) entries.push({ key, rec: JSON.parse(result.value) });
+        }catch(e){ /* skip unreadable record */ }
+      }
+    }
     const out = [];
-    for(const key of keys){
+    for(const { key, rec } of entries){
       try{
-        const result = await window.storage.get(key);
-        if(!result || !result.value) continue;
-        const rec = JSON.parse(result.value);
+        if(!rec) continue;
         const isAnnual = rec.amusement && rec.amusement.licenseType === 'Annual';
         out.push({
           id: rec.appNumber,
