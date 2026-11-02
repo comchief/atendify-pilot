@@ -4610,6 +4610,16 @@
   var ATD_TEST_HOSTS = [
     'test-atendify.up.railway.app',
   ];
+  // Offline demo sign-ins (admin@gmail.com / shared demo password) exist only so the
+  // page can be tried from a saved file or a developer's own machine when no
+  // live service is connected. They are never available on a hosted address.
+  window.atdOfflineDemoAllowed = function(){
+    try{
+      var h = (location.hostname || '').toLowerCase();
+      return location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    }catch(e){ return false; }
+  };
+
   var ATD_TEST_SUPABASE_URL = 'https://jrzpvuxarzmekoteviah.supabase.co';
   var ATD_TEST_SUPABASE_ANON_KEY = 'sb_publishable_MTjD_aKRny6ARwUVdR4kww_n1trVCFU';
   var atdHost = (location.hostname || '').toLowerCase();
@@ -5738,6 +5748,21 @@
       });
       if (res.error) { window.atdShowDebugError('publicMuniPaymentTiming(' + muniNumber + ')', res.error); return false; }
       return !!res.data;
+    },
+
+    // Public directory of the agencies (finding 14, backend/security_agency_directory.sql):
+    // only the fields the public screens need (name, type, municipality
+    // number, parish, status, application fees, linked municipality).
+    // Contact details, billing and invoices are NOT in it. Returns null when
+    // the database function is not there yet, so callers can fall back to
+    // reading the records directly.
+    agencyDirectory: async function () {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_agency_directory');
+      });
+      if (res.error) { return null; }
+      return Array.isArray(res.data) ? res.data : [];
     },
 
     // Pre-submission watch list check (Fix #45, backend/fix45_public_watchlist_check.sql)
@@ -7677,12 +7702,25 @@
 
   window.atdLoadAgencies = async function(){
     await atdSeedAgenciesOnce();
-    const list = await window.storage.list('agency:');
-    const out = [];
-    for(const k of list.keys){
-      const rec = await window.storage.get(k);
-      if(rec && rec.value){ try{ out.push(JSON.parse(rec.value)); }catch(e){} }
-    }
+    // Everyone can read the public directory (trimmed records). Signed-in
+    // staff may additionally read full records they are allowed to see (an
+    // officer's own agency; the administrator and finance accountant see all);
+    // those full records replace the trimmed ones. If the directory function
+    // is not in the database yet, the direct read below is all there is.
+    const byId = {};
+    try{
+      const dir = (window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured() && window.ATDBackend.agencyDirectory)
+        ? await window.ATDBackend.agencyDirectory() : null;
+      if(dir) dir.forEach(r => { if(r && r.id != null) byId[r.id] = r; });
+    }catch(e){ /* fall back to the direct read */ }
+    try{
+      const list = await window.storage.list('agency:');
+      for(const k of list.keys){
+        const rec = await window.storage.get(k);
+        if(rec && rec.value){ try{ const r = JSON.parse(rec.value); if(r && r.id != null) byId[r.id] = r; }catch(e){} }
+      }
+    }catch(e){ /* the directory result (if any) still stands */ }
+    const out = Object.keys(byId).map(k => byId[k]);
     out.sort((a,b) => a.id - b.id);
     return out;
   };
@@ -17974,7 +18012,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   function jcfd_populateDemoHint(){
     const hint = document.getElementById('jcfd_demoHint');
-    if(!hint) return;
+    if(!hint || !window.atdOfflineDemoAllowed()) return;
     const lines = jcfd_activeBranchIds().map(id => {
       const chief = jcfdStaffUsers.find(u => u.agencyId === id && u.role === JCFD_ROLE_CHIEF);
       const b = jcfd_branchById(id);
@@ -18129,7 +18167,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // ---- Fallback: original shared demo password (no backend configured) ----
     const user = jcfdStaffUsers.find(u => u.agencyId === branchId && u.email.toLowerCase() === email);
 
-    if(user && password === JCFD_DEMO_PASSWORD && user.status === 'Active'){
+    if(window.atdOfflineDemoAllowed() && user && password === JCFD_DEMO_PASSWORD && user.status === 'Active'){
       errorBox.classList.add('hidden');
       if(window.atdRecordLoginAttempt) await window.atdRecordLoginAttempt('jcf', email, true);
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: branchId });
@@ -30262,7 +30300,7 @@ function populateMuniSelect(){
 
 function populateDemoHint(){
   const hint = document.getElementById('demoHint');
-  if(!hint) return;
+  if(!hint || !window.atdOfflineDemoAllowed()) return;
   const lines = activeMunicipalityIds().map(id => {
     const ceo = municipalUsers.find(u => u.muniId === id && u.role === 'CEO');
     if(!ceo) return null;
@@ -30490,7 +30528,7 @@ async function muni_attemptLogin(){
 
   // ---- Fallback: original shared demo password (no backend configured) ----
   const user = municipalUsers.find(u => u.muniId === muniId && u.email.toLowerCase() === email);
-  if(user && municipalityIsActive && password === (user.password || DEMO_PASSWORD) && user.status === 'Active'){
+  if(window.atdOfflineDemoAllowed() && user && municipalityIsActive && password === (user.password || DEMO_PASSWORD) && user.status === 'Active'){
     errorBox.classList.add('hidden');
     await window.atdRecordLoginAttempt('muni', email, true);
     await window.atdLogAudit({ portal: 'muni', actor: user.email, actorRole: user.role, action: 'login.success', details: `${user.name} signed in.`, muniId: user.muniId });
@@ -40665,7 +40703,7 @@ async function admin_attemptLogin(){
   }
 
   // ---- Fallback: original hardcoded demo credential (no backend configured) ----
-  if(email === ADMIN_EMAIL && password === ADMIN_PASSWORD){
+  if(window.atdOfflineDemoAllowed() && email === ADMIN_EMAIL && password === ADMIN_PASSWORD){
     adminActorEmail = ADMIN_EMAIL;
     errorBox.classList.add('hidden');
     await window.atdRecordLoginAttempt('admin', email, true);
