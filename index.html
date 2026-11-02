@@ -4698,7 +4698,29 @@
     window.ATD_RECOVERY_PENDING = /[#&?]type=recovery\b/.test((location.hash || '') + (location.search || ''));
     client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     try{
-      client.auth.onAuthStateChange(function (ev) {
+      client.auth.onAuthStateChange(function (ev, sess) {
+        // Signed out without the person asking (for example the account signed
+        // in on another device while the service allows one session per user,
+        // or the session expired): say so and return to the start page, instead
+        // of leaving screens that silently stop loading data.
+        if (ev === 'SIGNED_OUT' && !window.__atdSigningOut && window.__atdWasSignedIn) {
+          window.__atdWasSignedIn = false;
+          try {
+            if (!document.getElementById('atdSignedOutNotice')) {
+              var n = document.createElement('div');
+              n.id = 'atdSignedOutNotice';
+              n.setAttribute('role', 'alertdialog');
+              n.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+              n.innerHTML = '<div style="background:#fff;color:#111;max-width:420px;width:100%;border-radius:10px;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:inherit;">' +
+                '<h3 style="margin:0 0 8px;font-size:18px;">You have been signed out</h3>' +
+                '<p style="margin:0 0 16px;line-height:1.45;">This happens when the same account signs in on another device or window, or when a session expires. Please sign in again.</p>' +
+                '<button type="button" style="background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:9px 18px;font-size:15px;cursor:pointer;" onclick="location.reload()">Sign in again</button></div>';
+              (document.body || document.documentElement).appendChild(n);
+            }
+          } catch (e) { /* the reload below is the fallback */ }
+        }
+        if (ev === 'SIGNED_IN' || ev === 'TOKEN_REFRESHED') window.__atdWasSignedIn = true;
+        if (ev === 'INITIAL_SESSION' && sess) window.__atdWasSignedIn = true;
         if (ev === 'PASSWORD_RECOVERY') {
           window.ATD_RECOVERY_PENDING = true;
           if (window.atdShowRecoveryModal) window.atdShowRecoveryModal();
@@ -5581,7 +5603,10 @@
           });
         }
       } catch (e) { /* best-effort only — signOut() itself must still proceed below */ }
-      return client.auth.signOut({ scope: 'local' });
+      window.__atdSigningOut = true;
+      window.__atdWasSignedIn = false;
+      try { return await client.auth.signOut({ scope: 'local' }); }
+      finally { setTimeout(function(){ window.__atdSigningOut = false; }, 1500); }
     },
     // Self-service password change for the currently signed-in user (no
     // portal had one before this — every existing "reset password" flow is
@@ -6147,7 +6172,9 @@
             if (keys.length) await client.from(TABLE).delete().in('key', keys);
           } catch (logErr) { /* best-effort only — must never block the real sign-out below */ }
         }
+        window.__atdSigningOut = true; window.__atdWasSignedIn = false;
         var res = await client.auth.signOut({ scope: 'global' });
+        setTimeout(function(){ window.__atdSigningOut = false; }, 1500);
         if (res && res.error) { window.atdShowDebugError('signOutEverywhere()', res.error); return { ok: false, error: res.error.message }; }
         return { ok: true };
       } catch (e) { window.atdShowDebugError('signOutEverywhere()', e); return { ok: false, error: String(e) }; }
