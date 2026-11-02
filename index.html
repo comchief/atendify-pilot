@@ -5323,7 +5323,14 @@
         // writes included, so routing the whole prefix through a plain
         // insert is correct for every writer, not just muni.
         var isWalletTransaction = key.indexOf('walletTransaction:') === 0;
-        var useInsertOnly = isAuditLog || isWalletTransaction;
+        // A brand-new application submission must never overwrite an existing
+        // record: the caller marks the key (see submitApp) and it is written
+        // with a plain INSERT, so a number that was already taken fails with
+        // a duplicate-key error instead of silently replacing someone's
+        // application (a signed-in applicant would otherwise go through the
+        // update-first path below and overwrite their own earlier one).
+        var callerWantsInsertOnly = !!(window.__atdInsertOnlyKeys && window.__atdInsertOnlyKeys[key]);
+        var useInsertOnly = isAuditLog || isWalletTransaction || callerWantsInsertOnly;
         var useUpdateOnly = isApplicantNotification;
         // Fix #50 follow-up: fix50_adlocations_rls.sql's own policies check
         // out fine (all three confirmed present in pg_policies) and a CEO's
@@ -5907,6 +5914,28 @@
       if (res.error) { window.atdShowDebugError('acctApplications()', res.error); return []; }
       return res.data || [];
     },
+    // Finance-only application list for a payment-only municipal officer
+    // (security_muni_accountant_records.sql). Returns { rows } on success, or
+    // { missing: true } when the database does not have the function yet, so
+    // the screens can fall back to the old way until the SQL file is run.
+    muniAcctApplications: async function () {
+      if (!client) return { error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () { return client.rpc('atd_muni_acct_applications'); });
+      if (res.error) {
+        var missing = res.error.code === 'PGRST202' || res.error.code === '42883' || /could not find the function/i.test(res.error.message || '');
+        if (!missing) window.atdShowDebugError('muniAcctApplications()', res.error);
+        return { error: res.error.message || 'failed', missing: missing };
+      }
+      return { rows: res.data || [] };
+    },
+    // The three payment actions of a payment-only officer. Each returns
+    // { ok: true, ... } or { ok: false, error: '<message>' }.
+    muniPaymentAction: async function (fn, args) {
+      if (!client) return { ok: false, error: 'Backend not configured' };
+      var res = await atdWithClockSkewRetry(function () { return client.rpc(fn, args); });
+      if (res.error) return { ok: false, error: res.error.message || 'The change could not be saved.' };
+      return res.data || { ok: true };
+    },
     // Every Municipal Credit request for the signed-in officer's municipality
     // (the database only returns their own).
     municipalCreditRequests: async function () {
@@ -6221,6 +6250,23 @@
     // DEFINER function (atd_next_app_seq, see phase1b_migration.sql Fix
     // #20) backed by its own counter table — regardless of caller identity
     // or what rows they're allowed to SELECT.
+    // Like nextAppSeq, but tries a few times and then THROWS. Application and
+    // permit numbers must never fall back to "01": that number may already
+    // belong to someone else's record.
+    reserveNumber: async function (counterKey) {
+      var lastErr = null;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try { return await ATDBackend.nextAppSeq(counterKey); }
+        catch (e) {
+          lastErr = e;
+          if (attempt < 3) await new Promise(function (r) { setTimeout(r, attempt * 700); });
+        }
+      }
+      var err = new Error('Could not reserve a number. Please try again in a moment.');
+      err.code = 'APPNUMBER_UNAVAILABLE';
+      err.cause = lastErr;
+      throw err;
+    },
     nextAppSeq: async function (counterKey) {
       if (!client) return 1;
       var res = await atdWithClockSkewRetry(function () {
@@ -21193,13 +21239,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const prefix = `JCFPERMIT-${muniPadded}${yy}`;
     let seq = 1;
     if(window.ATDBackend && window.ATDBackend.isConfigured()){
-      try{
-        seq = await window.ATDBackend.nextAppSeq(prefix);
-      } catch(err){
-        seq = 1;
-      }
+      // Throws when the counter cannot be reached, so no permit is issued
+      // under a guessed (possibly duplicate) number.
+      seq = await window.ATDBackend.reserveNumber(prefix);
     }
-    const seqPadded = String(seq % 100).padStart(2, '0');
+    const seqPadded = String(seq).padStart(2, '0');
     return `JCF${muniPadded}-${muniPadded}${yy}-${seqPadded}`;
   }
 
@@ -21210,12 +21254,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_showToast("You don't have permission to approve or reject this application.");
       return;
     }
+    let jcfPermitNumber;
+    try{ jcfPermitNumber = await jcfd_generatePermitNumber(rec); }
+    catch(numErr){
+      jcfd_showToast('Could not reserve a permit number just now. Nothing was changed; please try again in a moment.');
+      return;
+    }
     rec.status = 'Approved';
     rec.decidedAt = new Date().toISOString();
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
     rec.permitGenerated = true;
     rec.permit = {
-      number: await jcfd_generatePermitNumber(rec),
+      number: jcfPermitNumber,
       permitTypeLabel: 'JCF Noise Abatement Permit',
       issuedDate: new Date().toISOString().slice(0,10),
       expiresDate: (rec.eventOverview && rec.eventOverview.dateOfEvent) || ''
@@ -26992,13 +27042,12 @@ async function generateAppNumber(){
 
   let seq = 1;
   if(window.ATDBackend && window.ATDBackend.isConfigured()){
-    try{
-      seq = await window.ATDBackend.nextAppSeq(prefix);
-    } catch(err){
-      seq = 1;
-    }
+    // Never fall back to "01" when the counter cannot be reached: that number
+    // may already belong to someone else's application. reserveNumber() retries
+    // and then throws, so nothing is saved under a guessed number.
+    seq = await window.ATDBackend.reserveNumber(prefix);
   }
-  const seqPadded = String(seq % 100).padStart(2, '0');
+  const seqPadded = String(seq).padStart(2, '0');
   return `${prefix}-${seqPadded}`;
 }
 
@@ -27035,6 +27084,8 @@ async function poa_storageSetWithRetry(key, value, shared, maxAttempts){
       // payload size in or out — rather than guessing again.
       lastErr._attemptsMade = attempt;
       lastErr._payloadChars = (value && value.length) || 0;
+      // A duplicate key means the number is already taken; retrying cannot help.
+      if(err && (err.code === '23505' || /duplicate key/i.test(err.message || ''))) break;
       if(attempt < maxAttempts){
         await new Promise(resolve => setTimeout(resolve, attempt * 800));
       }
@@ -27160,7 +27211,14 @@ async function submitApp(){
     delete record._logoFileDataPending;
     const pendingOwnershipData = record._ownershipFileDataPending;
     delete record._ownershipFileDataPending;
-    const result = await poa_storageSetWithRetry(`application:${appNumber}`, JSON.stringify(record), true);
+    window.__atdInsertOnlyKeys = window.__atdInsertOnlyKeys || {};
+    window.__atdInsertOnlyKeys[`application:${appNumber}`] = true;
+    let result;
+    try{
+      result = await poa_storageSetWithRetry(`application:${appNumber}`, JSON.stringify(record), true, 1);
+    } finally {
+      delete window.__atdInsertOnlyKeys[`application:${appNumber}`];
+    }
     if(!result){
       throw new Error('Storage returned no result');
     }
@@ -27349,7 +27407,13 @@ async function submitApp(){
     const extra = (err && err._attemptsMade)
       ? ` [attempts: ${err._attemptsMade}, payload: ${err._payloadChars} chars]`
       : '';
-    errorBox.textContent = `We could not submit your application. Please check your connection and try again. (Details: ${detail}${extra})`;
+    if(err && err.code === 'APPNUMBER_UNAVAILABLE'){
+      errorBox.textContent = 'We could not reserve an application number just now, so nothing was submitted. Please wait a moment and press Submit application again.';
+    } else if(err && (err.code === '23505' || /duplicate key/i.test(detail))){
+      errorBox.textContent = 'That application number was already in use, so nothing was submitted and no existing application was changed. Please press Submit application again to receive a new number.';
+    } else {
+      errorBox.textContent = `We could not submit your application. Please check your connection and try again. (Details: ${detail}${extra})`;
+    }
     errorBox.classList.remove('hidden');
   } finally{
     submitBtn.disabled = false;
@@ -30551,6 +30615,12 @@ function hasPerm(key){
 function muni_paymentOnly(){
   return hasPerm('payment') && !hasPerm('review') && !hasPerm('approve') && !hasPerm('approveCapped');
 }
+// True once this payment-only officer's applications were loaded from the
+// finance-only database view (see loadSubmittedApplications). In that mode
+// the in-memory records are trimmed copies: they must never be written back
+// whole, and payment changes go through the narrow database functions.
+let muniFinanceView = false;
+function muni_financeView(){ return muniFinanceView && muni_paymentOnly(); }
 // Tracking code for display; withheld from payment-only officers.
 function muni_tc(a, fallback){
   if(muni_paymentOnly()) return '—';
@@ -35847,9 +35917,9 @@ async function muni_generateManualAppNumber(){
   const prefix = `POA-${muniIdPadded}${year}`;
   let seq = 1;
   if(window.ATDBackend && window.ATDBackend.isConfigured()){
-    try{ seq = await window.ATDBackend.nextAppSeq(prefix); } catch(err){ seq = 1; }
+    seq = await window.ATDBackend.reserveNumber(prefix);
   }
-  const seqPadded = String(seq % 100).padStart(2, '0');
+  const seqPadded = String(seq).padStart(2, '0');
   return `${prefix}-${seqPadded}`;
 }
 
@@ -36092,7 +36162,11 @@ async function muni_createManualApplication(){
       manualNote: note
     };
 
-    await window.storage.set(`application:${appNumber}`, JSON.stringify(record), true);
+    // New walk-in entry: insert only, so it can never replace an existing application.
+    window.__atdInsertOnlyKeys = window.__atdInsertOnlyKeys || {};
+    window.__atdInsertOnlyKeys[`application:${appNumber}`] = true;
+    try{ await window.storage.set(`application:${appNumber}`, JSON.stringify(record), true); }
+    finally{ delete window.__atdInsertOnlyKeys[`application:${appNumber}`]; }
 
     if(venueIsNew){
       // Same best-effort pending-venue pre-load the online wizard does for a
@@ -36178,7 +36252,7 @@ function muni_openAppModal(id){
       if(activeAppId === id && JSON.stringify(mcApp.municipalCredits || []) !== mcBefore) renderAppDetail();
     }).catch(()=>{});
   }
-  muni_loadLinkedJcfApp(id);
+  if(!muni_paymentOnly()) muni_loadLinkedJcfApp(id);
 }
 
 // Looks up the JCF Noise Abatement application (if any) linked to this POA
@@ -36639,6 +36713,7 @@ function renderSubmissionColumn(a){
     const lim = `<div class="panel"><div class="detail-section-title">Applicant</div>`
       + detailRow('Account type', r.applicant.type)
       + detailRow(isCompany ? 'Company name' : 'Full name', r.applicant.name)
+      + detailRow('Registered account', (r.ownerEmail || r.hasAccount) ? 'Yes' : 'No (guest submission)')
       + `<p class="no-permission-note" style="margin:10px 0 0;">Personal details, uploaded documents and the tracking code are not shown for your role. They are available to officers who review and approve applications.</p></div>`;
     html = lim + html;
   } else {
@@ -36909,6 +36984,7 @@ async function renderAppDetail(){
   const regDocs = (a.raw && a.raw.regulatoryDocuments) || a.regulatoryDocuments || null;
   const regDocList = (a.raw && a.raw.regulatoryDocList) || a.regulatoryDocList || null;
   const canEditDocCheck = hasPerm('review');
+  if(!muni_paymentOnly()){
   cardsHtml += `<div class="official-card"><h4>Document Check</h4>`;
   cardsHtml += `
     <label class="checkbox-row" style="cursor:default;">
@@ -36932,11 +37008,13 @@ async function renderAppDetail(){
     cardsHtml += `<p class="no-permission-note" style="margin-top:10px;">Only Supervisors and CEOs can update the venue approval check.</p>`;
   }
   cardsHtml += `</div>`;
+  } // end: Document Check hidden for payment-only officers
 
   // ---- JCF Approval Granted card ----
   // Tracks the applicant's linked JCF Noise Abatement application: records
   // when it was submitted, auto-checks once JCF approves it and issues a
   // permit, and lets the officer view that issued permit.
+  if(!muni_paymentOnly()){
   cardsHtml += `<div class="official-card"><h4>JCF Approval Granted</h4>`;
   if(!a._linkedJcfAppChecked){
     cardsHtml += `<p class="col-desc">Checking for a linked JCF Noise Abatement application…</p>`;
@@ -36969,6 +37047,7 @@ async function renderAppDetail(){
     }
   }
   cardsHtml += `</div>`;
+  } // end: JCF card hidden for payment-only officers
 
   // ---- Payment Verification card ----
   const licenseFeeReceipt = a.raw && a.raw.paymentReceipt;
@@ -37046,7 +37125,7 @@ async function renderAppDetail(){
   // request/decision history, kept for audit even though the applicant's
   // real spendable balance lives in their wallet.
   const mcRequests = a.municipalCredits || [];
-  const mcOwnerEmail = a.raw && a.raw.ownerEmail;
+  const mcOwnerEmail = a.raw && (a.raw.ownerEmail || (a.raw.hasAccount ? 'registered' : ''));
   cardsHtml += `<div class="official-card"><h4>Municipal Credit</h4>`;
   if(mcRequests.length){
     mcRequests.forEach((req, idx) => {
@@ -38063,6 +38142,13 @@ window.muni_uploadRegulatoryDoc = muni_uploadRegulatoryDoc;
 // actually saved for anyone else to see.
 async function persistIfFromStorage(a){
   if(!a._fromStorage || !a.raw || !window.storage) return true;
+  if(muni_financeView()){
+    // A payment-only officer holds only a trimmed copy of the record; writing
+    // it back whole would erase the rest. Their payment changes use
+    // muni_paymentAction() instead.
+    muni_showToast('Your role cannot change this part of the application.');
+    return false;
+  }
   try{
     a.raw.status = a.status;
     a.raw.paymentVerified = a.paymentVerified;
@@ -38108,6 +38194,17 @@ async function persistIfFromStorage(a){
   }
 }
 
+// Runs one of a payment-only officer's three payment actions in the database
+// and copies the answer into the open record. Returns true on success.
+async function muni_paymentAction(fn, args){
+  const r = await window.ATDBackend.muniPaymentAction(fn, args);
+  if(!r || r.ok === false){
+    muni_showToast((r && r.error) ? String(r.error).slice(0, 200) : 'The change could not be saved.');
+    return null;
+  }
+  return r;
+}
+
 async function verifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   const receiptInput = document.getElementById('paymentReceiptInput');
@@ -38145,7 +38242,18 @@ async function verifyPayment(){
     a.applicationFeeCollectedByMuni = true;
     a.applicationFeeCollectedByMuniDate = new Date().toISOString();
   }
-  const ok = await persistIfFromStorage(a);
+  let ok;
+  if(muni_financeView()){
+    const pr = await muni_paymentAction('atd_muni_verify_payment', { p_app_number: a.appNumber, p_receipt: receiptNumber, p_notes: a.paymentNotes });
+    ok = !!pr;
+    if(pr){
+      if(pr.status) a.status = pr.status;
+      if(pr.paymentVerifiedAt) a.paymentVerifiedAt = pr.paymentVerifiedAt;
+      if(isManualEntryForFee){ a.applicationFeeCollectedByMuni = !!pr.applicationFeeCollectedByMuni; a.applicationFeeCollectedByMuniDate = pr.applicationFeeCollectedByMuniDate || ''; }
+    }
+  } else {
+    ok = await persistIfFromStorage(a);
+  }
   if(!ok){
     a.paymentVerified = prev.paymentVerified; a.paymentReceiptNumber = prev.paymentReceiptNumber; a.paymentNotes = prev.paymentNotes; a.status = prev.status; a.paymentVerifiedAt = prev.paymentVerifiedAt;
     a.applicationFeeCollectedByMuni = prev.applicationFeeCollectedByMuni; a.applicationFeeCollectedByMuniDate = prev.applicationFeeCollectedByMuniDate;
@@ -38193,7 +38301,14 @@ async function unverifyPayment(){
     a.applicationFeeCollectedByMuni = false;
     a.applicationFeeCollectedByMuniDate = '';
   }
-  const okU = await persistIfFromStorage(a);
+  let okU;
+  if(muni_financeView()){
+    const pu = await muni_paymentAction('atd_muni_unverify_payment', { p_app_number: a.appNumber });
+    okU = !!pu;
+    if(pu && pu.status) a.status = pu.status;
+  } else {
+    okU = await persistIfFromStorage(a);
+  }
   if(!okU){
     a.paymentVerified = prevU.paymentVerified; a.paymentVerifiedAt = prevU.paymentVerifiedAt; a.status = prevU.status;
     a.applicationFeeCollectedByMuni = prevU.applicationFeeCollectedByMuni; a.applicationFeeCollectedByMuniDate = prevU.applicationFeeCollectedByMuniDate;
@@ -38421,7 +38536,7 @@ function requestAdditionalPayment(){
   muni_renderAll();
 }
 
-function documentAdditionalPayment(idx){
+async function documentAdditionalPayment(idx){
   const a = applications.find(a => a.id === activeAppId);
   const req = a.additionalPaymentRequests[idx];
   const receiptNumber = document.getElementById(`addPayReceiptInput${idx}`).value.trim();
@@ -38432,13 +38547,26 @@ function documentAdditionalPayment(idx){
     return;
   }
 
+  const prevReq = Object.assign({}, req);
   req.receiptNumber = receiptNumber;
   req.notes = notes;
   req.status = 'Documented';
   req.documentedBy = currentUser.name;
   req.documentedDate = new Date().toISOString().slice(0,10);
 
-  persistIfFromStorage(a);
+  if(muni_financeView()){
+    const pd = await muni_paymentAction('atd_muni_document_addpay', { p_app_number: a.appNumber, p_index: idx, p_receipt: receiptNumber, p_notes: notes });
+    if(!pd){
+      Object.keys(req).forEach(k => { delete req[k]; });
+      Object.assign(req, prevReq);
+      renderAppDetail();
+      return;
+    }
+    if(pd.documentedBy) req.documentedBy = pd.documentedBy;
+    if(pd.documentedDate) req.documentedDate = pd.documentedDate;
+  } else {
+    persistIfFromStorage(a);
+  }
   muni_showToast(`Additional payment of ${muni_formatCurrency(req.amount)} documented.`);
   renderAppDetail();
   muni_renderAll();
@@ -39369,10 +39497,20 @@ async function loadSubmittedApplications(silent, btnId){
   if(btn){ btn.disabled = true; btn.textContent = 'Refreshing…'; }
 
   try{
+    const fetched = [];
+    // A payment-only officer (the Accountant) gets a finance-only copy of each
+    // application from the database instead of the full records.
+    let financeRows = null;
+    muniFinanceView = false;
+    if(muni_paymentOnly() && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.muniAcctApplications){
+      const fr = await window.ATDBackend.muniAcctApplications();
+      if(fr && fr.rows){ financeRows = fr.rows; muniFinanceView = true; }
+    }
+    if(financeRows){
+      financeRows.forEach(r => { if(r && r.value) fetched.push({ key: r.key, rec: r.value }); });
+    } else {
     const listResult = await window.storage.list('application:', true);
     const keys = (listResult && listResult.keys) || [];
-
-    const fetched = [];
     for(const key of keys){
       try{
         const result = await window.storage.get(key, true);
@@ -39383,6 +39521,7 @@ async function loadSubmittedApplications(silent, btnId){
       } catch(err){
         // skip unreadable record
       }
+    }
     }
 
     // Municipal Credit requests live in the database (security_municipal_credit.sql);
@@ -46691,6 +46830,8 @@ async function jcf_storageSetWithRetry(key, value, shared, maxAttempts){
       lastErr = err;
       lastErr._attemptsMade = attempt;
       lastErr._payloadChars = (value && value.length) || 0;
+      // A duplicate key means the number is already taken; retrying cannot help.
+      if(err && (err.code === '23505' || /duplicate key/i.test(err.message || ''))) break;
       if(attempt < maxAttempts){
         await new Promise(resolve => setTimeout(resolve, attempt * 800));
       }
