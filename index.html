@@ -10264,7 +10264,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="readback-row" style="margin:4px 0 14px;" id="muni_paymentsSummary">Total: J$0.00 across 0 records</div>
         <div style="overflow-x:auto;">
           <table>
-            <thead><tr><th>Date</th><th>Application #</th><th>Applicant</th><th>Type</th><th>License Type</th><th>Amount</th><th>Receipt #</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Date</th><th>Application #</th><th>Applicant</th><th>Type</th><th>License Type</th><th>Amount</th><th>Receipt #</th><th>Uploaded receipt</th><th>Notes</th></tr></thead>
             <tbody id="muni_paymentsBody"></tbody>
           </table>
         </div>
@@ -34413,10 +34413,13 @@ function muni_getConfirmedPayments(){
         type: isManualEntry ? 'Combined Payment (Manual)' : 'License Fee',
         amount,
         receiptNumber: a.paymentReceiptNumber || '',
-        notes: a.paymentNotes || ''
+        notes: a.paymentNotes || '',
+        // The file the applicant uploaded for this payment, if any. A walk-in
+        // payment and a Municipal Credit payment have no uploaded file.
+        receiptKind: (!isManualEntry && a.raw && a.raw.paymentReceipt && a.raw.paymentReceipt.fileName && a.raw.paymentReceipt.method !== 'Municipal Credit') ? 'paymentReceipt' : ''
       });
     }
-    (a.additionalPaymentRequests || []).forEach(req => {
+    (a.additionalPaymentRequests || []).forEach((req, reqIdx) => {
       if(req.status !== 'Documented') return;
       rows.push({
         date: req.documentedDate || '',
@@ -34426,7 +34429,8 @@ function muni_getConfirmedPayments(){
         type: 'Additional Payment',
         amount: req.amount || 0,
         receiptNumber: req.receiptNumber || '',
-        notes: req.reason || ''
+        notes: req.reason || '',
+        receiptKind: req.applicantFileName ? ('additionalPayment:' + reqIdx) : ''
       });
     });
   });
@@ -34479,7 +34483,7 @@ function muni_renderPaymentsTable(){
   const total = rows.reduce((sum, r) => sum + (r.amount || 0), 0);
   if(summaryEl) summaryEl.textContent = `Total: ${muni_formatCurrency(total)} across ${rows.length} record${rows.length === 1 ? '' : 's'}`;
   if(!rows.length){
-    atdRenderGrouped('muni_paymentsBody', [], { emptyHtml: `<tr><td colspan="8" class="table-empty">No confirmed payments in this period.</td></tr>` });
+    atdRenderGrouped('muni_paymentsBody', [], { emptyHtml: `<tr><td colspan="9" class="table-empty">No confirmed payments in this period.</td></tr>` });
     return;
   }
   atdRenderGrouped('muni_paymentsBody', rows, Object.assign({ rowHtml: r => `
@@ -34491,11 +34495,22 @@ function muni_renderPaymentsTable(){
       <td>${muni_escapeHtml(r.licenseType)}</td>
       <td>${muni_formatCurrency(r.amount)}</td>
       <td>${muni_escapeHtml(r.receiptNumber || '—')}</td>
+      <td>${r.receiptKind ? `<button class="btn btn-sm" data-appid="${muni_escapeHtml(r.appNumber)}" data-kind="${muni_escapeHtml(r.receiptKind)}" onclick="muni_viewPaymentReceipt(this)">View</button>` : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${muni_escapeHtml(r.notes || '—')}</td>
     </tr>
-  ` }, { colspan: 8, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.date) }, { id: 'type', label: 'Payment type', of: r => atdGrp.plain(r.type) }, { id: 'licence', label: 'Licence type', of: r => atdGrp.plain(r.licenseType) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.amount)), '') }));
+  ` }, { colspan: 9, groupers: [ { id: 'month', label: 'Month', of: r => atdGrp.month(r.date) }, { id: 'type', label: 'Payment type', of: r => atdGrp.plain(r.type) }, { id: 'licence', label: 'Licence type', of: r => atdGrp.plain(r.licenseType) } ], summary: items => atdGrp.chip(muni_formatCurrency(atdGrp.sum(items, r => r.amount)), '') }));
 }
 window.muni_renderPaymentsTable = muni_renderPaymentsTable;
+
+// Opens the receipt the applicant uploaded for one row of the Confirmed
+// Payments table. Uses the same viewer (and the same audit entry) as the
+// View buttons on the application's Payment Verification and Additional
+// Payment cards.
+function muni_viewPaymentReceipt(btn){
+  if(!btn) return;
+  openApplicantFileModal(btn.getAttribute('data-kind'), btn.getAttribute('data-appid'));
+}
+window.muni_viewPaymentReceipt = muni_viewPaymentReceipt;
 
 // Entry point called from muni_goPage('payments') — resets the filter row to
 // a known state ("All Time", empty search) on every fresh visit to the page,
@@ -37561,8 +37576,10 @@ function renderApplicantFilePreview(title, fileName, fileData){
   }
 }
 
-async function openApplicantFileModal(kind){
-  const a = applications.find(a => a.id === activeAppId);
+async function openApplicantFileModal(kind, appId){
+  // appId is optional: the Payments page opens a receipt for an application
+  // that is not the one currently open in the detail view.
+  const a = applications.find(a => a.id === (appId || activeAppId));
   if(!a || !a.raw) return;
   const r = a.raw;
 
