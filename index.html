@@ -4612,11 +4612,12 @@
   ];
   // Offline demo sign-ins (admin@gmail.com / shared demo password) exist only so the
   // page can be tried from a saved file or a developer's own machine when no
-  // live service is connected. They are never available on a hosted address.
+  // live service is connected. They are available on a saved file, a developer's
+  // own machine and the TEST site (ATD_TEST_HOSTS), and never on the live site.
   window.atdOfflineDemoAllowed = function(){
     try{
       var h = (location.hostname || '').toLowerCase();
-      return location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+      return location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || ATD_TEST_HOSTS.indexOf(h) !== -1;
     }catch(e){ return false; }
   };
 
@@ -4695,9 +4696,40 @@
     // shows the "choose a new password" box instead of treating that
     // session as an ordinary sign-in and dropping the person into a portal.
     window.ATD_RECOVERY_PENDING = /[#&?]type=recovery\b/.test((location.hash || '') + (location.search || ''));
+    // An e-mail link that was already used or has expired comes back to the site as
+    // #error=access_denied&error_code=otp_expired. Note it before the client strips
+    // the address, and explain it once the page is ready (see atdShowLinkErrorNotice).
+    try{
+      var lh = (location.hash || '') + '&' + (location.search || '');
+      var lm = /[#&?]error_code=([a-z_]+)/.exec(lh);
+      if (lm) window.ATD_LINK_ERROR = lm[1];
+      else if (/[#&?]error=access_denied\b/.test(lh)) window.ATD_LINK_ERROR = 'access_denied';
+    }catch(e){}
     client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     try{
-      client.auth.onAuthStateChange(function (ev) {
+      client.auth.onAuthStateChange(function (ev, sess) {
+        // Signed out without the person asking (for example the account signed
+        // in on another device while the service allows one session per user,
+        // or the session expired): say so and return to the start page, instead
+        // of leaving screens that silently stop loading data.
+        if (ev === 'SIGNED_OUT' && !window.__atdSigningOut && window.__atdWasSignedIn) {
+          window.__atdWasSignedIn = false;
+          try {
+            if (!document.getElementById('atdSignedOutNotice')) {
+              var n = document.createElement('div');
+              n.id = 'atdSignedOutNotice';
+              n.setAttribute('role', 'alertdialog');
+              n.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+              n.innerHTML = '<div style="background:#fff;color:#111;max-width:420px;width:100%;border-radius:10px;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:inherit;">' +
+                '<h3 style="margin:0 0 8px;font-size:18px;">You have been signed out</h3>' +
+                '<p style="margin:0 0 16px;line-height:1.45;">This happens when the same account signs in on another device or window, or when a session expires. Please sign in again.</p>' +
+                '<button type="button" style="background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:9px 18px;font-size:15px;cursor:pointer;" onclick="location.reload()">Sign in again</button></div>';
+              (document.body || document.documentElement).appendChild(n);
+            }
+          } catch (e) { /* the reload below is the fallback */ }
+        }
+        if (ev === 'SIGNED_IN' || ev === 'TOKEN_REFRESHED') window.__atdWasSignedIn = true;
+        if (ev === 'INITIAL_SESSION' && sess) window.__atdWasSignedIn = true;
         if (ev === 'PASSWORD_RECOVERY') {
           window.ATD_RECOVERY_PENDING = true;
           if (window.atdShowRecoveryModal) window.atdShowRecoveryModal();
@@ -4705,6 +4737,51 @@
         }
       });
     }catch(e){ /* older client: the URL check above still covers the usual case */ }
+  }
+
+  function atdShowLinkErrorNotice() {
+    if (!window.ATD_LINK_ERROR || document.getElementById('atdLinkErrorNotice')) return;
+    var expired = window.ATD_LINK_ERROR === 'otp_expired' || window.ATD_LINK_ERROR === 'access_denied';
+    var n = document.createElement('div');
+    n.id = 'atdLinkErrorNotice';
+    n.setAttribute('role', 'alertdialog');
+    n.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;';
+    n.innerHTML = '<div style="background:#fff;color:#111;max-width:440px;width:100%;border-radius:10px;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:inherit;">' +
+      '<h3 style="margin:0 0 8px;font-size:18px;">' + (expired ? 'This link was already used or has expired' : 'This link could not be used') + '</h3>' +
+      '<p style="margin:0 0 10px;line-height:1.45;">Each e-mail link from Atendify works once. If you already clicked a link from us, your e-mail address is probably confirmed: just sign in with your password.</p>' +
+      '<p style="margin:0 0 16px;line-height:1.45;">If signing in says your e-mail is not confirmed, request one new link and use only the newest e-mail. If you have forgotten your password, use "Forgot password".</p>' +
+      '<button type="button" id="atdLinkErrorOk" style="background:#0f4c81;color:#fff;border:0;border-radius:6px;padding:9px 18px;font-size:15px;cursor:pointer;">OK</button></div>';
+    (document.body || document.documentElement).appendChild(n);
+    var ok = document.getElementById('atdLinkErrorOk');
+    if (ok) ok.onclick = function () { n.remove(); };
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    window.ATD_LINK_ERROR = null;
+  }
+  if (window.ATD_LINK_ERROR) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', atdShowLinkErrorNotice);
+    else atdShowLinkErrorNotice();
+  }
+
+  // Each sign-up or "resend" press sends another e-mail and invalidates the
+  // previous link, so people who press twice (or are told to try again) end up
+  // with several e-mails and only the newest link working. Allow one send per
+  // address a minute.
+  function atdConfirmCooldown(email) {
+    try {
+      var k = 'atdConfirmSent:' + String(email || '').toLowerCase();
+      var last = Number(sessionStorage.getItem(k) || window['__' + k] || 0);
+      var wait = 60000 - (Date.now() - last);
+      if (wait > 0) return { error: { message: 'A confirmation e-mail was sent to ' + email + ' less than a minute ago. Please wait a minute, then open the newest e-mail and use that link only.' } };
+    } catch (e) { /* no storage: no cooldown */ }
+    return null;
+  }
+  // Recorded only after a send actually succeeded, so a typing mistake that was
+  // refused (for example a weak password) can be corrected straight away.
+  function atdConfirmMark(email, res) {
+    if (res && res.error) return res;
+    var k = 'atdConfirmSent:' + String(email || '').toLowerCase();
+    try { sessionStorage.setItem(k, String(Date.now())); } catch (e) { window['__' + k] = Date.now(); }
+    return res;
   }
 
   function resolved(v) { return Promise.resolve(v); }
@@ -5541,13 +5618,20 @@
     },
     signUp: function (email, password) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
-      return client.auth.signUp({ email: email, password: password });
+      var cd = atdConfirmCooldown(email); if (cd) return Promise.resolve(cd);
+      // Say where the confirmation link should land. Without this, Supabase uses
+      // the project's Site URL setting, and if that is still the default the
+      // link opens http://localhost:3000 on the person's own computer.
+      var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
+      return client.auth.signUp(redirect ? { email: email, password: password, options: { emailRedirectTo: redirect } } : { email: email, password: password }).then(function (r) { return atdConfirmMark(email, r); });
     },
     // Re-sends the signup confirmation email (Confirm email account
     // creation) for an account that hasn't clicked the link yet.
     resendConfirmation: function (email) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
-      return client.auth.resend({ type: 'signup', email: email });
+      var cd = atdConfirmCooldown(email); if (cd) return Promise.resolve(cd);
+      var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
+      return client.auth.resend(redirect ? { type: 'signup', email: email, options: { emailRedirectTo: redirect } } : { type: 'signup', email: email }).then(function (r) { return atdConfirmMark(email, r); });
     },
     // scope:'local' is deliberate, not the default: Supabase's own default
     // scope is 'global', meaning every ordinary "Log out" click in every
@@ -5580,7 +5664,10 @@
           });
         }
       } catch (e) { /* best-effort only — signOut() itself must still proceed below */ }
-      return client.auth.signOut({ scope: 'local' });
+      window.__atdSigningOut = true;
+      window.__atdWasSignedIn = false;
+      try { return await client.auth.signOut({ scope: 'local' }); }
+      finally { setTimeout(function(){ window.__atdSigningOut = false; }, 1500); }
     },
     // Self-service password change for the currently signed-in user (no
     // portal had one before this — every existing "reset password" flow is
@@ -5763,6 +5850,19 @@
       });
       if (res.error) { return null; }
       return Array.isArray(res.data) ? res.data : [];
+    },
+
+    // Bank details an applicant is told to pay into: Atendify's own account and the
+    // given municipality's (backend/security_bank_info.sql). Returns
+    // { atendify, municipality } (either may be null) or null if the database
+    // function is not there yet.
+    publicBankInfo: async function (muniNumber) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_public_bank_info', { p_muni_number: muniNumber == null ? null : String(muniNumber) });
+      });
+      if (res.error) { return null; }
+      return res.data || null;
     },
 
     // Pre-submission watch list check (Fix #45, backend/fix45_public_watchlist_check.sql)
@@ -6146,7 +6246,9 @@
             if (keys.length) await client.from(TABLE).delete().in('key', keys);
           } catch (logErr) { /* best-effort only — must never block the real sign-out below */ }
         }
+        window.__atdSigningOut = true; window.__atdWasSignedIn = false;
         var res = await client.auth.signOut({ scope: 'global' });
+        setTimeout(function(){ window.__atdSigningOut = false; }, 1500);
         if (res && res.error) { window.atdShowDebugError('signOutEverywhere()', res.error); return { ok: false, error: res.error.message }; }
         return { ok: true };
       } catch (e) { window.atdShowDebugError('signOutEverywhere()', e); return { ok: false, error: String(e) }; }
@@ -7079,7 +7181,7 @@
     return !!e && (e.code === 'email_not_confirmed' || /email.*not.*confirm/i.test(msg));
   };
   window.atdUnconfirmedMessage = function(email){
-    return 'Your email address has not been confirmed yet. Open the confirmation email we sent' + (email ? ' to ' + email : '') + ' and click the link, then sign in. Cannot find it? Check spam, or choose "Create your password" again with the same email to send a new one.';
+    return 'Your email address has not been confirmed yet. Open the confirmation email we sent' + (email ? ' to ' + email : '') + ' and click the link, then sign in. Cannot find it? Check spam first. If it still has not arrived after a few minutes, choose "Create your password" again with the same email to send one new link, and use only the newest e-mail.';
   };
   // Returns { error, exists, needsConfirm }. needsConfirm = account created but
   // waiting on the email link; exists = that email already has an account.
@@ -13137,6 +13239,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <label>Role</label>
           <input type="text" value="Super Administrator" disabled>
         </div>
+      </div>
+
+      <div class="panel" style="max-width:520px;">
+        <div class="panel-head"><h2>Atendify bank account</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Shown to every applicant who chooses Bank Transfer for the Atendify application fee. Applicants will pay into exactly this account, so check every character before saving. Each municipality enters its own account for the licence fee.</p>
+        <div class="field-group"><label for="admin_bank_name">Bank name</label><input type="text" id="admin_bank_name" maxlength="120" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_branch">Branch</label><input type="text" id="admin_bank_branch" maxlength="120" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_accname">Account name</label><input type="text" id="admin_bank_accname" maxlength="160" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_accnum">Account number</label><input type="text" id="admin_bank_accnum" maxlength="60" autocomplete="off"></div>
+        <div class="btn-row" style="justify-content:flex-start;">
+          <button class="btn btn-primary" type="button" id="admin_bank_saveBtn" onclick="admin_saveBankInfo()">Save bank details</button>
+        </div>
+        <p class="field-hint" id="admin_bank_status" style="margin:10px 0 0;"></p>
       </div>
 
       <div class="panel" style="max-width:520px;">
@@ -27887,12 +28002,51 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 window.addEventListener('focus', mmQuietRefresh);
 
 // ==================== Application Payment (staged) ====================
-const ATENDIFY_BANK_INFO = {
-  bankName: 'National Commercial Bank (NCB)',
-  branch: 'New Kingston',
-  accountName: 'Atendify Limited',
-  accountNumber: '011-223-3445'
-};
+// Atendify's own bank account (application fee) is entered by the Super Admin in
+// Admin > Settings > "Atendify bank account" and read through
+// atd_public_bank_info(); nothing is kept in this page.
+async function poa_loadBankInfo(muniNumber){
+  let out = null;
+  try{
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.publicBankInfo){
+      out = await window.ATDBackend.publicBankInfo(muniNumber);
+    }
+  }catch(e){ out = null; }
+  if(out) return out;
+  // Fallback (database function not installed yet, or no backend): direct reads,
+  // which only succeed for roles that are allowed to read these records.
+  out = { atendify: null, municipality: null };
+  try{
+    const a = await window.storage.get('platform:bankInfo', true);
+    if(a && a.value) out.atendify = JSON.parse(a.value);
+  }catch(e){}
+  try{
+    if(muniNumber != null){
+      const m = await window.storage.get(`municipality:${muniNumber}:bankInfo`, true);
+      if(m && m.value) out.municipality = JSON.parse(m.value);
+    }
+  }catch(e){}
+  return out;
+}
+function poa_bankInfoHtml(info){
+  return `
+      Bank: <strong>${poa_escapeHtml(info.bankName || 'N/A')}</strong><br>
+      Account Name: <strong>${poa_escapeHtml(info.accountName || 'N/A')}</strong><br>
+      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>
+      Branch: <strong>${poa_escapeHtml(info.branch || 'N/A')}</strong>`;
+}
+async function loadAtendifyBankInfoInto(targetId){
+  const el = document.getElementById(targetId);
+  if(!el) return;
+  el.innerHTML = window.atdLoadingHtml('Loading bank account details…');
+  const muniId = (typeof currentAppRecord !== 'undefined' && currentAppRecord) ? currentAppRecord.muniId : null;
+  const info = await poa_loadBankInfo(muniId);
+  if(info && info.atendify && info.atendify.accountNumber){
+    el.innerHTML = poa_bankInfoHtml(info.atendify);
+  } else {
+    el.textContent = 'Atendify has not published its bank account details yet. Please contact Atendify support before paying.';
+  }
+}
 
 function getPaymentStage(r){
   if(!r.applicationFeePaid) return 'applicationFee';
@@ -28093,18 +28247,13 @@ async function loadMuniBankInfoInto(targetId){
     return;
   }
   try{
-    const result = await window.storage.get(`municipality:${currentAppRecord.muniId}:bankInfo`, true);
-    if(!result || !result.value){
+    const all = await poa_loadBankInfo(currentAppRecord.muniId);
+    const info = all && all.municipality;
+    if(!info || !info.accountNumber){
       el.textContent = 'The municipality has not set up bank account details yet. Please contact them directly.';
       return;
     }
-    const info = JSON.parse(result.value);
-    el.innerHTML = `
-      Bank: <strong>${poa_escapeHtml(info.bankName || 'N/A')}</strong><br>
-      Account Name: <strong>${poa_escapeHtml(info.accountName || 'N/A')}</strong><br>
-      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>
-      Branch: <strong>${poa_escapeHtml(info.branch || 'N/A')}</strong>
-    `;
+    el.innerHTML = poa_bankInfoHtml(info);
   } catch(err){
     el.textContent = 'Bank account details are not available right now. Please contact the municipality directly.';
   }
@@ -28119,14 +28268,12 @@ function onApMethodChange(){
     body.innerHTML = `
       <div class="info-banner" style="display:block; margin-bottom:18px;">
         <div style="font-weight:700; margin-bottom:8px;">Pay by bank transfer to:</div>
-        Bank: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.bankName)}</strong><br>
-        Account Name: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.accountName)}</strong><br>
-        Account Number: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.accountNumber)}</strong><br>
-        Branch: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.branch)}</strong>
+        <div id="apAtendifyBankBody">Loading bank account details…</div>
       </div>
       ${uploadBlockHtml('apBank', 'Upload Receipt', 'submitApplicationFeeBankTransfer()')}
     `;
     attachDropzoneHandlers('apBankDropzone', 'apBankFile', 'apBankFileLabel');
+    loadAtendifyBankInfoInto('apAtendifyBankBody');
   } else if(method === 'Credit Wallet'){
     body.innerHTML = `<div class="info-banner" style="display:block;">Checking your wallet balance…</div>`;
     renderApWalletOption();
@@ -40807,6 +40954,7 @@ function admin_goPage(page){
   if(page === 'fin-settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
+  if(page === 'settings' && window.admin_renderBankInfo) window.admin_renderBankInfo();
   // The National Venue Registry is shared with every municipality, which can
   // delete or reject venues at any time. Re-read it each time this page is
   // opened so a venue a municipality has deleted never lingers here.
@@ -44845,6 +44993,55 @@ window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
 // shared shim near the top of <body> for the storage shape and defaults —
 // this is a thin editor over that one platform:footerContent blob, same
 // pattern as renderFormTemplatesPage/savePoaFormSettings just below.
+// ---------------- Atendify bank account (Settings page) ----------------
+// Stored as platform:bankInfo (Super Admin writes; applicants read it through
+// atd_public_bank_info(), see backend/security_bank_info.sql).
+async function admin_renderBankInfo(){
+  const nameEl = document.getElementById('admin_bank_name');
+  if(!nameEl || !window.storage) return;
+  const status = document.getElementById('admin_bank_status');
+  try{
+    const r = await window.storage.get('platform:bankInfo', true);
+    const info = (r && r.value) ? JSON.parse(r.value) : {};
+    nameEl.value = info.bankName || '';
+    document.getElementById('admin_bank_branch').value = info.branch || '';
+    document.getElementById('admin_bank_accname').value = info.accountName || '';
+    document.getElementById('admin_bank_accnum').value = info.accountNumber || '';
+    if(status) status.textContent = info.accountNumber ? '' : 'Nothing saved yet: applicants currently see "Atendify has not published its bank account details yet".';
+  }catch(e){
+    if(status) status.textContent = 'Could not load the saved bank details.';
+  }
+}
+window.admin_renderBankInfo = admin_renderBankInfo;
+
+async function admin_saveBankInfo(){
+  if(!window.storage) return;
+  const info = {
+    bankName: document.getElementById('admin_bank_name').value.trim(),
+    branch: document.getElementById('admin_bank_branch').value.trim(),
+    accountName: document.getElementById('admin_bank_accname').value.trim(),
+    accountNumber: document.getElementById('admin_bank_accnum').value.trim()
+  };
+  if(!info.bankName || !info.accountName || !info.accountNumber){
+    admin_showToast('Enter the bank name, account name and account number.');
+    return;
+  }
+  const btn = document.getElementById('admin_bank_saveBtn');
+  if(btn) btn.disabled = true;
+  try{
+    await window.storage.set('platform:bankInfo', JSON.stringify(info), true);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'bankInfo.update', details: 'Updated the Atendify bank account shown to applicants (' + info.bankName + ', account ending ' + info.accountNumber.slice(-4) + ').' });
+    admin_showToast('Bank details saved. Applicants choosing Bank Transfer will now see them.');
+    const status = document.getElementById('admin_bank_status');
+    if(status) status.textContent = '';
+  }catch(e){
+    admin_showToast('Could not save the bank details — please try again.');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+window.admin_saveBankInfo = admin_saveBankInfo;
+
 async function renderFooterContentPanel(){
   const el = document.getElementById('admin_footer_copyright');
   if(!el) return;
