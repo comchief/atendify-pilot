@@ -5852,6 +5852,19 @@
       return Array.isArray(res.data) ? res.data : [];
     },
 
+    // Bank details an applicant is told to pay into: Atendify's own account and the
+    // given municipality's (backend/security_bank_info.sql). Returns
+    // { atendify, municipality } (either may be null) or null if the database
+    // function is not there yet.
+    publicBankInfo: async function (muniNumber) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_public_bank_info', { p_muni_number: muniNumber == null ? null : String(muniNumber) });
+      });
+      if (res.error) { return null; }
+      return res.data || null;
+    },
+
     // Pre-submission watch list check (Fix #45, backend/fix45_public_watchlist_check.sql)
     // — the Municipal ('watchlist:{trn}') and JCF ('jcfWatchlist:{trn}')
     // watch list rows are each guarded by RLS restricted to signed-in
@@ -13226,6 +13239,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <label>Role</label>
           <input type="text" value="Super Administrator" disabled>
         </div>
+      </div>
+
+      <div class="panel" style="max-width:520px;">
+        <div class="panel-head"><h2>Atendify bank account</h2></div>
+        <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Shown to every applicant who chooses Bank Transfer for the Atendify application fee. Applicants will pay into exactly this account, so check every character before saving. Each municipality enters its own account for the licence fee.</p>
+        <div class="field-group"><label for="admin_bank_name">Bank name</label><input type="text" id="admin_bank_name" maxlength="120" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_branch">Branch</label><input type="text" id="admin_bank_branch" maxlength="120" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_accname">Account name</label><input type="text" id="admin_bank_accname" maxlength="160" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_accnum">Account number</label><input type="text" id="admin_bank_accnum" maxlength="60" autocomplete="off"></div>
+        <div class="btn-row" style="justify-content:flex-start;">
+          <button class="btn btn-primary" type="button" id="admin_bank_saveBtn" onclick="admin_saveBankInfo()">Save bank details</button>
+        </div>
+        <p class="field-hint" id="admin_bank_status" style="margin:10px 0 0;"></p>
       </div>
 
       <div class="panel" style="max-width:520px;">
@@ -27976,12 +28002,51 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 window.addEventListener('focus', mmQuietRefresh);
 
 // ==================== Application Payment (staged) ====================
-const ATENDIFY_BANK_INFO = {
-  bankName: 'National Commercial Bank (NCB)',
-  branch: 'New Kingston',
-  accountName: 'Atendify Limited',
-  accountNumber: '011-223-3445'
-};
+// Atendify's own bank account (application fee) is entered by the Super Admin in
+// Admin > Settings > "Atendify bank account" and read through
+// atd_public_bank_info(); nothing is kept in this page.
+async function poa_loadBankInfo(muniNumber){
+  let out = null;
+  try{
+    if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.publicBankInfo){
+      out = await window.ATDBackend.publicBankInfo(muniNumber);
+    }
+  }catch(e){ out = null; }
+  if(out) return out;
+  // Fallback (database function not installed yet, or no backend): direct reads,
+  // which only succeed for roles that are allowed to read these records.
+  out = { atendify: null, municipality: null };
+  try{
+    const a = await window.storage.get('platform:bankInfo', true);
+    if(a && a.value) out.atendify = JSON.parse(a.value);
+  }catch(e){}
+  try{
+    if(muniNumber != null){
+      const m = await window.storage.get(`municipality:${muniNumber}:bankInfo`, true);
+      if(m && m.value) out.municipality = JSON.parse(m.value);
+    }
+  }catch(e){}
+  return out;
+}
+function poa_bankInfoHtml(info){
+  return `
+      Bank: <strong>${poa_escapeHtml(info.bankName || 'N/A')}</strong><br>
+      Account Name: <strong>${poa_escapeHtml(info.accountName || 'N/A')}</strong><br>
+      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>
+      Branch: <strong>${poa_escapeHtml(info.branch || 'N/A')}</strong>`;
+}
+async function loadAtendifyBankInfoInto(targetId){
+  const el = document.getElementById(targetId);
+  if(!el) return;
+  el.innerHTML = window.atdLoadingHtml('Loading bank account details…');
+  const muniId = (typeof currentAppRecord !== 'undefined' && currentAppRecord) ? currentAppRecord.muniId : null;
+  const info = await poa_loadBankInfo(muniId);
+  if(info && info.atendify && info.atendify.accountNumber){
+    el.innerHTML = poa_bankInfoHtml(info.atendify);
+  } else {
+    el.textContent = 'Atendify has not published its bank account details yet. Please contact Atendify support before paying.';
+  }
+}
 
 function getPaymentStage(r){
   if(!r.applicationFeePaid) return 'applicationFee';
@@ -28182,18 +28247,13 @@ async function loadMuniBankInfoInto(targetId){
     return;
   }
   try{
-    const result = await window.storage.get(`municipality:${currentAppRecord.muniId}:bankInfo`, true);
-    if(!result || !result.value){
+    const all = await poa_loadBankInfo(currentAppRecord.muniId);
+    const info = all && all.municipality;
+    if(!info || !info.accountNumber){
       el.textContent = 'The municipality has not set up bank account details yet. Please contact them directly.';
       return;
     }
-    const info = JSON.parse(result.value);
-    el.innerHTML = `
-      Bank: <strong>${poa_escapeHtml(info.bankName || 'N/A')}</strong><br>
-      Account Name: <strong>${poa_escapeHtml(info.accountName || 'N/A')}</strong><br>
-      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>
-      Branch: <strong>${poa_escapeHtml(info.branch || 'N/A')}</strong>
-    `;
+    el.innerHTML = poa_bankInfoHtml(info);
   } catch(err){
     el.textContent = 'Bank account details are not available right now. Please contact the municipality directly.';
   }
@@ -28208,14 +28268,12 @@ function onApMethodChange(){
     body.innerHTML = `
       <div class="info-banner" style="display:block; margin-bottom:18px;">
         <div style="font-weight:700; margin-bottom:8px;">Pay by bank transfer to:</div>
-        Bank: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.bankName)}</strong><br>
-        Account Name: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.accountName)}</strong><br>
-        Account Number: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.accountNumber)}</strong><br>
-        Branch: <strong>${poa_escapeHtml(ATENDIFY_BANK_INFO.branch)}</strong>
+        <div id="apAtendifyBankBody">Loading bank account details…</div>
       </div>
       ${uploadBlockHtml('apBank', 'Upload Receipt', 'submitApplicationFeeBankTransfer()')}
     `;
     attachDropzoneHandlers('apBankDropzone', 'apBankFile', 'apBankFileLabel');
+    loadAtendifyBankInfoInto('apAtendifyBankBody');
   } else if(method === 'Credit Wallet'){
     body.innerHTML = `<div class="info-banner" style="display:block;">Checking your wallet balance…</div>`;
     renderApWalletOption();
@@ -40896,6 +40954,7 @@ function admin_goPage(page){
   if(page === 'fin-settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.admin_renderProfile) window.admin_renderProfile();
   if(page === 'settings' && window.renderFooterContentPanel) window.renderFooterContentPanel();
+  if(page === 'settings' && window.admin_renderBankInfo) window.admin_renderBankInfo();
   // The National Venue Registry is shared with every municipality, which can
   // delete or reject venues at any time. Re-read it each time this page is
   // opened so a venue a municipality has deleted never lingers here.
@@ -44934,6 +44993,55 @@ window.admin_saveJcfBriefingVideoField = admin_saveJcfBriefingVideoField;
 // shared shim near the top of <body> for the storage shape and defaults —
 // this is a thin editor over that one platform:footerContent blob, same
 // pattern as renderFormTemplatesPage/savePoaFormSettings just below.
+// ---------------- Atendify bank account (Settings page) ----------------
+// Stored as platform:bankInfo (Super Admin writes; applicants read it through
+// atd_public_bank_info(), see backend/security_bank_info.sql).
+async function admin_renderBankInfo(){
+  const nameEl = document.getElementById('admin_bank_name');
+  if(!nameEl || !window.storage) return;
+  const status = document.getElementById('admin_bank_status');
+  try{
+    const r = await window.storage.get('platform:bankInfo', true);
+    const info = (r && r.value) ? JSON.parse(r.value) : {};
+    nameEl.value = info.bankName || '';
+    document.getElementById('admin_bank_branch').value = info.branch || '';
+    document.getElementById('admin_bank_accname').value = info.accountName || '';
+    document.getElementById('admin_bank_accnum').value = info.accountNumber || '';
+    if(status) status.textContent = info.accountNumber ? '' : 'Nothing saved yet: applicants currently see "Atendify has not published its bank account details yet".';
+  }catch(e){
+    if(status) status.textContent = 'Could not load the saved bank details.';
+  }
+}
+window.admin_renderBankInfo = admin_renderBankInfo;
+
+async function admin_saveBankInfo(){
+  if(!window.storage) return;
+  const info = {
+    bankName: document.getElementById('admin_bank_name').value.trim(),
+    branch: document.getElementById('admin_bank_branch').value.trim(),
+    accountName: document.getElementById('admin_bank_accname').value.trim(),
+    accountNumber: document.getElementById('admin_bank_accnum').value.trim()
+  };
+  if(!info.bankName || !info.accountName || !info.accountNumber){
+    admin_showToast('Enter the bank name, account name and account number.');
+    return;
+  }
+  const btn = document.getElementById('admin_bank_saveBtn');
+  if(btn) btn.disabled = true;
+  try{
+    await window.storage.set('platform:bankInfo', JSON.stringify(info), true);
+    await window.atdLogAudit({ portal: 'admin', actor: adminActorEmail, actorRole: 'Super Administrator', action: 'bankInfo.update', details: 'Updated the Atendify bank account shown to applicants (' + info.bankName + ', account ending ' + info.accountNumber.slice(-4) + ').' });
+    admin_showToast('Bank details saved. Applicants choosing Bank Transfer will now see them.');
+    const status = document.getElementById('admin_bank_status');
+    if(status) status.textContent = '';
+  }catch(e){
+    admin_showToast('Could not save the bank details — please try again.');
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+window.admin_saveBankInfo = admin_saveBankInfo;
+
 async function renderFooterContentPanel(){
   const el = document.getElementById('admin_footer_copyright');
   if(!el) return;
