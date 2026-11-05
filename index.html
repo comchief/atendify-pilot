@@ -5564,13 +5564,18 @@
     },
     signUp: function (email, password) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
-      return client.auth.signUp({ email: email, password: password });
+      // Say where the confirmation link should land. Without this, Supabase uses
+      // the project's Site URL setting, and if that is still the default the
+      // link opens http://localhost:3000 on the person's own computer.
+      var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
+      return client.auth.signUp(redirect ? { email: email, password: password, options: { emailRedirectTo: redirect } } : { email: email, password: password });
     },
     // Re-sends the signup confirmation email (Confirm email account
     // creation) for an account that hasn't clicked the link yet.
     resendConfirmation: function (email) {
       if (!client) return Promise.reject(new Error('Backend not configured'));
-      return client.auth.resend({ type: 'signup', email: email });
+      var redirect = (location.protocol === 'file:') ? undefined : (location.origin + '/');
+      return client.auth.resend(redirect ? { type: 'signup', email: email, options: { emailRedirectTo: redirect } } : { type: 'signup', email: email });
     },
     // scope:'local' is deliberate, not the default: Supabase's own default
     // scope is 'global', meaning every ordinary "Log out" click in every
