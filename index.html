@@ -32741,7 +32741,6 @@ async function submitRejectPendingVenue(){
   v.rejectReason = reason;
   v.rejectedBy = currentUser.name;
   v.rejectedAt = new Date().toISOString();
-  await persistVenue(v);
 
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
@@ -32770,6 +32769,28 @@ async function submitRejectPendingVenue(){
       }
       if(activeAppId === a.id) renderAppDetail();
     }
+  }
+
+  // A rejected venue is not kept: the reason lives on the application and in the
+  // applicant's notice, and the audit log records the decision. Remove the pending
+  // record from the venue database. If the database refuses the removal (the venue
+  // delete rule from backend/security_venue_delete.sql is not installed yet), fall
+  // back to keeping it marked as rejected so the rejection itself still works.
+  let removed = false;
+  if(window.storage){
+    const venueKey = v._storageKey || `venue:${v.id}`;
+    try{ await window.storage.delete(venueKey, true); }catch(err){ /* checked below */ }
+    let stillThere = false;
+    try{
+      const check = await window.storage.get(venueKey, true);
+      stillThere = !!(check && check.value);
+    }catch(err){ /* a failed read is treated as gone */ }
+    removed = !stillThere;
+    if(!removed){ try{ await persistVenue(v); }catch(err){} }
+  }
+  if(removed) venues = venues.filter(x => x.id !== v.id);
+  if(window.atdLogAudit && currentUser){
+    window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'venue.rejected', details: `Rejected the suggested venue "${v.name}"${v.sourceAppNumber ? ' (application ' + v.sourceAppNumber + ')' : ''}: ${reason}`, muniId: currentUser.muniId });
   }
 
   muni_showToast(`${v.name} has been rejected and will not be added to the venue database.`);
