@@ -11025,7 +11025,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </label>
           <span style="font-size:14px; font-weight:600;">Require the corresponding JCF Annual Noise Abatement Permit to already be issued before an Annual Places of Amusement permit can be approved</span>
         </div>
-        <p style="font-size:13px; color:var(--text-muted); margin:0;">Applies to Annual applications only. When on, the CEO cannot approve an Annual application here until its linked JCF Noise Abatement application has been fully approved and its permit generated — independent of whether "Police Approval (apply online)" happens to be one of this business type's own required documents.</p>
+        <p style="font-size:13px; color:var(--text-muted); margin:0;">Applies to Annual applications only. When on, the CEO cannot approve an Annual application here until its linked JCF Noise Abatement application has been fully approved and its permit generated — independent of whether "Police Approval (apply online)" happens to be one of this business type's own required documents. When off, neither Annual nor Special Event applications wait on JCF: a Supervisor can recommend approval and the CEO can approve without the JCF permit being issued.</p>
       </div>
       <div class="panel">
         <div class="panel-head"><h2 style="font-size:18px;">Municipal Fee Payment Timing</h2></div>
@@ -20742,6 +20742,69 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `</div>`;
     }
 
+    // Recommendation card. Only a Supervisor picks a recommendation — once
+    // picked it locks (color-coded badge, green/amber/red) and the picker is
+    // removed; a Supervisor can only "request" a withdrawal, which the Chief
+    // must approve before a new pick can be made. The Chief never gets a
+    // picker here — only a read-only view of the Supervisor's recommendation,
+    // an "Approve withdrawal request" action when one is pending, and an
+    // independent "Reject recommendation" action requiring a reason (kept
+    // separate from the Final Decision card's own Approve/Reject below).
+    const isChief = jcfdCurrentUser.role === JCFD_ROLE_CHIEF;
+    if(canManage){
+      html += `<div class="official-card"><h4>Review &amp; Recommendation</h4>`;
+
+      if(rec.recommendationChiefRejectionReason && !rec.recommendation){
+        html += `<div class="status-banner bad" style="margin-bottom:12px;">The Police Chief rejected the previous recommendation${rec.recommendationChiefRejectedDate ? ' on ' + acctEscapeHtml(rec.recommendationChiefRejectedDate) : ''}: "${acctEscapeHtml(rec.recommendationChiefRejectionReason)}". A new recommendation is needed.</div>`;
+      }
+
+      if(rec.recommendation){
+        // Fix #48 — the picker below now only ever offers "Recommend
+        // Approve"/"Recommend Reject" (matching the Municipal Officer
+        // portal's own Review & Recommendation card, which already had just
+        // these two). Older applications recommended before this change can
+        // still have the previous three-option wording saved
+        // ("Recommend Approval"/"Recommend Rejection"/"Needs More
+        // Information") — this keeps coloring those correctly too, rather
+        // than only recognizing the new exact strings.
+        const recBadgeClass = /^Recommend Approv/.test(rec.recommendation) ? 'badge-green'
+          : (rec.recommendation === 'Needs More Information' ? 'badge-amber' : 'badge-red');
+        html += `
+          <p class="recommendation-note"><span class="badge ${recBadgeClass}">${acctEscapeHtml(rec.recommendation)}</span></p>
+          ${rec.recommendationNotes ? `<div class="detail-row"><div class="dr-label">Notes</div><div class="dr-value">${acctEscapeHtml(rec.recommendationNotes)}</div></div>` : ''}
+          ${rec.recommendedBy ? `<p class="col-desc" style="margin-top:10px;">Last recommended by ${acctEscapeHtml(rec.recommendedBy)}</p>` : ''}`;
+        if(rec.recommendationWithdrawalRequested){
+          html += `<div class="status-banner warn" style="margin-top:8px;">Withdrawal requested by ${acctEscapeHtml(rec.recommendationWithdrawalRequestedBy || '')}${rec.recommendationWithdrawalRequestedDate ? ' on ' + acctEscapeHtml(rec.recommendationWithdrawalRequestedDate) : ''} — awaiting Chief approval.</div>`;
+        }
+        if(isChief){
+          if(rec.recommendationWithdrawalRequested){
+            html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="jcfd_approveRecommendationWithdrawal()">Approve withdrawal request</button></div>`;
+          }
+          html += `
+            <div class="field-group" style="margin-top:12px;"><label for="jcfd_chiefRejectReasonInput">Reason for rejecting recommendation</label><textarea id="jcfd_chiefRejectReasonInput" placeholder="Explain why this recommendation is being rejected"></textarea></div>
+            <div class="action-btn-row"><button class="btn btn-danger btn-sm" onclick="jcfd_chiefRejectRecommendation()">Reject recommendation</button></div>`;
+        } else if(!rec.recommendationWithdrawalRequested){
+          html += `<div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-sm" onclick="jcfd_requestRecommendationWithdrawal()">Request withdrawal of recommendation</button></div>`;
+        }
+      } else if(isChief){
+        html += `<p class="recommendation-note">Waiting for the Supervisor to submit a recommendation.</p>`;
+      } else {
+        html += `
+          <div class="field-group"><label for="jcfd_recSelect">Recommendation</label>
+            <select id="jcfd_recSelect">
+              <option value="">Select…</option>
+              <option value="Recommend Approve">Recommend Approve</option>
+              <option value="Recommend Reject">Recommend Reject</option>
+            </select>
+          </div>
+          <div class="field-group"><label for="jcfd_recNotes">Notes</label><textarea id="jcfd_recNotes">${acctEscapeHtml(rec.recommendationNotes || '')}</textarea></div>
+          <button class="btn btn-primary btn-sm" onclick="jcfd_saveRecommendation()">Save recommendation</button>`;
+      }
+      html += `</div>`;
+    } else if(isOfficer){
+      html += `<div class="official-card"><h4>Review &amp; Recommendation</h4><p class="no-permission-note">Only a Supervisor or Chief can record a recommendation.</p></div>`;
+    }
+
     // Official Use Checklist card — must be checked by a Police Supervisor
     // (or a Chief, who always has full access).
     {
@@ -20902,70 +20965,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>`;
     }
 
-    // Recommendation card. Only a Supervisor picks a recommendation — once
-    // picked it locks (color-coded badge, green/amber/red) and the picker is
-    // removed; a Supervisor can only "request" a withdrawal, which the Chief
-    // must approve before a new pick can be made. The Chief never gets a
-    // picker here — only a read-only view of the Supervisor's recommendation,
-    // an "Approve withdrawal request" action when one is pending, and an
-    // independent "Reject recommendation" action requiring a reason (kept
-    // separate from the Final Decision card's own Approve/Reject below).
-    const isChief = jcfdCurrentUser.role === JCFD_ROLE_CHIEF;
-    if(canManage){
-      html += `<div class="official-card"><h4>Review &amp; Recommendation</h4>`;
-
-      if(rec.recommendationChiefRejectionReason && !rec.recommendation){
-        html += `<div class="status-banner bad" style="margin-bottom:12px;">The Police Chief rejected the previous recommendation${rec.recommendationChiefRejectedDate ? ' on ' + acctEscapeHtml(rec.recommendationChiefRejectedDate) : ''}: "${acctEscapeHtml(rec.recommendationChiefRejectionReason)}". A new recommendation is needed.</div>`;
-      }
-
-      if(rec.recommendation){
-        // Fix #48 — the picker below now only ever offers "Recommend
-        // Approve"/"Recommend Reject" (matching the Municipal Officer
-        // portal's own Review & Recommendation card, which already had just
-        // these two). Older applications recommended before this change can
-        // still have the previous three-option wording saved
-        // ("Recommend Approval"/"Recommend Rejection"/"Needs More
-        // Information") — this keeps coloring those correctly too, rather
-        // than only recognizing the new exact strings.
-        const recBadgeClass = /^Recommend Approv/.test(rec.recommendation) ? 'badge-green'
-          : (rec.recommendation === 'Needs More Information' ? 'badge-amber' : 'badge-red');
-        html += `
-          <p class="recommendation-note"><span class="badge ${recBadgeClass}">${acctEscapeHtml(rec.recommendation)}</span></p>
-          ${rec.recommendationNotes ? `<div class="detail-row"><div class="dr-label">Notes</div><div class="dr-value">${acctEscapeHtml(rec.recommendationNotes)}</div></div>` : ''}
-          ${rec.recommendedBy ? `<p class="col-desc" style="margin-top:10px;">Last recommended by ${acctEscapeHtml(rec.recommendedBy)}</p>` : ''}`;
-        if(rec.recommendationWithdrawalRequested){
-          html += `<div class="status-banner warn" style="margin-top:8px;">Withdrawal requested by ${acctEscapeHtml(rec.recommendationWithdrawalRequestedBy || '')}${rec.recommendationWithdrawalRequestedDate ? ' on ' + acctEscapeHtml(rec.recommendationWithdrawalRequestedDate) : ''} — awaiting Chief approval.</div>`;
-        }
-        if(isChief){
-          if(rec.recommendationWithdrawalRequested){
-            html += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="jcfd_approveRecommendationWithdrawal()">Approve withdrawal request</button></div>`;
-          }
-          html += `
-            <div class="field-group" style="margin-top:12px;"><label for="jcfd_chiefRejectReasonInput">Reason for rejecting recommendation</label><textarea id="jcfd_chiefRejectReasonInput" placeholder="Explain why this recommendation is being rejected"></textarea></div>
-            <div class="action-btn-row"><button class="btn btn-danger btn-sm" onclick="jcfd_chiefRejectRecommendation()">Reject recommendation</button></div>`;
-        } else if(!rec.recommendationWithdrawalRequested){
-          html += `<div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-sm" onclick="jcfd_requestRecommendationWithdrawal()">Request withdrawal of recommendation</button></div>`;
-        }
-      } else if(isChief){
-        html += `<p class="recommendation-note">Waiting for the Supervisor to submit a recommendation.</p>`;
-      } else {
-        html += `
-          <div class="field-group"><label for="jcfd_recSelect">Recommendation</label>
-            <select id="jcfd_recSelect">
-              <option value="">Select…</option>
-              <option value="Recommend Approve">Recommend Approve</option>
-              <option value="Recommend Reject">Recommend Reject</option>
-            </select>
-          </div>
-          <div class="field-group"><label for="jcfd_recNotes">Notes</label><textarea id="jcfd_recNotes">${acctEscapeHtml(rec.recommendationNotes || '')}</textarea></div>
-          <button class="btn btn-primary btn-sm" onclick="jcfd_saveRecommendation()">Save recommendation</button>`;
-      }
-      html += `</div>`;
-    } else if(isOfficer){
-      html += `<div class="official-card"><h4>Review &amp; Recommendation</h4><p class="no-permission-note">Only a Supervisor or Chief can record a recommendation.</p></div>`;
-    }
-
-    } // end of "rec.status !== 'Rejected'" gate around Assignment..Review & Recommendation
+    } // end of "rec.status !== 'Rejected'" gate around Assignment..Review & Recommendation..Comments
 
     // Final decision card (gated by the "decide" permission — the Chief
     // always has it; a Supervisor/Officer only if the Chief has granted it
@@ -24983,6 +24983,29 @@ function poa_mdEventTypes(){
   mdDays.forEach(d => { if(d.eventType && out.indexOf(d.eventType) === -1) out.push(d.eventType); });
   return out;
 }
+// Documents that are the same thing under two names. When an application covers
+// several event types and one asks for the first name while another asks for the
+// second, the applicant should be asked once, under the `keep` name.
+//   * "Health Certification" is the Ministry of Health Approval.
+//   * "Fire Certification (if there will be open fire)" is covered by a plain
+//     "Fire Certification"; if only the conditional one is asked for, it stays.
+const POA_EQUIVALENT_DOCS = [
+  { keep: 'Ministry of Health Approval', absorb: ['Health Certification'] },
+  { keep: 'Fire Certification', absorb: ['Fire Certification (if there will be open fire)'] }
+];
+function poa_collapseEquivalentDocs(docs, byDoc){
+  POA_EQUIVALENT_DOCS.forEach(rule => {
+    if(docs.indexOf(rule.keep) === -1) return;
+    rule.absorb.forEach(name => {
+      const at = docs.indexOf(name);
+      if(at === -1) return;
+      docs.splice(at, 1);
+      (byDoc[name] || []).forEach(t => { if(byDoc[rule.keep].indexOf(t) === -1) byDoc[rule.keep].push(t); });
+      delete byDoc[name];
+    });
+  });
+  return { docs, byDoc };
+}
 // Every document required by ANY day's event type, each listed once. byDoc maps
 // a document to the event types that call for it (for the note on the list).
 function poa_mdRequiredDocs(){
@@ -24995,7 +25018,7 @@ function poa_mdRequiredDocs(){
       byDoc[name].push(t);
     });
   });
-  return { docs, byDoc };
+  return poa_collapseEquivalentDocs(docs, byDoc);
 }
 // The days array as it should be costed/saved (trimmed, numbers parsed).
 function poa_mdDays(){
@@ -25358,7 +25381,7 @@ document.getElementById('useOfVenue').addEventListener('change', poa_applyAnnual
 // --- Required documents (from Yearly Amusement Requirements) ---
 const ANNUAL_REQUIREMENTS = [
   "Fire Certification",
-  "Health Certification",
+  "Ministry of Health Approval",
   "Police Approval (apply online)",
   "Emergency Contingency Plan (Hotels & Venues with capacity over 500)",
   "NSWMA"
@@ -25366,8 +25389,8 @@ const ANNUAL_REQUIREMENTS = [
 
 const EVENT_REQUIREMENTS = {
   "Promotions": ["Police Approval (apply online)"],
-  "Fish Fry": ["Health Certification", "Fire Certification", "Police Approval (apply online)"],
-  "Birthday Party": ["Police Approval (apply online)", "Health Certification", "Fire Certification (if there will be open fire)"],
+  "Fish Fry": ["Ministry of Health Approval", "Fire Certification", "Police Approval (apply online)"],
+  "Birthday Party": ["Police Approval (apply online)", "Ministry of Health Approval", "Fire Certification (if there will be open fire)"],
   "Walk/Run": ["Ambulance", "Fire Certification", "Police Approval (apply online)", "National Works Agency Approval", "Liability Insurance"],
   "Fireworks": ["Ambulance", "Fire Certification", "Police Approval (apply online)", "Liability Insurance", "Emergency Contingency Plan"],
   "Dead Yard": ["Police Approval (apply online)"],
@@ -25448,6 +25471,19 @@ function poa_annualApplicantCapacity(){
 const EMERGENCY_CONTINGENCY_CAPACITY_DOC_NAME = 'Emergency Contingency Plan (Hotels & Venues with capacity over 500)';
 const EMERGENCY_CONTINGENCY_CAPACITY_THRESHOLD = 500;
 
+// "Health Certification" was the old name of the "Ministry of Health Approval"
+// requirement. A municipality's saved Form Elements may still list the old name;
+// show (and save) the standard one, once.
+function atdNormalizeHealthDoc(fe){
+  const fix = list => {
+    const out = [];
+    (list || []).forEach(n => { const m = (n === 'Health Certification') ? 'Ministry of Health Approval' : n; if(out.indexOf(m) === -1) out.push(m); });
+    return out;
+  };
+  if(fe && Array.isArray(fe.businessTypes)) fe.businessTypes.forEach(t => { t.requiredDocuments = fix(t.requiredDocuments); });
+  if(fe && Array.isArray(fe.eventTypes)) fe.eventTypes.forEach(t => { t.requiredDocuments = fix(t.requiredDocuments); });
+  return fe;
+}
 function defaultFormElements(){
   return {
     businessTypes: DEFAULT_ANNUAL_BUSINESS_TYPES.map(name => ({ name, requiredDocuments: ANNUAL_REQUIREMENTS.slice() })),
@@ -25475,7 +25511,7 @@ async function loadMunicipalityFormElements(){
       if(result && result.value){
         const saved = JSON.parse(result.value);
         if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)){
-          muniFormElements = saved;
+          muniFormElements = atdNormalizeHealthDoc(saved);
           // A record saved before Venue Inspection Fee became configurable
           // here won't carry this field yet — fall back to the platform
           // default rather than silently charging $0.
@@ -30350,6 +30386,15 @@ function muni_computeDocBreakdown(a, strict){
   if(regDocs && regDocList){
     regDocList.forEach(name => {
       if(name === POLICE_APPROVAL_DOC_NAME){
+        // When the CEO has switched OFF "Require the corresponding JCF Annual
+        // Noise Abatement Permit to already be issued…", an Annual
+        // application no longer needs the JCF permit to count its documents
+        // as complete — so the Supervisor can recommend approval and the CEO
+        // can decide without waiting for JCF. Applies to Annual AND Special
+        // Event filings once the toggle is off. Cache is primed by
+        // muniRequiresJcfPermitForAnnual(); unknown => keep the strict rule.
+        const jcfCache = window.__muniJcfReqCache || {};
+        if(jcfCache[a.muniId] === false) return;
         breakdown.push([name, !!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)]);
       } else {
         const d = regDocs[name];
@@ -31268,6 +31313,7 @@ async function saveMuniSettings(){
 
   try{
     await window.storage.set(`municipality:${currentUser.muniId}:settings`, JSON.stringify(settings), true);
+    (window.__muniJcfReqCache = window.__muniJcfReqCache || {})[currentUser.muniId] = !!settings.requireJcfPermitForAnnualApproval;
     muni_showToast('Settings saved.');
   } catch(err){
     muni_showToast('Could not save settings right now.');
@@ -31535,7 +31581,6 @@ function closeArchiveViewModal(){
 // taxonomy from scratch. A one-off custom name can still be added per type.
 const FORM_ELEMENT_DOCUMENT_CATALOG = [
   "Ministry of Health Approval",
-  "Health Certification",
   "Fire Certification",
   "Fire Certification (if there will be open fire)",
   "Police Approval (apply online)",
@@ -31603,14 +31648,27 @@ function defaultAnnualCapacityFees(){
 // this feature existed. A municipality that hasn't customized its own Form
 // Elements yet (no `formElements:<muniId>` record saved) falls back to this,
 // so nothing changes for existing municipalities until their CEO opts in.
+// "Health Certification" was the old name of the "Ministry of Health Approval"
+// requirement. A municipality's saved Form Elements may still list the old name;
+// show (and save) the standard one, once.
+function atdNormalizeHealthDoc(fe){
+  const fix = list => {
+    const out = [];
+    (list || []).forEach(n => { const m = (n === 'Health Certification') ? 'Ministry of Health Approval' : n; if(out.indexOf(m) === -1) out.push(m); });
+    return out;
+  };
+  if(fe && Array.isArray(fe.businessTypes)) fe.businessTypes.forEach(t => { t.requiredDocuments = fix(t.requiredDocuments); });
+  if(fe && Array.isArray(fe.eventTypes)) fe.eventTypes.forEach(t => { t.requiredDocuments = fix(t.requiredDocuments); });
+  return fe;
+}
 function defaultFormElements(){
-  const annualDocs = ["Fire Certification", "Health Certification", "Police Approval (apply online)", "Emergency Contingency Plan (Hotels & Venues with capacity over 500)", "NSWMA"];
+  const annualDocs = ["Fire Certification", "Ministry of Health Approval", "Police Approval (apply online)", "Emergency Contingency Plan (Hotels & Venues with capacity over 500)", "NSWMA"];
   return {
     businessTypes: ["Bar", "Restaurant", "Hotel", "Beach", "Community Center", "Night Club", "Theatre", "Amusement Arcade", "Other"].map(name => ({ name, requiredDocuments: annualDocs.slice() })),
     eventTypes: [
       { name: "Promotions", requiredDocuments: ["Police Approval (apply online)"] },
-      { name: "Fish Fry", requiredDocuments: ["Health Certification", "Fire Certification", "Police Approval (apply online)"] },
-      { name: "Birthday Party", requiredDocuments: ["Police Approval (apply online)", "Health Certification", "Fire Certification (if there will be open fire)"] },
+      { name: "Fish Fry", requiredDocuments: ["Ministry of Health Approval", "Fire Certification", "Police Approval (apply online)"] },
+      { name: "Birthday Party", requiredDocuments: ["Police Approval (apply online)", "Ministry of Health Approval", "Fire Certification (if there will be open fire)"] },
       { name: "Walk/Run", requiredDocuments: ["Ambulance", "Fire Certification", "Police Approval (apply online)", "National Works Agency Approval", "Liability Insurance"] },
       { name: "Fireworks", requiredDocuments: ["Ambulance", "Fire Certification", "Police Approval (apply online)", "Liability Insurance", "Emergency Contingency Plan"] },
       { name: "Dead Yard", requiredDocuments: ["Police Approval (apply online)"] },
@@ -31635,7 +31693,7 @@ async function loadFormElementsConfig(){
     if(result && result.value){
       const saved = JSON.parse(result.value);
       if(saved && Array.isArray(saved.businessTypes) && Array.isArray(saved.eventTypes)){
-        formElementsConfig = saved;
+        formElementsConfig = atdNormalizeHealthDoc(saved);
         // A record saved before Venue Inspection Fee became configurable
         // here won't carry this field yet — fall back to the platform
         // default rather than treating it as a deliberate $0 fee.
@@ -32741,7 +32799,6 @@ async function submitRejectPendingVenue(){
   v.rejectReason = reason;
   v.rejectedBy = currentUser.name;
   v.rejectedAt = new Date().toISOString();
-  await persistVenue(v);
 
   if(v.sourceAppNumber){
     const a = applications.find(x => x.appNumber === v.sourceAppNumber);
@@ -32770,6 +32827,28 @@ async function submitRejectPendingVenue(){
       }
       if(activeAppId === a.id) renderAppDetail();
     }
+  }
+
+  // A rejected venue is not kept: the reason lives on the application and in the
+  // applicant's notice, and the audit log records the decision. Remove the pending
+  // record from the venue database. If the database refuses the removal (the venue
+  // delete rule from backend/security_venue_delete.sql is not installed yet), fall
+  // back to keeping it marked as rejected so the rejection itself still works.
+  let removed = false;
+  if(window.storage){
+    const venueKey = v._storageKey || `venue:${v.id}`;
+    try{ await window.storage.delete(venueKey, true); }catch(err){ /* checked below */ }
+    let stillThere = false;
+    try{
+      const check = await window.storage.get(venueKey, true);
+      stillThere = !!(check && check.value);
+    }catch(err){ /* a failed read is treated as gone */ }
+    removed = !stillThere;
+    if(!removed){ try{ await persistVenue(v); }catch(err){} }
+  }
+  if(removed) venues = venues.filter(x => x.id !== v.id);
+  if(window.atdLogAudit && currentUser){
+    window.atdLogAudit({ portal: 'muni', actor: currentUser.email, actorRole: currentUser.role, action: 'venue.rejected', details: `Rejected the suggested venue "${v.name}"${v.sourceAppNumber ? ' (application ' + v.sourceAppNumber + ')' : ''}: ${reason}`, muniId: currentUser.muniId });
   }
 
   muni_showToast(`${v.name} has been rejected and will not be added to the venue database.`);
@@ -37066,6 +37145,7 @@ async function renderAppDetail(){
   // branch of that gate ran — declaring it only inside the "not Rejected"
   // branch (as it originally was, before that gate existed) left it out of
   // scope there and threw a ReferenceError on every non-Rejected render.
+  await muniRequiresJcfPermitForAnnual(a.muniId); // primes the JCF-toggle cache used by the doc checks
   const liveRequiredDocsSubmitted = muni_computeRequiredDocumentsSubmitted(a);
 
   // Once rejected, no further action is available anywhere in the Official
@@ -37158,6 +37238,79 @@ async function renderAppDetail(){
   }
   cardsHtml += `</div>`;
   } // end: not payment-only
+
+  // ---- Review & recommendation card ----
+  // Once a Supervisor picks a recommendation it locks (badge, green/red) and
+  // the pick buttons are removed — no more re-picking. A Supervisor can only
+  // "request" a withdrawal; the CEO must approve it before a new pick can be
+  // made. The CEO never gets a dropdown/picker here — only a read-only view
+  // of the Supervisor's recommendation, an "Approve withdrawal request"
+  // action when one is pending, and an independent "Reject recommendation"
+  // action that requires a reason (kept separate from the Final Decision
+  // card's own Approve/Reject-application buttons below).
+  cardsHtml += `<div class="official-card"><h4>Review &amp; Recommendation</h4>`;
+
+  if(a.recommendationCeoRejectionReason && !a.recommendation){
+    cardsHtml += `<div class="status-banner bad" style="margin-bottom:12px;">The CEO rejected the previous recommendation${a.recommendationCeoRejectedDate ? ' on ' + muni_escapeHtml(a.recommendationCeoRejectedDate) : ''}: "${muni_escapeHtml(a.recommendationCeoRejectionReason)}". A new recommendation is needed.</div>`;
+  }
+
+  if(a.recommendation){
+    const recColor = a.recommendation === 'Recommend Approve' ? 'badge-green' : 'badge-red';
+    cardsHtml += `<p class="recommendation-note"><span class="badge ${recColor}">${muni_escapeHtml(a.recommendation)}</span> — by ${muni_escapeHtml(a.recommendedBy || 'Supervisor')}</p>`;
+    if(a.recommendationWithdrawalRequested){
+      cardsHtml += `<div class="status-banner warn" style="margin-top:8px;">Withdrawal requested by ${muni_escapeHtml(a.recommendationWithdrawalRequestedBy || '')}${a.recommendationWithdrawalRequestedDate ? ' on ' + muni_escapeHtml(a.recommendationWithdrawalRequestedDate) : ''} — awaiting CEO approval.</div>`;
+    }
+  }
+
+  if(hasPerm('review')){
+    const statusButtons = [];
+    if(a.status === 'Payment Received'){
+      statusButtons.push(`<button class="btn btn-sm" onclick="advanceStatus('Processing')">Start processing</button>`);
+    }
+    if(statusButtons.length){
+      cardsHtml += `<div class="action-btn-row">${statusButtons.join('')}</div>`;
+    }
+
+    // "Send for approval" and "Recommend approve" used to be two separate
+    // actions — a Supervisor could advance the status without ever picking
+    // a recommendation, or pick a recommendation without the application
+    // ever reaching the CEO's decision screen unless someone separately
+    // clicked "Send for approval". Merged into one "Recommend for Approval"
+    // button (muni_recommendForApproval) that sets the recommendation AND
+    // advances the status to Pending Approval in one action — and gated so
+    // it can't be used until every required document (including the fixed-
+    // slot docs — see muni_computeAllDocsApproved) is explicitly Approved
+    // or Not Applicable, not merely uploaded/Submitted.
+    const allDocsApprovedForRec = muni_computeAllDocsApproved(a);
+
+    if(isCeo){
+      if(a.recommendation){
+        if(a.recommendationWithdrawalRequested){
+          cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="approveRecommendationWithdrawal()">Approve withdrawal request</button></div>`;
+        }
+        cardsHtml += `
+          <div class="field-group" style="margin-top:12px;"><label for="ceoRejectReasonInput">Reason for rejecting recommendation</label><textarea id="ceoRejectReasonInput" placeholder="Explain why this recommendation is being rejected"></textarea></div>
+          <div class="action-btn-row"><button class="btn btn-danger btn-sm" onclick="ceoRejectRecommendation()">Reject recommendation</button></div>`;
+      } else if(!statusButtons.length){
+        cardsHtml += `<p class="recommendation-note">${(a.status === 'Processing' || a.status === 'Pending Approval') ? 'Waiting for the Supervisor to submit a recommendation.' : 'No review actions available at the current status.'}</p>`;
+      }
+    } else {
+      if(!a.recommendation && (a.status === 'Processing' || a.status === 'Pending Approval')){
+        cardsHtml += `<div class="action-btn-row" style="margin-top:${statusButtons.length ? '10px' : '0'};">
+          <button class="btn btn-success btn-sm" onclick="muni_recommendForApproval()" ${allDocsApprovedForRec ? '' : 'disabled title="Every required document must be Approved (or marked Not Applicable) before this application can be recommended for approval."'}>Recommend for Approval</button>
+          <button class="btn btn-outline-danger btn-sm" onclick="setRecommendation('Recommend Reject')">Recommend reject</button>
+        </div>
+        ${allDocsApprovedForRec ? '' : '<p class="recommendation-note" style="margin-top:6px;">All uploaded documents must be Approved (or Not Applicable) under the Document Check card before this application can be recommended for approval.</p>'}`;
+      } else if(a.recommendation && !a.recommendationWithdrawalRequested){
+        cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="requestRecommendationWithdrawal()">Request withdrawal of recommendation</button></div>`;
+      } else if(!a.recommendation && !statusButtons.length){
+        cardsHtml += `<p class="recommendation-note">No review actions available at the current status.</p>`;
+      }
+    }
+  } else {
+    cardsHtml += `<p class="no-permission-note">You don't have permission to review applications.</p>`;
+  }
+  cardsHtml += `</div>`;
 
   // ---- Document Check card ----
   // Computed live (see muni_computeDocBreakdown/muni_computeRequiredDocumentsSubmitted)
@@ -37440,79 +37593,6 @@ async function renderAppDetail(){
     }
     cardsHtml += `</div>`;
   }
-
-  // ---- Review & recommendation card ----
-  // Once a Supervisor picks a recommendation it locks (badge, green/red) and
-  // the pick buttons are removed — no more re-picking. A Supervisor can only
-  // "request" a withdrawal; the CEO must approve it before a new pick can be
-  // made. The CEO never gets a dropdown/picker here — only a read-only view
-  // of the Supervisor's recommendation, an "Approve withdrawal request"
-  // action when one is pending, and an independent "Reject recommendation"
-  // action that requires a reason (kept separate from the Final Decision
-  // card's own Approve/Reject-application buttons below).
-  cardsHtml += `<div class="official-card"><h4>Review &amp; Recommendation</h4>`;
-
-  if(a.recommendationCeoRejectionReason && !a.recommendation){
-    cardsHtml += `<div class="status-banner bad" style="margin-bottom:12px;">The CEO rejected the previous recommendation${a.recommendationCeoRejectedDate ? ' on ' + muni_escapeHtml(a.recommendationCeoRejectedDate) : ''}: "${muni_escapeHtml(a.recommendationCeoRejectionReason)}". A new recommendation is needed.</div>`;
-  }
-
-  if(a.recommendation){
-    const recColor = a.recommendation === 'Recommend Approve' ? 'badge-green' : 'badge-red';
-    cardsHtml += `<p class="recommendation-note"><span class="badge ${recColor}">${muni_escapeHtml(a.recommendation)}</span> — by ${muni_escapeHtml(a.recommendedBy || 'Supervisor')}</p>`;
-    if(a.recommendationWithdrawalRequested){
-      cardsHtml += `<div class="status-banner warn" style="margin-top:8px;">Withdrawal requested by ${muni_escapeHtml(a.recommendationWithdrawalRequestedBy || '')}${a.recommendationWithdrawalRequestedDate ? ' on ' + muni_escapeHtml(a.recommendationWithdrawalRequestedDate) : ''} — awaiting CEO approval.</div>`;
-    }
-  }
-
-  if(hasPerm('review')){
-    const statusButtons = [];
-    if(a.status === 'Payment Received'){
-      statusButtons.push(`<button class="btn btn-sm" onclick="advanceStatus('Processing')">Start processing</button>`);
-    }
-    if(statusButtons.length){
-      cardsHtml += `<div class="action-btn-row">${statusButtons.join('')}</div>`;
-    }
-
-    // "Send for approval" and "Recommend approve" used to be two separate
-    // actions — a Supervisor could advance the status without ever picking
-    // a recommendation, or pick a recommendation without the application
-    // ever reaching the CEO's decision screen unless someone separately
-    // clicked "Send for approval". Merged into one "Recommend for Approval"
-    // button (muni_recommendForApproval) that sets the recommendation AND
-    // advances the status to Pending Approval in one action — and gated so
-    // it can't be used until every required document (including the fixed-
-    // slot docs — see muni_computeAllDocsApproved) is explicitly Approved
-    // or Not Applicable, not merely uploaded/Submitted.
-    const allDocsApprovedForRec = muni_computeAllDocsApproved(a);
-
-    if(isCeo){
-      if(a.recommendation){
-        if(a.recommendationWithdrawalRequested){
-          cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="approveRecommendationWithdrawal()">Approve withdrawal request</button></div>`;
-        }
-        cardsHtml += `
-          <div class="field-group" style="margin-top:12px;"><label for="ceoRejectReasonInput">Reason for rejecting recommendation</label><textarea id="ceoRejectReasonInput" placeholder="Explain why this recommendation is being rejected"></textarea></div>
-          <div class="action-btn-row"><button class="btn btn-danger btn-sm" onclick="ceoRejectRecommendation()">Reject recommendation</button></div>`;
-      } else if(!statusButtons.length){
-        cardsHtml += `<p class="recommendation-note">${(a.status === 'Processing' || a.status === 'Pending Approval') ? 'Waiting for the Supervisor to submit a recommendation.' : 'No review actions available at the current status.'}</p>`;
-      }
-    } else {
-      if(!a.recommendation && (a.status === 'Processing' || a.status === 'Pending Approval')){
-        cardsHtml += `<div class="action-btn-row" style="margin-top:${statusButtons.length ? '10px' : '0'};">
-          <button class="btn btn-success btn-sm" onclick="muni_recommendForApproval()" ${allDocsApprovedForRec ? '' : 'disabled title="Every required document must be Approved (or marked Not Applicable) before this application can be recommended for approval."'}>Recommend for Approval</button>
-          <button class="btn btn-outline-danger btn-sm" onclick="setRecommendation('Recommend Reject')">Recommend reject</button>
-        </div>
-        ${allDocsApprovedForRec ? '' : '<p class="recommendation-note" style="margin-top:6px;">All uploaded documents must be Approved (or Not Applicable) under the Document Check card before this application can be recommended for approval.</p>'}`;
-      } else if(a.recommendation && !a.recommendationWithdrawalRequested){
-        cardsHtml += `<div class="action-btn-row" style="margin-top:10px;"><button class="btn btn-sm" onclick="requestRecommendationWithdrawal()">Request withdrawal of recommendation</button></div>`;
-      } else if(!a.recommendation && !statusButtons.length){
-        cardsHtml += `<p class="recommendation-note">No review actions available at the current status.</p>`;
-      }
-    }
-  } else {
-    cardsHtml += `<p class="no-permission-note">You don't have permission to review applications.</p>`;
-  }
-  cardsHtml += `</div>`;
 
   } // end of "a.status !== 'Rejected'" gate around Watchlist..Review & Recommendation
 
@@ -38832,8 +38912,9 @@ function setRecommendation(rec){
 // muni_computeAllDocsApproved) being explicitly Approved or Not Applicable;
 // the button itself is also disabled in the UI when this gate fails (see
 // renderAppDetail), this is the belt-and-suspenders runtime check.
-function muni_recommendForApproval(){
+async function muni_recommendForApproval(){
   const a = applications.find(a => a.id === activeAppId);
+  await muniRequiresJcfPermitForAnnual(a.muniId);
   if(!muni_computeAllDocsApproved(a)){
     muni_showToast('Every required document must be Approved (or marked Not Applicable) before this application can be recommended for approval.');
     return;
@@ -39118,7 +39199,11 @@ async function muniRequiresJcfPermitForAnnual(muniId){
   try{
     const result = await window.storage.get(`municipality:${muniId}:settings`, true);
     const settings = (result && result.value) ? JSON.parse(result.value) : {};
-    return !!settings.requireJcfPermitForAnnualApproval;
+    const req = !!settings.requireJcfPermitForAnnualApproval;
+    // Cached so the synchronous document-check helpers
+    // (muni_computeDocBreakdown) can honour the same toggle.
+    (window.__muniJcfReqCache = window.__muniJcfReqCache || {})[muniId] = req;
+    return req;
   } catch(e){ return false; }
 }
 window.muniRequiresJcfPermitForAnnual = muniRequiresJcfPermitForAnnual;
@@ -39143,6 +39228,7 @@ async function setFinalStatus(status){
 
   if(status === 'Approved'){
     const missingItems = [];
+    const jcfRequiredForAnnual = await muniRequiresJcfPermitForAnnual(a.muniId);
     if(!a.paymentVerified) missingItems.push('payment has not been verified');
     // Real enforcement (not just the UI hint in renderAppDetail above) — a
     // signed applicant's Permits tab only ever shows a permit once
@@ -39154,7 +39240,7 @@ async function setFinalStatus(status){
     if(!muni_computeRequiredDocumentsSubmitted(a)) missingItems.push('required documents have not all been uploaded');
     if(!a.venueApproved) missingItems.push('the venue has not been approved');
     muni_extraVenueBlockers(a).forEach(m => missingItems.push(m));
-    if(a.licenseType === 'Annual' && await muniRequiresJcfPermitForAnnual(a.muniId)){
+    if(a.licenseType === 'Annual' && jcfRequiredForAnnual){
       if(!(a._linkedJcfApp && a._linkedJcfApp.permitGenerated)) missingItems.push('the corresponding JCF Annual Noise Abatement Permit has not yet been issued');
     }
     if(missingItems.length){
@@ -39286,6 +39372,7 @@ async function muni_fetchStoredFile(key){
 
 async function muni_buildExportModel(a, progress){
   progress = progress || function(){};
+  await muniRequiresJcfPermitForAnnual(a.muniId); // primes the JCF-toggle cache used by muni_computeDocBreakdown
   const r = a.raw || {};
   const am = r.amusement || {}, ap = r.applicant || {}, venue = r.venue || {};
   const isAnnual = am.licenseType === 'Annual' || a.licenseType === 'Annual';
