@@ -6312,9 +6312,11 @@
             p_app_number: appNumber, p_tracking_code: trackingCode, p_value: offloaded
           });
         });
-        if (res.error) { window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', res.error); return false; }
+        window.__atdLastSaveError = '';
+        if (res.error) { window.__atdLastSaveError = String(res.error.message || ''); window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', res.error); return false; }
         return res.data === true;
       } catch (e) {
+        window.__atdLastSaveError = String((e && e.message) || '');
         window.atdShowDebugError('saveTrackedApplication(' + appNumber + ')', e);
         return false;
       }
@@ -27912,8 +27914,17 @@ async function mmPersist(){
       // no RLS to work around here, so the plain path is fine.
       await window.storage.set(currentAppKey, JSON.stringify(currentAppRecord), true);
     }
+    return true;
   } catch(err){
-    poa_showToast('Could not save your changes right now. Please try again.');
+    // A reference number already used on another application (database rule,
+    // backend/security_unique_receipt_number.sql) gets its own clear message.
+    const serverMsg = String(window.__atdLastSaveError || '');
+    if(/has already been used on another application/i.test(serverMsg)){
+      poa_showToast('That payment reference number has already been used on another application. Please check the number on your receipt, or contact the municipality.');
+    } else {
+      poa_showToast('Could not save your changes right now. Please try again.');
+    }
+    return false;
   }
 }
 
@@ -28564,6 +28575,8 @@ async function submitLicenseFeePayment(){
     return;
   }
 
+  const prevPaymentReceipt = currentAppRecord.paymentReceipt;
+  const prevPaymentSubmittedAt = currentAppRecord.paymentSubmittedAt;
   currentAppRecord.paymentReceipt = {
     method, referenceNumber: ref, fileName,
     uploadedDate: new Date().toISOString().slice(0,10)
@@ -28576,7 +28589,14 @@ async function submitLicenseFeePayment(){
   if(!currentAppRecord.paymentSubmittedAt){
     currentAppRecord.paymentSubmittedAt = new Date().toISOString();
   }
-  await mmPersist();
+  if((await mmPersist()) === false){
+    // Not saved (for example the reference number is already used on another
+    // application): put the screen back instead of showing "submitted".
+    currentAppRecord.paymentReceipt = prevPaymentReceipt;
+    currentAppRecord.paymentSubmittedAt = prevPaymentSubmittedAt;
+    renderMmPaymentStage();
+    return;
+  }
 
   // Notify the municipality's Accountant (and CEO, via the shared 'payment'
   // permission) that a payment has come in and is awaiting verification.
@@ -38470,6 +38490,22 @@ async function muni_paymentAction(fn, args){
   return r;
 }
 
+// A number "belongs" to one application: either the reference its applicant
+// typed on upload or the receipt number an officer verified with. Receipt
+// numbers are compared ignoring case and spaces. Auto-generated
+// Municipal Credit references (MUNICREDIT-…) are excluded — they are system
+// references, not cashier receipt numbers. An officer's receipt number counts
+// only while that payment is VERIFIED (unverifying releases it); an
+// applicant's typed upload reference counts while it is on the application.
+function muni_normReceipt(n){ return String(n || '').replace(/\s+/g, '').toLowerCase(); }
+function muni_findDuplicateReceipt(a, receiptNumber){
+  const key = muni_normReceipt(receiptNumber);
+  if(!key || key.indexOf('municredit-') === 0 || ['n/a','na','none','nil','cash','-'].indexOf(key) !== -1) return null;
+  return applications.find(x => x !== a && x.appNumber !== a.appNumber && x.muniId === a.muniId
+    && ( (x.paymentVerified && muni_normReceipt(x.paymentReceiptNumber) === key)
+         || muni_normReceipt(((x.raw && x.raw.paymentReceipt) || x.paymentReceipt || {}).referenceNumber) === key )) || null;
+}
+
 async function verifyPayment(){
   const a = applications.find(a => a.id === activeAppId);
   const receiptInput = document.getElementById('paymentReceiptInput');
@@ -38478,6 +38514,16 @@ async function verifyPayment(){
 
   if(!receiptNumber){
     muni_showToast('Please enter a receipt number before verifying payment.');
+    return;
+  }
+
+  // A receipt number can be used for ONE verified payment only. Friendly
+  // pre-check against this municipality's loaded applications; the database
+  // enforces the same rule (backend/security_unique_receipt_number.sql) so it
+  // can't be bypassed.
+  const dupApp = muni_findDuplicateReceipt(a, receiptNumber);
+  if(dupApp){
+    muni_showToast(`Receipt number "${receiptNumber}" has already been used on application ${dupApp.appNumber}. Check the number and try again.`);
     return;
   }
 
