@@ -6907,7 +6907,7 @@
   // shown to a logged-in user for whom hasPerm(targetPermission) is true, so
   // routing by permission (rather than a fixed role name) keeps working even
   // if a CEO grants/revokes individual permissions away from role defaults.
-  window.atdNotify = async function(muniId, targetPermission, type, message, appNumber){
+  window.atdNotify = async function(muniId, targetPermission, type, message, appNumber, targetEmail){
     if(!window.storage || muniId == null) return;
     try{
       const id = 'notif-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
@@ -6917,6 +6917,9 @@
         type: type || 'general',
         message: message || '',
         appNumber: appNumber || null,
+        // Optional: when set, only the staff member with this e-mail sees it
+        // (e.g. the answer to a flag request goes to the person who asked).
+        targetEmail: targetEmail ? String(targetEmail).toLowerCase() : null,
         createdAt: new Date().toISOString(),
         readBy: []
       };
@@ -15893,6 +15896,39 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   </div>
 </div>
 
+<!-- ===== JCF Watch List: flag request / decline-request modals ===== -->
+<div class="modal-overlay hidden" id="jcfd_wlReqModal">
+  <div class="modal-box">
+    <h3>Request a flag</h3>
+    <p class="modal-sub" id="jcfd_wlReqSub"></p>
+    <div class="field-group">
+      <label for="jcfd_wlReqReason">Reason for requesting this flag <span style="color:var(--red);">*</span></label>
+      <textarea id="jcfd_wlReqReason" rows="4" maxlength="1000" placeholder="e.g. Breached sound limits at a previous event"></textarea>
+      <div style="font-size:12.5px; color:var(--text-muted); margin-top:6px;">Your Supervisor or the Police Chief will review this request.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeWlRequestModal()">Cancel</button>
+      <button class="btn btn-danger" id="jcfd_wlReqSendBtn" onclick="jcfd_submitWlRequest()">Send request</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="jcfd_wlDeclineModal">
+  <div class="modal-box">
+    <h3>Decline flag request</h3>
+    <p class="modal-sub" id="jcfd_wlDeclineSub"></p>
+    <div class="field-group">
+      <label for="jcfd_wlDeclineReason">Reason for declining <span style="color:var(--red);">*</span></label>
+      <textarea id="jcfd_wlDeclineReason" rows="4" maxlength="1000" placeholder="Explain why this request is being declined"></textarea>
+      <div style="font-size:12.5px; color:var(--text-muted); margin-top:6px;">The requesting station will see this reason.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeWlDeclineModal()">Cancel</button>
+      <button class="btn btn-primary" id="jcfd_wlDeclineSendBtn" onclick="jcfd_submitWlDecline()">Decline request</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== JCF Approve & Issue Permit Modal ===== -->
 <div class="modal-overlay hidden" id="jcfd_approveModal">
   <div class="modal-box">
@@ -19145,7 +19181,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // upload notifications are routed to. A Chief always passes
       // jcfd_hasPerm() regardless of key (see jcfd_hasPerm's own short-
       // circuit), so Chiefs always see every notification too.
-      .filter(({ rec }) => !rec.targetPermission || jcfd_hasPerm(rec.targetPermission))
+      .filter(({ rec }) => (!rec.targetPermission || jcfd_hasPerm(rec.targetPermission))
+        && (!rec.targetEmail || rec.targetEmail === String(jcfdCurrentUser.email || '').toLowerCase()))
       .map(({ key, rec }) => ({
         key, id: rec.id, type: rec.type, message: rec.message, appNumber: rec.appNumber,
         createdAt: rec.createdAt,
@@ -20914,8 +20951,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           else if(jcfEntry) badges.push('<span class="badge badge-gray">JCF Cleared</span>');
           if(muniFlag && muniFlag.status === 'Active') badges.push('<span class="badge badge-amber">Flagged by Municipal Corporation</span>');
           else if(muniFlag) badges.push('<span class="badge badge-gray">Municipal Cleared</span>');
+          const wlReq = jcfd_latestWlRequest(rec, subj.trn);
+          const jcfActive = !!(jcfEntry && jcfEntry.status === 'Active');
+          const wlPending = !!(wlReq && wlReq.status === 'Pending' && !jcfActive);
+          const wlDeclined = !!(wlReq && wlReq.status === 'Declined' && !jcfActive);
+          if(wlPending) badges.push('<span class="badge badge-amber">Flag requested</span>');
+          else if(wlDeclined) badges.push('<span class="badge badge-gray">Flag request declined</span>');
           if(!badges.length) badges.push('<span class="badge badge-gray">Not flagged</span>');
           const flagNotes = [];
+          if(wlPending){
+            flagNotes.push(`<div class="record-sub">Requested by ${acctEscapeHtml(wlReq.requestedBy || 'an officer')} · ${acctEscapeHtml(jcfd_wlDateLabel(wlReq.requestedAt))} — awaiting Supervisor / Chief review</div>`);
+            if(jcfd_hasPerm('watchlist') && wlReq.reason) flagNotes.push(`<div class="record-sub" style="margin-top:6px;"><strong>Reason given:</strong> ${acctEscapeHtml(wlReq.reason)}</div>`);
+          } else if(wlDeclined){
+            flagNotes.push(`<div class="record-sub">Declined by ${acctEscapeHtml(wlReq.decidedBy || 'a Supervisor')} · ${acctEscapeHtml(jcfd_wlDateLabel(wlReq.decidedAt))}${wlReq.decisionReason ? ': ' + acctEscapeHtml(wlReq.decisionReason) : ''}</div>`);
+          }
           if(jcfEntry && jcfEntry.status === 'Active' && jcfEntry.reason) flagNotes.push(`<div class="record-sub">JCF: ${acctEscapeHtml(jcfEntry.reason)}</div>`);
           if(muniFlag && muniFlag.status === 'Active' && muniFlag.reason) flagNotes.push(`<div class="record-sub">Municipal Corporation: ${acctEscapeHtml(muniFlag.reason)}</div>`);
           html += `<div class="record-row wl-row"><div><div class="record-main">${acctEscapeHtml(subj.type)} — ${acctEscapeHtml(subj.name || 'N/A')}</div>
@@ -20924,11 +20973,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <div class="action-btn-row">
               ${jcfEntry ? `<button class="btn btn-sm" onclick='jcfd_openWatchlistViewModal(${atdJs(subj.trn)})'>View JCF file</button>` : ''}
               ${jcfd_hasPerm('watchlist') && jcfEntry && jcfEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jcfd_unflagFromCard(${atdJs(subj.trn)})'>Unflag</button>` : ''}
-              ${jcfd_hasPerm('watchlist') && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${atdJs({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
+              ${jcfd_hasPerm('watchlist') && wlPending ? `<button class="btn btn-danger btn-sm" onclick='jcfd_acceptWlRequest(${atdJs(wlReq.id)})'>Accept &amp; flag</button><button class="btn btn-outline-danger btn-sm" onclick='jcfd_openWlDeclineModal(${atdJs(wlReq.id)})'>Decline request</button>` : ''}
+              ${jcfd_hasPerm('watchlist') && !wlPending && (!jcfEntry || jcfEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jcfd_openWatchlistAddModal(${atdJs({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
+              ${!jcfd_hasPerm('watchlist') && wlPending ? `<button class="btn btn-sm" disabled>Request sent</button>` : ''}
+              ${!jcfd_hasPerm('watchlist') && !wlPending && !jcfActive ? `<button class="btn btn-outline-danger btn-sm" onclick='jcfd_openWlRequestModal(${atdJs({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Request flag</button>` : ''}
             </div></div>`;
         }
         if(!jcfd_hasPerm('watchlist')){
-          html += `<p class="no-permission-note" style="margin-top:8px;">You don't have permission to manage the JCF Watch List.</p>`;
+          html += `<p class="no-permission-note" style="margin-top:8px;">You can request that someone be flagged. A Supervisor or the Police Chief decides.</p>`;
         }
       }
       html += `</div>`;
@@ -22793,6 +22845,159 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(jcfdActiveAppKey) jcfd_renderApplicationDetail();
   }
   window.jcfd_saveWatchlistEntry = jcfd_saveWatchlistEntry;
+
+  // ==================== Watch List: flag requests ====================
+  // A station officer (no 'watchlist' permission) can ask for someone on an
+  // application to be flagged. The request is a plain field on that JCF
+  // application record (rec.watchlistRequests, the same pattern as the
+  // recommendation-withdrawal request), so it needs no new database table or
+  // permission. A Supervisor / Police Chief (jcfd_hasPerm('watchlist'))
+  // accepts — which flags the person at once — or declines with a reason.
+  let jcfdWlReqTarget = null;     // { fullName, type, trn } being requested
+  let jcfdWlDeclineId = null;     // request id being declined
+
+  function jcfd_latestWlRequest(rec, trn){
+    const list = (rec && rec.watchlistRequests) || [];
+    let best = null;
+    list.forEach(r => { if(r.trn === trn && (!best || String(r.requestedAt) >= String(best.requestedAt))) best = r; });
+    return best;
+  }
+  function jcfd_wlDateLabel(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  function jcfd_notifyWl(targetPermission, type, message, rec, targetEmail){
+    try{
+      if(window.atdNotify && jcfdCurrentBranch) window.atdNotify(jcfdCurrentBranch.id, targetPermission, type, message, rec && rec.jcfAppNumber, targetEmail);
+    } catch(e){ /* best-effort */ }
+  }
+
+  function jcfd_openWlRequestModal(target){
+    if(jcfd_hasPerm('watchlist')){
+      jcfd_showToast('You can flag directly — use the Flag button.');
+      return;
+    }
+    jcfdWlReqTarget = target;
+    document.getElementById('jcfd_wlReqSub').textContent = `${target.type} — ${target.fullName || 'N/A'} · TRN ${formatTrnDisplayJcfd(target.trn)}`;
+    document.getElementById('jcfd_wlReqReason').value = '';
+    document.getElementById('jcfd_wlReqModal').classList.remove('hidden');
+  }
+  window.jcfd_openWlRequestModal = jcfd_openWlRequestModal;
+  function jcfd_closeWlRequestModal(){ document.getElementById('jcfd_wlReqModal').classList.add('hidden'); jcfdWlReqTarget = null; }
+  window.jcfd_closeWlRequestModal = jcfd_closeWlRequestModal;
+
+  async function jcfd_submitWlRequest(){
+    const t = jcfdWlReqTarget;
+    const reason = document.getElementById('jcfd_wlReqReason').value.trim();
+    if(!t) return;
+    if(!reason){ jcfd_showToast('Please give a reason for the flag request.'); return; }
+    const btn = document.getElementById('jcfd_wlReqSendBtn');
+    btn.disabled = true;
+    try{
+      const rec = await jcfd_getActiveApp();
+      if(!rec) return;
+      const existing = jcfd_latestWlRequest(rec, t.trn);
+      if(existing && existing.status === 'Pending'){
+        jcfd_showToast('A flag request for this person is already waiting for review.');
+        jcfd_closeWlRequestModal();
+        jcfd_renderApplicationDetail();
+        return;
+      }
+      rec.watchlistRequests = rec.watchlistRequests || [];
+      rec.watchlistRequests.push({
+        id: 'wlr-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+        trn: t.trn, name: t.fullName || '', type: t.type || '',
+        reason,
+        requestedBy: jcfdCurrentUser.name, requestedByEmail: String(jcfdCurrentUser.email || '').toLowerCase(),
+        requestedAt: new Date().toISOString(),
+        status: 'Pending'
+      });
+      await jcfd_saveActiveApp(rec);
+      if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequested', details: `Requested a watch list flag for ${t.fullName || 'N/A'} (${formatTrnDisplayJcfd(t.trn)}) on ${rec.jcfAppNumber || ''}.`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
+      jcfd_notifyWl('watchlist', 'watchlist_flag_requested', `${jcfdCurrentUser.name} asked to flag ${t.fullName || 'someone'} (${t.type}) on ${rec.jcfAppNumber || 'an application'}.`, rec);
+      jcfd_closeWlRequestModal();
+      jcfd_showToast('Flag request sent for review.');
+      jcfd_renderApplicationDetail();
+    } finally { btn.disabled = false; }
+  }
+  window.jcfd_submitWlRequest = jcfd_submitWlRequest;
+
+  async function jcfd_acceptWlRequest(reqId){
+    if(!jcfd_hasPerm('watchlist')){ jcfd_showToast("You don't have permission to manage the JCF Watch List."); return; }
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    const req = (rec.watchlistRequests || []).find(r => r.id === reqId);
+    if(!req || req.status !== 'Pending'){ jcfd_showToast('This request has already been dealt with.'); jcfd_renderApplicationDetail(); return; }
+    const existing = jcfWatchlist.find(w => w.trn === req.trn);
+    if(!(existing && existing.status === 'Active')){
+      const record = {
+        trn: req.trn, type: req.type, agencyId: jcfdCurrentBranch.id,
+        fullName: req.name, reason: req.reason,
+        status: 'Active',
+        flaggedBy: jcfdCurrentUser.name,
+        flaggedDate: new Date().toISOString().slice(0,10),
+        requestedBy: req.requestedBy || '',
+        clearedBy: '', clearedDate: ''
+      };
+      if(existing){
+        record._storageKey = existing._storageKey;
+        Object.assign(existing, record);
+        await jcfd_persistWatchlistEntry(existing);
+      } else {
+        jcfWatchlist.push(record);
+        await jcfd_persistWatchlistEntry(record);
+      }
+    }
+    req.status = 'Accepted';
+    req.decidedBy = jcfdCurrentUser.name;
+    req.decidedAt = new Date().toISOString();
+    await jcfd_saveActiveApp(rec);
+    if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequestAccepted', details: `Accepted the flag request for ${req.name || 'N/A'} (${formatTrnDisplayJcfd(req.trn)}), requested by ${req.requestedBy || 'an officer'}.`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
+    jcfd_notifyWl(null, 'watchlist_flag_accepted', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was accepted by ${jcfdCurrentUser.name}. They are now flagged.`, rec, req.requestedByEmail);
+    jcfd_showToast(`${req.name || 'The person'} has been flagged on the JCF Watch List.`);
+    jcfd_renderWatchlist();
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_acceptWlRequest = jcfd_acceptWlRequest;
+
+  async function jcfd_openWlDeclineModal(reqId){
+    if(!jcfd_hasPerm('watchlist')){ jcfd_showToast("You don't have permission to manage the JCF Watch List."); return; }
+    const rec = await jcfd_getActiveApp();
+    const req = rec && (rec.watchlistRequests || []).find(r => r.id === reqId);
+    if(!req || req.status !== 'Pending'){ jcfd_showToast('This request has already been dealt with.'); jcfd_renderApplicationDetail(); return; }
+    jcfdWlDeclineId = reqId;
+    document.getElementById('jcfd_wlDeclineSub').textContent = `${req.type} — ${req.name || 'N/A'} · requested by ${req.requestedBy || 'an officer'}`;
+    document.getElementById('jcfd_wlDeclineReason').value = '';
+    document.getElementById('jcfd_wlDeclineModal').classList.remove('hidden');
+  }
+  window.jcfd_openWlDeclineModal = jcfd_openWlDeclineModal;
+  function jcfd_closeWlDeclineModal(){ document.getElementById('jcfd_wlDeclineModal').classList.add('hidden'); jcfdWlDeclineId = null; }
+  window.jcfd_closeWlDeclineModal = jcfd_closeWlDeclineModal;
+
+  async function jcfd_submitWlDecline(){
+    if(!jcfd_hasPerm('watchlist')){ jcfd_showToast("You don't have permission to manage the JCF Watch List."); return; }
+    const reason = document.getElementById('jcfd_wlDeclineReason').value.trim();
+    if(!reason){ jcfd_showToast('Please give a reason for declining.'); return; }
+    const btn = document.getElementById('jcfd_wlDeclineSendBtn');
+    btn.disabled = true;
+    try{
+      const rec = await jcfd_getActiveApp();
+      const req = rec && (rec.watchlistRequests || []).find(r => r.id === jcfdWlDeclineId);
+      if(!req || req.status !== 'Pending'){ jcfd_closeWlDeclineModal(); jcfd_showToast('This request has already been dealt with.'); jcfd_renderApplicationDetail(); return; }
+      req.status = 'Declined';
+      req.decidedBy = jcfdCurrentUser.name;
+      req.decidedAt = new Date().toISOString();
+      req.decisionReason = reason;
+      await jcfd_saveActiveApp(rec);
+      if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequestDeclined', details: `Declined the flag request for ${req.name || 'N/A'} (${formatTrnDisplayJcfd(req.trn)}): ${reason}`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
+      jcfd_notifyWl(null, 'watchlist_flag_declined', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was declined by ${jcfdCurrentUser.name}: ${reason}`, rec, req.requestedByEmail);
+      jcfd_closeWlDeclineModal();
+      jcfd_showToast('Flag request declined.');
+      jcfd_renderApplicationDetail();
+    } finally { btn.disabled = false; }
+  }
+  window.jcfd_submitWlDecline = jcfd_submitWlDecline;
 
   async function jcfd_openWatchlistViewModal(trn){
     const w = jcfWatchlist.find(w => w.trn === trn);
