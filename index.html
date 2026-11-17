@@ -1747,6 +1747,7 @@
   }
   .signature-placeholder svg{ margin-bottom: 10px; color: var(--text-muted); }
   #signaturePreviewImg{ max-height: 120px; max-width: 100%; }
+  #muniLogoPreviewImg{ max-height: 120px; max-width: 100%; }
 
   /* Toggle switch */
   .toggle-switch{
@@ -6924,9 +6925,14 @@
         readBy: []
       };
       await window.storage.set(`notification:${muniId}:${id}`, JSON.stringify(record), true);
+      return true;
     } catch(err){
       // Best-effort — a failed notification write should never block the
       // action (payment, verification, recommendation, etc.) that triggered it.
+      // Returns false so a caller that CARES (e.g. the Watch List flag
+      // requests) can tell the person the notice did not go out.
+      try{ console.warn('atdNotify: notification not saved', err && err.message ? err.message : err); }catch(e){}
+      return false;
     }
   };
 
@@ -8421,7 +8427,7 @@
     { capability: 'Complete official-use checklist', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'checklist (per role)' },
     { capability: 'Manage watch list', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'watchlist (per role)' },
     { capability: 'Manage permit signature', admin: '—', muni: '— (open to any logged-in officer)', jcf: 'signatures (per role)' },
-    { capability: 'Enter manual (walk-in) applications', admin: '—', muni: 'manualEntry (per user, Supervisor accounts only; off until the CEO grants it)', jcf: '— (Police Supervisor role only)' },
+    { capability: 'Enter manual (walk-in) applications', admin: '—', muni: 'manualEntry (per user, Supervisor accounts only; off until the CEO grants it)', jcf: 'manualEntry (per role, Supervisor by default; Chief can grant or remove)' },
     { capability: 'Manage staff accounts', admin: 'manage_staff', muni: 'manageUsers (per user)', jcf: '— (hardcoded to the Police Chief role only, not permission-gated)' },
     { capability: 'View reports', admin: 'view_reports', muni: '— (open to any logged-in officer)', jcf: 'reports (per role)' }
   ];
@@ -10787,7 +10793,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="30" height="30"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
             <div>No logo uploaded yet</div>
           </div>
-          <img id="logoPreviewImg" class="hidden" alt="Municipal Corporation logo">
+          <img id="muniLogoPreviewImg" class="hidden" alt="Municipal Corporation logo">
         </div>
 
         <div class="btn-row" style="justify-content:flex-start; margin-top:18px;">
@@ -15418,7 +15424,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <!-- ===== APPLICATIONS PAGE ===== -->
       <div class="page hidden" id="jcfd_page-applications">
 
-        <!-- Manual (walk-in) application intake — Police Supervisor only,
+        <!-- Manual (walk-in) application intake — needs the 'manualEntry' permission,
              see jcfd_renderApplications()'s role gate and
              jcfd_openManualAppModal(). Requires an existing POA application
              number to link to, mirroring how a JCF filing normally derives
@@ -15428,7 +15434,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="dash-manual-cta hidden" id="jcfdManualAppCta">
           <div>
             <div class="dmc-title">Walk-in promoter at your desk?</div>
-            <div class="dmc-sub">File their JCF Noise Abatement application on their behalf, using their existing Places of Amusement application number. You can upload Photo ID, the event flyer, and proof of ownership afterward.</div>
+            <div class="dmc-sub">File their JCF Noise Abatement application on their behalf — with their Places of Amusement application number if they have one, or as a standalone filing if they do not. You can upload Photo ID, the event flyer, and proof of ownership afterward.</div>
           </div>
           <button class="btn btn-primary" onclick="jcfd_openManualAppModal()">+ New Manual Application</button>
         </div>
@@ -15749,6 +15755,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
         <div class="panel">
+          <div class="panel-head"><h2 style="font-size:18px;">Permit Signing</h2></div>
+          <div class="field-group" style="max-width:560px; margin-bottom:12px;">
+            <label for="jcfd_settingsSignMethod">How are issued permits signed?</label>
+            <select id="jcfd_settingsSignMethod" onchange="jcfd_saveSettings()">
+              <option value="stamp">Stamp the saved signature automatically (the permit issues when approved)</option>
+              <option value="upload">Download, sign and upload (the permit issues when the signed copy is uploaded)</option>
+            </select>
+          </div>
+          <p style="font-size:13px; color:var(--text-muted); margin:0;">With "Download, sign and upload", approving an application records the decision and holds the permit as <strong>Awaiting signature</strong>. Download the permit, have the Police Chief sign it, then upload the signed copy (a PDF or a clear photo, up to 3 MB). The permit is issued, and shown to the applicant, only once the signed copy is uploaded. Only the Police Chief can change this setting.</p>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2 style="font-size:18px;">Municipal Integration</h2></div>
           <div class="toggle-row" style="margin-bottom:14px;">
             <label class="toggle-switch">
@@ -16015,7 +16032,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <h3>New Manual Application (Walk-in)</h3>
     <p class="modal-sub">File a JCF Noise Abatement application on behalf of a walk-in promoter. This is tagged as a manual entry — you'll upload the required documents from the application's own page afterward.</p>
 
-    <div class="field-row">
+    <div class="field-group" style="margin:6px 0 4px;">
+      <label style="font-weight:800; font-size:13px; color:var(--text);">How is this filing linked?</label>
+      <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:4px;">
+        <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="poa" checked onchange="jcfd_setManualMode(this.value)"> Has a Places of Amusement application number</label>
+        <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="standalone" onchange="jcfd_setManualMode(this.value)"> No municipal application (standalone)</label>
+      </div>
+    </div>
+    <div id="jcfdManualStandaloneNote" class="info-banner hidden" style="margin-bottom:8px;">Standalone filing: there is no Places of Amusement record behind it, so enter the promoter, event and venue details below. It is filed under your division's municipality.</div>
+
+    <div class="field-row" id="jcfdManualPoaRow">
       <div class="field-group">
         <label for="jcfdManualPoaNumber">Places of Amusement (POA) application number</label>
         <input type="text" id="jcfdManualPoaNumber" placeholder="e.g. POA-042026-01" onblur="jcfd_lookupPoaForManualApp()">
@@ -17283,7 +17309,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(isJcf){
         const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
         const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
-        bodyHtml = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'acct_permitViewModalQrTarget', jcfCrest) : '';
+        const pDisp = window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(rec) : p;
+        bodyHtml = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(pDisp, jcfSignature, 'acct_permitViewModalQrTarget', jcfCrest) : '';
         qrData = rec.poaAppNumber || rec.jcfAppNumber;
         document.getElementById('acct_permitViewModalTitle').textContent = 'JCF Noise Abatement Permit';
         document.getElementById('acct_permitViewModalSub').textContent = `JCF Application #${rec.jcfAppNumber || ''}`;
@@ -17328,7 +17355,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(isJcf){
       const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
       const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
-      printArea.innerHTML = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'printPermitQrTarget', jcfCrest) : '';
+      const pDisp = window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(rec) : p;
+      printArea.innerHTML = window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(pDisp, jcfSignature, 'printPermitQrTarget', jcfCrest) : '';
       qrData = rec.poaAppNumber || rec.jcfAppNumber;
     } else {
       const signature = window.fetchMuniSignature ? await window.fetchMuniSignature(rec.muniId) : null;
@@ -19401,7 +19429,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // jcfdManualAppCta for why) rather than the Dashboard, but the gate
     // itself is unchanged from when it lived there.
     const manualCtaEl = document.getElementById('jcfdManualAppCta');
-    if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !(jcfdCurrentUser && jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR));
+    if(manualCtaEl) manualCtaEl.classList.toggle('hidden', !jcfd_hasPerm('manualEntry'));
 
     const specialBody = document.getElementById('jcfd_applicationsBodySpecial');
     const annualBody = document.getElementById('jcfd_applicationsBodyAnnual');
@@ -19474,8 +19502,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.addEventListener('focus', jcfd_autoRefreshNow);
 
   // ==================== Manual (walk-in) application intake ====================
-  // Police Supervisor only (see jcfdManualAppCta's role gate in
-  // jcfd_renderApplications() above). Unlike the Municipal Officer's manual
+  // Gated by the 'manualEntry' role permission (Supervisor on by default;
+  // the Chief can change it — see jcfd_hasPerm and jcfd_renderApplications() above). Unlike the Municipal Officer's manual
   // intake — which builds a brand-new Places of Amusement application from
   // scratch — every JCF filing is inherently tied to an existing POA
   // application, so this flow requires and validates that POA application
@@ -19489,13 +19517,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // (see jcfd_detailRowDoc/jcfd_detailRowAction's isManual branch and
   // jcfd_uploadManualDoc() below).
   let jcfdManualPoaRecord = null;
+  // 'poa' = derive from an existing Places of Amusement application;
+  // 'standalone' = no POA record exists (promoter, event and venue are keyed
+  // in by hand and the filing is attached to the division's municipality).
+  let jcfdManualMode = 'poa';
+
+  function jcfd_setManualMode(mode){
+    jcfdManualMode = (mode === 'standalone') ? 'standalone' : 'poa';
+    const standalone = jcfdManualMode === 'standalone';
+    jcfdManualPoaRecord = null;
+    document.getElementById('jcfdManualPoaRow').classList.toggle('hidden', standalone);
+    document.getElementById('jcfdManualStandaloneNote').classList.toggle('hidden', !standalone);
+    document.getElementById('jcfdManualPoaLookupResult').innerHTML = '';
+    document.getElementById('jcfdManualAppError').classList.add('hidden');
+    document.getElementById('jcfdManualAppFields').classList.toggle('hidden', !standalone);
+    document.getElementById('jcfdManualAppSubmitBtn').classList.toggle('hidden', !standalone);
+  }
+  window.jcfd_setManualMode = jcfd_setManualMode;
 
   function jcfd_openManualAppModal(){
-    if(!jcfdCurrentUser || jcfdCurrentUser.role !== JCFD_ROLE_SUPERVISOR){
-      jcfd_showToast('Only a Police Supervisor account can create a manual application.');
+    if(!jcfd_hasPerm('manualEntry')){
+      jcfd_showToast('Your account has not been given permission to create manual applications.');
       return;
     }
     jcfdManualPoaRecord = null;
+    jcfdManualMode = 'poa';
+    document.querySelectorAll('input[name="jcfdManualMode"]').forEach(r => { r.checked = (r.value === 'poa'); });
+    document.getElementById('jcfdManualPoaRow').classList.remove('hidden');
+    document.getElementById('jcfdManualStandaloneNote').classList.add('hidden');
     document.getElementById('jcfdManualPoaNumber').value = '';
     document.getElementById('jcfdManualPoaLookupResult').innerHTML = '';
     document.getElementById('jcfdManualAppFields').classList.add('hidden');
@@ -19581,15 +19630,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jcfd_lookupPoaForManualApp = jcfd_lookupPoaForManualApp;
 
   async function jcfd_createManualApplication(){
-    if(!jcfdCurrentUser || jcfdCurrentUser.role !== JCFD_ROLE_SUPERVISOR){
-      jcfd_showToast('Only a Police Supervisor account can create a manual application.');
+    if(!jcfd_hasPerm('manualEntry')){
+      jcfd_showToast('Your account has not been given permission to create manual applications.');
       return;
     }
     const errEl = document.getElementById('jcfdManualAppError');
     errEl.classList.add('hidden');
-    const poaRec = jcfdManualPoaRecord;
-    if(!poaRec){
+    const standalone = jcfdManualMode === 'standalone';
+    const poaRec = standalone ? null : jcfdManualPoaRecord;
+    if(!standalone && !poaRec){
       errEl.textContent = 'Please look up a valid Places of Amusement application number first.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    const jurisdictionMuniId = jcfd_jurisdictionMuniId();
+    if(standalone && jurisdictionMuniId == null){
+      errEl.textContent = 'This division is not linked to a municipality yet, so a standalone filing cannot be placed anywhere. Ask your administrator to link the division first.';
       errEl.classList.remove('hidden');
       return;
     }
@@ -19623,16 +19679,38 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const watchlistRejectionMessage = watchlistHit
         ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
 
-      const applicant = poaRec.applicant || {};
-      const number = poaRec.appNumber; // 1:1 linkage, same as a normal online filing
+      const applicant = (poaRec && poaRec.applicant) || {};
+      let number;
+      let municipalityName = poaRec ? (poaRec.municipalityName || '') : '';
+      if(standalone){
+        // No POA number to borrow, so reserve one from the same server-side
+        // counter the permit numbers use (never a guessed or time-based
+        // number, which could collide with someone else's filing).
+        const linked = jcfd_agencies().find(a => a.id === (jcfdCurrentBranch && jcfdCurrentBranch.linkedMuniId));
+        municipalityName = (linked && (linked.name || linked.municipalityName)) || '';
+        const mm = String(jurisdictionMuniId).padStart(2, '0');
+        const yy = String(new Date().getFullYear()).slice(-2);
+        let seq = 1;
+        if(window.ATDBackend && window.ATDBackend.isConfigured()){
+          try{ seq = await window.ATDBackend.reserveNumber(`JCFWALKIN-${mm}${yy}`); }
+          catch(numErr){
+            errEl.textContent = 'Could not reserve an application number just now. Nothing was saved; please try again in a moment.';
+            errEl.classList.remove('hidden');
+            return;
+          }
+        }
+        number = `JCFW${mm}-${mm}${yy}-${String(seq).padStart(2, '0')}`;
+      } else {
+        number = poaRec.appNumber; // 1:1 linkage, same as a normal online filing
+      }
 
       const record = {
         jcfAppNumber: number,
-        poaAppNumber: poaRec.appNumber,
-        linkedTrackingCode: poaRec.trackingCode || null,
-        ownerEmail: poaRec.ownerEmail || null,
-        muniId: poaRec.muniId != null ? poaRec.muniId : null,
-        municipalityName: poaRec.municipalityName || '',
+        poaAppNumber: poaRec ? poaRec.appNumber : null,
+        linkedTrackingCode: poaRec ? (poaRec.trackingCode || null) : null,
+        ownerEmail: poaRec ? (poaRec.ownerEmail || null) : null,
+        muniId: standalone ? jurisdictionMuniId : (poaRec.muniId != null ? poaRec.muniId : null),
+        municipalityName: municipalityName,
         submittedDate: new Date().toISOString().slice(0,10),
         submittedAt: new Date().toISOString(),
         status: watchlistHit ? 'Rejected' : 'Submitted',
@@ -19686,7 +19764,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           communityArrangements: '',
           parkingArrangements: '',
           securityArrangements: '',
-          securityCompaniesFromPoa: (poaRec.amusement && poaRec.amusement.securityRecords) || [],
+          securityCompaniesFromPoa: (poaRec && poaRec.amusement && poaRec.amusement.securityRecords) || [],
           permissionLetterFileName: '', permissionLetterStatus: 'Not Uploaded', permissionLetterOfficerNote: ''
         },
         djs: [],
@@ -19710,7 +19788,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         await window.atdLogAudit({
           portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
           action: 'application.manualCreate',
-          details: `Created manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}), linked to Places of Amusement application ${poaRec.appNumber}.`,
+          details: standalone
+            ? `Created standalone manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}); no Places of Amusement application.`
+            : `Created manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}), linked to Places of Amusement application ${poaRec.appNumber}.`,
           muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
         });
       }
@@ -21062,14 +21142,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         missingChecklistItems = Object.keys(annualChecklistLabels).filter(key => !annualChecklistValues[key]).map(key => annualChecklistLabels[key]);
       }
       const isDecided = rec.status === 'Approved' || rec.status === 'Rejected';
+      const isAwaiting = !!(rec.pendingSignature && rec.pendingSignature.permit);
       html += `<div class="official-card">
         <h4>Final Decision</h4>
         <p class="col-desc">Current status: <strong>${acctEscapeHtml(rec.status)}</strong>${rec.permitGenerated ? ' · Permit issued (' + acctEscapeHtml(rec.permit ? rec.permit.number : '') + ')' : ''}</p>
         ${rec.status === 'Rejected' && rec.finalDecision ? `<div class="status-banner bad" style="margin-top:8px;">${acctEscapeHtml(rec.finalDecision)}</div>` : ''}
-        ${missingChecklistItems.length && !isDecided ? `<div class="status-banner warn" style="margin-top:8px;">Cannot approve yet — ${acctEscapeHtml(missingChecklistItems.join('; '))}.</div>` : ''}
-        ${!isDecided ? `<div class="field-group" style="margin-top:10px;"><label for="jcfd_rejectReasonInput">Reason for rejection (required to reject)</label><textarea id="jcfd_rejectReasonInput" placeholder="Explain why this application is being rejected"></textarea></div>` : ''}
+        ${isAwaiting ? `<div class="status-banner warn" style="margin-top:8px;">Approved by ${acctEscapeHtml(rec.pendingSignature.approvedBy || '')} — awaiting the signed permit (see "Awaiting signature" below).</div>` : ''}
+        ${missingChecklistItems.length && !isDecided && !isAwaiting ? `<div class="status-banner warn" style="margin-top:8px;">Cannot approve yet — ${acctEscapeHtml(missingChecklistItems.join('; '))}.</div>` : ''}
+        ${!isDecided && !isAwaiting ? `<div class="field-group" style="margin-top:10px;"><label for="jcfd_rejectReasonInput">Reason for rejection (required to reject)</label><textarea id="jcfd_rejectReasonInput" placeholder="Explain why this application is being rejected"></textarea></div>` : ''}
         <div class="btn-row" style="justify-content:flex-start; margin-top:10px;">
-          ${isDecided
+          ${isAwaiting
+            ? `<button class="btn" onclick="jcfd_cancelPendingApproval()">Cancel approval</button>`
+            : isDecided
             ? `<button class="btn" onclick="jcfd_reopenForReview()">Reopen for Review</button>`
             : `<button class="btn btn-primary" onclick="jcfd_openApproveModal()" ${missingChecklistItems.length ? 'disabled title="Complete the Official Use Checklist before approving"' : ''}>Approve &amp; issue permit</button>
                <button class="btn" onclick="jcfd_reject()">Reject</button>`}
@@ -21081,6 +21165,30 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `<div class="official-card"><h4>Final Decision</h4><p class="no-permission-note">Only a Police Chief (or a role granted the "Approve / Reject &amp; Issue Permits" permission) can finalize this application.</p></div>`;
     }
 
+    // Awaiting-signature card — sign-and-upload divisions only.
+    if(rec.pendingSignature && rec.pendingSignature.permit && !rec.permitGenerated){
+      const ps = rec.pendingSignature, pp = ps.permit;
+      const canUploadSigned = jcfd_hasPerm('permits') || jcfd_canDecideApp(rec);
+      html += `<div class="official-card">
+        <h4>Awaiting signature</h4>
+        <div class="status-banner warn">The approval is recorded, but the permit is not issued and the applicant cannot see it until the signed copy is uploaded.</div>
+        <div class="detail-row"><div class="dr-label">Permit Number</div><div class="dr-value">${acctEscapeHtml(pp.number)}</div></div>
+        <div class="detail-row"><div class="dr-label">Approved</div><div class="dr-value">${acctEscapeHtml(ps.approvedBy || '')}${ps.approvedAt ? ' · ' + acctEscapeHtml(String(ps.approvedAt).slice(0,10)) : ''}</div></div>
+        <div class="detail-row"><div class="dr-label">Expires</div><div class="dr-value">${acctEscapeHtml(pp.expiresDate || '')}${pp.expiresTime12 ? ' at ' + acctEscapeHtml(pp.expiresTime12) : ''}</div></div>
+        <ol class="col-desc" style="margin:10px 0 0 18px; padding:0; line-height:1.7;">
+          <li>Download the permit (choose <em>Save as PDF</em> in the print window).</li>
+          <li>Have the Police Chief sign it.</li>
+          <li>Upload the signed copy (PDF, PNG, JPEG or WebP, up to 3 MB).</li>
+        </ol>
+        <div class="action-btn-row" style="margin-top:12px;">
+          <button class="btn btn-sm" onclick="jcfd_printPermit()">⬇ Download permit to sign</button>
+          ${canUploadSigned ? `<button class="btn btn-primary btn-sm" onclick="document.getElementById('jcfd_signedPermitInput').click()">⬆ Upload signed permit</button>
+          <input type="file" id="jcfd_signedPermitInput" accept="application/pdf,image/png,image/jpeg,image/webp" style="display:none;" onchange="jcfd_uploadSignedPermit(this)">` : ''}
+        </div>
+        ${canUploadSigned ? '' : `<p class="no-permission-note" style="margin-top:10px;">Only the Police Chief, or a role with the Permits permission, can upload the signed copy.</p>`}
+      </div>`;
+    }
+
     // Issued Permit card — view details and print, once approved.
     if(rec.permitGenerated && rec.permit){
       const p = rec.permit;
@@ -21090,7 +21198,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="detail-row"><div class="dr-label">Issued</div><div class="dr-value">${acctEscapeHtml(p.issuedDate)}</div></div>
         <div class="detail-row"><div class="dr-label">Expires</div><div class="dr-value">${acctEscapeHtml(p.expiresDate)}${p.expiresTime12 ? ' at ' + acctEscapeHtml(p.expiresTime12) : ''}</div></div>
         ${(p.eventDays && p.eventDays.length > 1) ? `<div class="detail-row"><div class="dr-label">Covers</div><div class="dr-value">${p.eventDays.length} days: ${p.eventDays.map(d => acctEscapeHtml(d.date)).join(', ')} (end time applies to each day)</div></div>` : ''}
-        <div class="action-btn-row" style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="jcfd_printPermit()">🖨 Print permit</button></div>
+        ${rec.signedPermit ? `<div class="detail-row"><div class="dr-label">Signed copy</div><div class="dr-value">${acctEscapeHtml(rec.signedPermit.fileName || 'Signed permit')}${rec.signedPermit.uploadedBy ? ' · uploaded by ' + acctEscapeHtml(rec.signedPermit.uploadedBy) : ''}${rec.signedPermit.uploadedAt ? ' · ' + acctEscapeHtml(String(rec.signedPermit.uploadedAt).slice(0,10)) : ''}</div></div>` : ''}
+        <div class="action-btn-row" style="margin-top:12px;">${rec.signedPermit
+          ? `<button class="btn btn-primary btn-sm" onclick="jcfd_viewIssuedPermit(jcfdActiveAppKey)">View signed permit</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="jcfd_printPermit()">🖨 Print permit</button>`}</div>
       </div>`;
     }
 
@@ -21100,7 +21211,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // Officer's permitPrintArea/printing-permit pipeline — see jcfd_printPermit()).
     const jcfdPrintArea = document.getElementById('jcfdPermitPrintArea');
     if(jcfdPrintArea){
-      if(rec.permitGenerated && rec.permit){
+      if(rec.pendingSignature && rec.pendingSignature.permit && !rec.permitGenerated){
+        // The document to be signed: same layout, blank signature line.
+        jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.pendingSignature.permit, null, undefined, jcfdCachedCrest);
+        jcfd_renderPermitQr('jcfdPermitQrTarget', window.atdVerifyUrl(rec.jcfAppNumber));
+      } else if(rec.permitGenerated && rec.permit && rec.signedPermit){
+        jcfdPrintArea.innerHTML = '';
+      } else if(rec.permitGenerated && rec.permit){
         jcfdPrintArea.innerHTML = jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, undefined, jcfdCachedCrest);
         // Always rebuild from the app number rather than trusting the
         // stored qrData — permits issued before the www-domain fix have a
@@ -21500,6 +21617,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.decidedAt = new Date().toISOString();
     rec.finalDecision = `Rejected by ${jcfdCurrentUser.name}: ${reason}`;
     rec.permitGenerated = false;
+    delete rec.pendingSignature;
     await jcfd_saveActiveApp(rec);
     await jcfd_autoRejectLinkedPoaIfEnabled(rec);
     jcfd_showToast('Application rejected.');
@@ -21536,6 +21654,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     else if(rec.assignedOfficerId) rec.status = 'Under Review';
     else rec.status = 'Submitted';
     rec.permitGenerated = false;
+    delete rec.signedPermit;
+    delete rec.pendingSignature;
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Application reopened for review.');
     jcfd_renderApplicationDetail();
@@ -21689,12 +21809,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     { key: 'decideCapped', label: 'Approve / Reject (≤500 patrons)' },
     { key: 'reports', label: 'View Reports tab' },
     { key: 'eventsCalendar', label: 'View shared Events Calendar' },
-    { key: 'slaBreaches', label: 'View SLA Breaches tab' }
+    { key: 'slaBreaches', label: 'View SLA Breaches tab' },
+    // Walk-in (manual) filings keyed in at the desk. Supervisors have it by
+    // default (this used to be hardcoded to the Supervisor role); the Chief
+    // can now switch it on for Officer/Station accounts or off for Supervisors.
+    { key: 'manualEntry', label: 'Enter manual (walk-in) applications' }
   ];
   const JCFD_ROLE_PERMISSION_DEFAULTS = {
-    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, decideCapped: true, reports: true, eventsCalendar: true, slaBreaches: true },
-    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, decideCapped: false, reports: true, eventsCalendar: true, slaBreaches: true },
-    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, decideCapped: false, reports: false, eventsCalendar: false, slaBreaches: false }
+    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, decideCapped: true, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true },
+    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, decideCapped: false, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true },
+    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, decideCapped: false, reports: false, eventsCalendar: false, slaBreaches: false, manualEntry: false }
   };
   let jcfdRolePermissions = JSON.parse(JSON.stringify(JCFD_ROLE_PERMISSION_DEFAULTS));
 
@@ -21859,8 +21983,22 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaDecisionToggle').checked = rules.decision.enabled;
     document.getElementById('jcfd_slaDecisionDays').value = rules.decision.targetDays;
     document.getElementById('jcfd_settingsAutoRejectToggle').checked = !!settings.autoRejectOnMuniReject;
+    const signMethodEl = document.getElementById('jcfd_settingsSignMethod');
+    if(signMethodEl) signMethodEl.value = settings.permitSignatureMethod === 'upload' ? 'upload' : 'stamp';
   }
   window.jcfd_loadSettings = jcfd_loadSettings;
+
+  // How this division signs permits: 'stamp' (the saved signature is stamped
+  // on at approval, the original behaviour) or 'upload' (approval holds the
+  // permit as "Awaiting signature" until a signed copy is uploaded). A failed
+  // read THROWS rather than quietly falling back to 'stamp', so a division
+  // that asked for signed permits never gets an auto-stamped one by accident.
+  async function jcfd_getPermitMethod(){
+    if(!window.storage || !jcfdCurrentBranch) return 'stamp';
+    const r = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:settings`, true);
+    const st = (r && r.value) ? JSON.parse(r.value) : {};
+    return st.permitSignatureMethod === 'upload' ? 'upload' : 'stamp';
+  }
 
   async function jcfd_saveSettings(){
     if(!window.storage || !jcfdCurrentBranch) return;
@@ -21882,8 +22020,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaReviewDays').value = slaRules.review.targetDays;
     document.getElementById('jcfd_slaDecisionDays').value = slaRules.decision.targetDays;
     const autoRejectOnMuniReject = document.getElementById('jcfd_settingsAutoRejectToggle').checked;
+    const signMethodSel = document.getElementById('jcfd_settingsSignMethod');
+    const permitSignatureMethod = (signMethodSel && signMethodSel.value === 'upload') ? 'upload' : 'stamp';
     try{
-      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject }), true);
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject, permitSignatureMethod }), true);
       jcfd_showToast('Settings saved.');
     } catch(err){
       jcfd_showToast('Could not save settings right now.');
@@ -22867,10 +23007,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const d = new Date(iso);
     return isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
-  function jcfd_notifyWl(targetPermission, type, message, rec, targetEmail){
+  // Returns true only when the notification was really saved.
+  async function jcfd_notifyWl(targetPermission, type, message, rec, targetEmail){
     try{
-      if(window.atdNotify && jcfdCurrentBranch) window.atdNotify(jcfdCurrentBranch.id, targetPermission, type, message, rec && rec.jcfAppNumber, targetEmail);
-    } catch(e){ /* best-effort */ }
+      if(!window.atdNotify || !jcfdCurrentBranch) return false;
+      return (await window.atdNotify(jcfdCurrentBranch.id, targetPermission, type, message, rec && rec.jcfAppNumber, targetEmail)) === true;
+    } catch(e){ return false; }
   }
 
   function jcfd_openWlRequestModal(target){
@@ -22915,9 +23057,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       });
       await jcfd_saveActiveApp(rec);
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequested', details: `Requested a watch list flag for ${t.fullName || 'N/A'} (${formatTrnDisplayJcfd(t.trn)}) on ${rec.jcfAppNumber || ''}.`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
-      jcfd_notifyWl('watchlist', 'watchlist_flag_requested', `${jcfdCurrentUser.name} asked to flag ${t.fullName || 'someone'} (${t.type}) on ${rec.jcfAppNumber || 'an application'}.`, rec);
+      const notified = await jcfd_notifyWl('watchlist', 'watchlist_flag_requested', `${jcfdCurrentUser.name} asked to flag ${t.fullName || 'someone'} (${t.type}) on ${rec.jcfAppNumber || 'an application'}.`, rec);
       jcfd_closeWlRequestModal();
-      jcfd_showToast('Flag request sent for review.');
+      jcfd_showToast(notified ? 'Flag request sent for review.' : 'Flag request saved, but the Supervisor could not be notified. Please tell them directly.');
       jcfd_renderApplicationDetail();
     } finally { btn.disabled = false; }
   }
@@ -22954,8 +23096,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     req.decidedAt = new Date().toISOString();
     await jcfd_saveActiveApp(rec);
     if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequestAccepted', details: `Accepted the flag request for ${req.name || 'N/A'} (${formatTrnDisplayJcfd(req.trn)}), requested by ${req.requestedBy || 'an officer'}.`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
-    jcfd_notifyWl(null, 'watchlist_flag_accepted', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was accepted by ${jcfdCurrentUser.name}. They are now flagged.`, rec, req.requestedByEmail);
-    jcfd_showToast(`${req.name || 'The person'} has been flagged on the JCF Watch List.`);
+    const notified = await jcfd_notifyWl(null, 'watchlist_flag_accepted', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was accepted by ${jcfdCurrentUser.name}. They are now flagged.`, rec, req.requestedByEmail);
+    jcfd_showToast(`${req.name || 'The person'} has been flagged on the JCF Watch List.${notified ? '' : ' The requesting officer could not be notified.'}`);
     jcfd_renderWatchlist();
     jcfd_renderApplicationDetail();
   }
@@ -22991,9 +23133,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       req.decisionReason = reason;
       await jcfd_saveActiveApp(rec);
       if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'watchlist.flagRequestDeclined', details: `Declined the flag request for ${req.name || 'N/A'} (${formatTrnDisplayJcfd(req.trn)}): ${reason}`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
-      jcfd_notifyWl(null, 'watchlist_flag_declined', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was declined by ${jcfdCurrentUser.name}: ${reason}`, rec, req.requestedByEmail);
+      const notified = await jcfd_notifyWl(null, 'watchlist_flag_declined', `Your flag request for ${req.name || 'someone'} on ${rec.jcfAppNumber || 'the application'} was declined by ${jcfdCurrentUser.name}: ${reason}`, rec, req.requestedByEmail);
       jcfd_closeWlDeclineModal();
-      jcfd_showToast('Flag request declined.');
+      jcfd_showToast(notified ? 'Flag request declined.' : 'Flag request declined. The requesting officer could not be notified.');
       jcfd_renderApplicationDetail();
     } finally { btn.disabled = false; }
   }
@@ -23158,9 +23300,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         return;
       }
       jcfdViewingPermitRec = rec;
+      const dispPermit = await jcfd_permitForDisplay(rec);
+      jcfdViewingPermitRec._displayPermit = dispPermit;
       document.getElementById('jcfd_permitViewModalSub').textContent = `JCF Application #${rec.jcfAppNumber || ''}`;
       document.getElementById('jcfd_permitViewModalBody').innerHTML =
-        jcfd_buildPermitDocHtml(rec.permit, jcfdCachedSignature, 'jcfd_permitViewModalQrTarget', jcfdCachedCrest);
+        jcfd_buildPermitDocHtml(dispPermit, jcfdCachedSignature, 'jcfd_permitViewModalQrTarget', jcfdCachedCrest);
       document.getElementById('jcfd_permitViewModal').classList.remove('hidden');
       // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
       jcfd_renderPermitQr('jcfd_permitViewModalQrTarget', window.atdVerifyUrl(rec.jcfAppNumber));
@@ -23185,7 +23329,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!jcfdViewingPermitRec || !jcfdViewingPermitRec.permit) return;
     const printArea = document.getElementById('jcfdPermitPrintArea');
     if(!printArea) return;
-    printArea.innerHTML = jcfd_buildPermitDocHtml(jcfdViewingPermitRec.permit, jcfdCachedSignature, 'jcfdPermitQrTarget', jcfdCachedCrest);
+    printArea.innerHTML = jcfd_buildPermitDocHtml(jcfdViewingPermitRec._displayPermit || jcfdViewingPermitRec.permit, jcfdCachedSignature, 'jcfdPermitQrTarget', jcfdCachedCrest);
     jcfd_renderPermitQr('jcfdPermitQrTarget', window.atdVerifyUrl(jcfdViewingPermitRec.jcfAppNumber));
     document.body.classList.add('printing-permit');
     window.print();
@@ -23377,6 +23521,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
 
+    let jcfdSignMethod;
+    try{ jcfdSignMethod = await jcfd_getPermitMethod(); }
+    catch(methodErr){
+      jcfd_showToast("Could not check this division's permit-signing setting. Nothing was changed; please try again.");
+      return;
+    }
+    const priorDecision = {
+      status: rec.status, finalDecision: rec.finalDecision, permitGenerated: rec.permitGenerated,
+      permit: rec.permit, hadPermit: Object.prototype.hasOwnProperty.call(rec, 'permit')
+    };
+
     rec.status = 'Approved';
     rec.finalDecision = 'Approved by ' + jcfdCurrentUser.name;
     rec.permitGenerated = true;
@@ -23449,9 +23604,43 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       qrData: window.atdVerifyUrl((jcfdActiveAppKey || '').replace('jcfApplication:', ''))
     };
 
-    await jcfd_saveActiveApp(rec);
+    if(jcfdSignMethod === 'upload'){
+      // Sign-and-upload division: record the approval but do NOT issue. The
+      // permit sits in rec.pendingSignature (invisible to the applicant and to
+      // every "is a permit issued" check, which all read permitGenerated)
+      // until the signed copy is uploaded.
+      const pendingPermit = rec.permit;
+      rec.status = priorDecision.status;
+      rec.finalDecision = priorDecision.finalDecision;
+      rec.permitGenerated = false;
+      if(priorDecision.hadPermit) rec.permit = priorDecision.permit; else delete rec.permit;
+      delete rec.signedPermit;
+      rec.pendingSignature = {
+        permit: pendingPermit,
+        finalDecision: 'Approved by ' + jcfdCurrentUser.name,
+        approvedBy: jcfdCurrentUser.name,
+        approvedByEmail: jcfdCurrentUser.email || '',
+        approvedAt: new Date().toISOString()
+      };
+    }
+    try{
+      await jcfd_saveActiveApp(rec);
+    } catch(saveErr){
+      jcfd_showToast('Could not save the approval. Nothing was changed; please try again.');
+      return;
+    }
+    if(window.atdLogAudit && jcfdCurrentUser){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: jcfdSignMethod === 'upload' ? 'permit.approvalRecorded' : 'permit.issued',
+        details: (jcfdSignMethod === 'upload' ? 'Approved; permit held awaiting signature: ' : 'Approved and issued permit ') + ((rec.pendingSignature && rec.pendingSignature.permit && rec.pendingSignature.permit.number) || (rec.permit && rec.permit.number) || '') + ' for JCF application ' + (rec.jcfAppNumber || '') + '.',
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
     jcfd_closeApproveModal();
-    jcfd_showToast('Application approved and permit issued.');
+    jcfd_showToast(jcfdSignMethod === 'upload'
+      ? 'Approval recorded. Download the permit, have it signed, then upload the signed copy to issue it.'
+      : 'Application approved and permit issued.');
     jcfd_renderApplicationDetail();
   }
   window.jcfd_confirmApprove = jcfd_confirmApprove;
@@ -23560,6 +23749,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // render into its own preview modal without an id collision against a
   // real jcfdPermitPrintArea render elsewhere in the same page.
   function jcfd_buildPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl){
+    if(p && p._signed) return jcfd_buildSignedPermitHtml(p);
     if(p && p.permitTypeLabel === 'ANNUAL') return jcfd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl);
     qrTargetId = qrTargetId || 'jcfdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
@@ -23620,6 +23810,157 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
     `;
   }
+
+
+  // ==================== Signed permit (sign-and-upload divisions) ====================
+  // For a permit whose signed copy was uploaded, the SIGNED FILE is the permit.
+  // jcfd_permitForDisplay() returns a copy of rec.permit carrying that file in
+  // memory only (never saved back), and jcfd_buildPermitDocHtml() then shows it
+  // instead of the generated layout. Every place that shows a JCF permit goes
+  // through the builder, so each one is switched by calling this helper first.
+  async function jcfd_permitForDisplay(rec){
+    if(!rec || !rec.permit || !rec.signedPermit) return rec ? rec.permit : null;
+    const meta = rec.signedPermit || {};
+    try{
+      const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+      const f = (r && r.value) ? JSON.parse(r.value) : null;
+      const sp = f && f.signedPermit;
+      if(sp && typeof sp.fileData === 'string'){
+        return Object.assign({}, rec.permit, { _signed: {
+          fileData: sp.fileData, fileName: sp.fileName || meta.fileName || 'signed-permit',
+          uploadedBy: sp.uploadedBy || meta.uploadedBy || '', uploadedAt: sp.uploadedAt || meta.uploadedAt || '' } });
+      }
+    } catch(e){ /* fall through to the "could not load" view */ }
+    return Object.assign({}, rec.permit, { _signed: { fileData: '', fileName: meta.fileName || '', uploadedBy: meta.uploadedBy || '', uploadedAt: meta.uploadedAt || '' } });
+  }
+  window.jcfd_permitForDisplay = jcfd_permitForDisplay;
+
+  function jcfd_buildSignedPermitHtml(p){
+    const s = p._signed || {};
+    const url = atdSafeFileUrl(s.fileData || '');
+    const when = s.uploadedAt ? ' on ' + acctEscapeHtml(String(s.uploadedAt).slice(0,10)) : '';
+    const head = `<div class="status-banner good" style="margin-bottom:12px;">Signed Noise Abatement Permit ${acctEscapeHtml(p.number || '')}${s.uploadedBy ? ' · signed copy uploaded by ' + acctEscapeHtml(s.uploadedBy) + when : ''}</div>`;
+    if(!url) return head + `<p class="col-desc">The signed copy could not be loaded right now. Please close this and try again.</p>`;
+    const isPdf = /^data:application\/pdf/i.test(url);
+    const safeName = String(s.fileName || 'signed-permit').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'signed-permit';
+    const body = isPdf
+      ? `<iframe src="${url}" title="Signed permit" style="width:100%; height:640px; border:1px solid var(--border); border-radius:8px; background:#fff;"></iframe>`
+      : `<img src="${url}" alt="Signed permit" style="max-width:100%; display:block; margin:0 auto; border:1px solid var(--border); border-radius:8px;">`;
+    return head + body + `<div class="action-btn-row" style="margin-top:12px;"><a class="btn btn-primary btn-sm" href="${url}" download="${acctEscapeHtml(safeName)}">⬇ Download signed permit</a></div>`;
+  }
+
+  // Upload the signed copy: issues the permit.
+  async function jcfd_uploadSignedPermit(inputEl){
+    const file = inputEl && inputEl.files && inputEl.files[0];
+    try{
+      if(!file) return;
+      const rec = await jcfd_getActiveApp();
+      if(!rec || !rec.pendingSignature || !rec.pendingSignature.permit){
+        jcfd_showToast('This application is not awaiting a signed permit.');
+        return;
+      }
+      if(!(jcfd_hasPerm('permits') || jcfd_canDecideApp(rec))){
+        jcfd_showToast("You don't have permission to upload the signed permit.");
+        return;
+      }
+      if(!/^(application\/pdf|image\/(png|jpeg|webp))$/.test(file.type)){
+        jcfd_showToast('Please upload the signed permit as a PDF, or a PNG, JPEG or WebP image.');
+        return;
+      }
+      if(file.size > 3 * 1024 * 1024){
+        jcfd_showToast('That file is over 3 MB. Please scan at a lower resolution or compress it, then try again.');
+        return;
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error('read failed'));
+        fr.readAsDataURL(file);
+      });
+      if(typeof dataUrl !== 'string' || !/^data:(application\/pdf|image\/(png|jpeg|webp));base64,/.test(dataUrl)){
+        jcfd_showToast('Could not read that file as a PDF or image. Please try again.');
+        return;
+      }
+      const ps = rec.pendingSignature;
+      if(!(await window.atdConfirm(`Issue permit ${ps.permit.number} using this signed copy? The applicant will be able to see it straight away.`))) return;
+
+      // 1. save the file beside the filing's other uploads. A failed READ stops
+      //    here (never overwrite the applicant's own uploaded documents).
+      let files = {};
+      try{
+        const r = await window.storage.get(`jcfApplicationFiles:${rec.jcfAppNumber}`, true);
+        files = (r && r.value) ? JSON.parse(r.value) : {};
+      } catch(readErr){
+        jcfd_showToast('Could not reach the filing\'s documents just now. Nothing was changed; please try again.');
+        return;
+      }
+      const nowIso = new Date().toISOString();
+      files.signedPermit = {
+        fileName: file.name, mime: file.type, fileData: dataUrl,
+        uploadedBy: jcfdCurrentUser.name, uploadedByEmail: jcfdCurrentUser.email || '', uploadedAt: nowIso
+      };
+      try{
+        await window.storage.set(`jcfApplicationFiles:${rec.jcfAppNumber}`, JSON.stringify(files), true);
+      } catch(saveFileErr){
+        jcfd_showToast('Could not save the signed permit. Nothing was changed; please try again.');
+        return;
+      }
+
+      // 2. issue the permit
+      rec.status = 'Approved';
+      rec.finalDecision = ps.finalDecision;
+      rec.permit = ps.permit;
+      rec.permitGenerated = true;
+      rec.signedPermit = { fileName: file.name, mime: file.type, uploadedBy: jcfdCurrentUser.name, uploadedAt: nowIso };
+      delete rec.pendingSignature;
+      try{
+        await jcfd_saveActiveApp(rec);
+      } catch(issueErr){
+        jcfd_showToast('The signed copy was saved but the permit could not be issued. Please upload it again.');
+        return;
+      }
+      if(window.atdLogAudit && jcfdCurrentUser){
+        await window.atdLogAudit({
+          portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+          action: 'permit.signedUploaded',
+          details: `Signed permit ${rec.permit.number} uploaded; permit issued for JCF application ${rec.jcfAppNumber || ''}.`,
+          muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+        });
+      }
+      jcfd_showToast('Signed permit uploaded. The permit is now issued.');
+      jcfd_renderApplicationDetail();
+    } catch(err){
+      jcfd_showToast('Could not upload the signed permit. Please try again.');
+    } finally {
+      if(inputEl) inputEl.value = '';
+    }
+  }
+  window.jcfd_uploadSignedPermit = jcfd_uploadSignedPermit;
+
+  async function jcfd_cancelPendingApproval(){
+    const rec = await jcfd_getActiveApp();
+    if(!rec || !rec.pendingSignature) return;
+    if(!jcfd_canDecideApp(rec)){
+      jcfd_showToast("You don't have permission to cancel this approval.");
+      return;
+    }
+    if(!(await window.atdConfirm('Cancel this approval? The permit will not be issued and the application goes back to review. The permit number already reserved will not be reused.'))) return;
+    const number = rec.pendingSignature.permit && rec.pendingSignature.permit.number;
+    delete rec.pendingSignature;
+    try{ await jcfd_saveActiveApp(rec); }
+    catch(e){ jcfd_showToast('Could not cancel the approval. Please try again.'); return; }
+    if(window.atdLogAudit && jcfdCurrentUser){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'permit.approvalCancelled',
+        details: `Approval cancelled before signing (permit ${number || ''}) for JCF application ${rec.jcfAppNumber || ''}.`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
+    jcfd_showToast('Approval cancelled.');
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_cancelPendingApproval = jcfd_cancelPendingApproval;
 
   function jcfd_renderPermitQr(targetId, data){
     const el = document.getElementById(targetId);
@@ -30232,12 +30573,13 @@ async function renderMmPermit(){
   if(hasJcfPermit){
     const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
     const jcfCrest = await fetchJcfCrest();
+    const jcfPermitDisp = window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(jcfApp) : jcfApp.permit;
     html += `
       <h3 style="margin:0 0 10px;">JCF Noise Abatement Permit</h3>
-      ${window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'mmJcfPermitQrTarget', jcfCrest)}
-      <div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
+      ${window.jcfd_buildPermitDocHtml(jcfPermitDisp, jcfSignature, 'mmJcfPermitQrTarget', jcfCrest)}
+      ${jcfApp.signedPermit ? '' : `<div class="btn-row" style="justify-content:flex-start; margin-top:14px;">
         <button class="btn" onclick="printPermitFromMenu('jcf')">🖨 Print permit</button>
-      </div>`;
+      </div>`}`;
   }
   body.innerHTML = html;
 
@@ -30255,7 +30597,7 @@ async function printPermitFromMenu(kind){
     if(!jcfApp || !jcfApp.permitGenerated || !jcfApp.permit) return;
     const jcfSignature = await fetchJcfSignature(jcfApp.permit.parish);
     const jcfCrest = await fetchJcfCrest();
-    document.getElementById('printArea').innerHTML = window.jcfd_buildPermitDocHtml(jcfApp.permit, jcfSignature, 'printPermitQrTarget', jcfCrest);
+    document.getElementById('printArea').innerHTML = window.jcfd_buildPermitDocHtml(window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(jcfApp) : jcfApp.permit, jcfSignature, 'printPermitQrTarget', jcfCrest);
     poa_renderPermitQr('printPermitQrTarget', window.atdVerifyUrl(r.appNumber));
     document.body.classList.add('printing-doc');
     window.print();
@@ -34655,7 +34997,9 @@ async function loadSignature(){
 // which previously had no logo slot for the Municipal Corporation at all.
 function setLogoUI(dataUrl){
   const placeholder = document.getElementById('logoPlaceholder');
-  const img = document.getElementById('logoPreviewImg');
+  // Own id: 'logoPreviewImg' is also the applicant form's logo preview (earlier in the
+  // page), and getElementById would return that one, so the saved logo never showed here.
+  const img = document.getElementById('muniLogoPreviewImg');
   const badge = document.getElementById('logoStatusBadge');
   const removeBtn = document.getElementById('removeLogoBtn');
   if(!placeholder || !img || !badge || !removeBtn) return;
@@ -36795,9 +37139,10 @@ async function openJcfPermitModal(){
   document.getElementById('jcfPermitModalSub').textContent = `JCF Application #${jcfApp.jcfAppNumber || ''}`;
   const jcfSignature = window.fetchJcfSignature ? await window.fetchJcfSignature(p.parish) : null;
   const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+  const pDisp = window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(jcfApp) : p;
   document.getElementById('jcfPermitModalBody').innerHTML =
-    (window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(p, jcfSignature, 'jcfPermitModalQrTarget', jcfCrest) : '') +
-    `<div class="action-btn-row" style="margin-top:14px;"><button class="btn btn-sm" onclick="printJcfPermitFromModal()">🖨 Print permit</button></div>`;
+    (window.jcfd_buildPermitDocHtml ? window.jcfd_buildPermitDocHtml(pDisp, jcfSignature, 'jcfPermitModalQrTarget', jcfCrest) : '') +
+    (jcfApp.signedPermit ? '' : `<div class="action-btn-row" style="margin-top:14px;"><button class="btn btn-sm" onclick="printJcfPermitFromModal()">🖨 Print permit</button></div>`);
   document.getElementById('jcfPermitModal').classList.remove('hidden');
   // Rebuild fresh rather than trusting stored qrData -- see atdVerifyUrl.
   // Uses the same "master" application number the applicant's own copy of
@@ -36825,7 +37170,7 @@ async function printJcfPermitFromModal(){
   const jcfCrest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
   const printArea = document.getElementById('permitPrintArea');
   if(!printArea || !window.jcfd_buildPermitDocHtml) return;
-  printArea.innerHTML = window.jcfd_buildPermitDocHtml(p, jcfSignature, 'permitQrTarget', jcfCrest);
+  printArea.innerHTML = window.jcfd_buildPermitDocHtml(window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(jcfApp) : p, jcfSignature, 'permitQrTarget', jcfCrest);
   muni_renderPermitQr('permitQrTarget', window.atdVerifyUrl(a.appNumber));
   document.body.classList.add('printing-permit');
   window.print();
@@ -39642,6 +39987,8 @@ async function muni_autoRejectLinkedJcfIfEnabled(a){
     jcfApp.status = 'Rejected';
     jcfApp.finalDecision = `Auto-rejected: linked Places of Amusement application ${a.appNumber} was rejected by ${rejectedBy}.`;
     jcfApp.permitGenerated = false;
+    delete jcfApp.pendingSignature;
+    delete jcfApp.signedPermit;
     await window.storage.set(`jcfApplication:${a.appNumber}`, JSON.stringify(jcfApp), true);
   } catch(err){
     // best-effort only — the Municipal rejection itself already succeeded
@@ -39961,11 +40308,15 @@ async function muni_buildExportModel(a, progress){
   if(hasPoaPermit){
     P.push({ t: 'permit', id: 'poa', caption: `Places of Amusement licence ${a.permit.number} — issued ${a.permit.issuedDate || ''} by ${myMunicipalityName()}`, html: muni_buildPermitDocHtml(a.permit, cachedSignature, cachedLogo, 'pdfPermitQrA'), qrText: qrText });
   }
-  if(hasJcfPermit){
+  if(hasJcfPermit && jcfApp.signedPermit && /pdf/i.test(String(jcfApp.signedPermit.mime || jcfApp.signedPermit.fileName || ''))){
+    // The signed permit is a PDF, which cannot be embedded in this package.
+    P.push({ t: 'note', tone: 'warn', text: `The Noise Abatement permit ${jcfApp.permit.number} was issued as a signed PDF and is not repeated here. Open it from this application's JCF permit view.` });
+  } else if(hasJcfPermit){
     const jp = jcfApp.permit;
     const sig = window.fetchJcfSignature ? await window.fetchJcfSignature(jp.parish) : null;
     const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
-    P.push({ t: 'permit', id: 'jcf', caption: `Noise Abatement permit ${jp.number} — issued ${jp.issuedDate || ''} by the Jamaica Constabulary Force`, html: window.jcfd_buildPermitDocHtml(jp, sig, 'pdfPermitQrB', crest), qrText: qrText });
+    const jpDisp = window.jcfd_permitForDisplay ? await window.jcfd_permitForDisplay(jcfApp) : jp;
+    P.push({ t: 'permit', id: 'jcf', caption: `Noise Abatement permit ${jp.number} — issued ${jp.issuedDate || ''} by the Jamaica Constabulary Force`, html: window.jcfd_buildPermitDocHtml(jpDisp, sig, 'pdfPermitQrB', crest), qrText: qrText });
   }
 
   // ---------- attachments ----------
