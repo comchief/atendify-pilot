@@ -14122,7 +14122,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
              Approvals) — nesting this inside djSoundBlock would duplicate
              that upload into the Annual flow too. -->
         <div class="section-title">Required JCF Approvals</div>
-        <div class="col-desc" style="margin:-6px 0 14px;">Upload these here, or from your Places of Amusement application's Main Menu — whichever you upload first shows up in both places.</div>
+        <div class="col-desc" style="margin:-6px 0 14px;">Upload these here, or from your Places of Amusement application's Main Menu — whichever you upload first shows up in both places. You can still submit without them: the JCF officer will not be able to approve the permit until they are uploaded, unless the officer waives the requirement.</div>
 
         <div class="id-flyer-row">
           <div>
@@ -15472,6 +15472,50 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
       </div>
 
+      <!-- ===== WALK-IN (MANUAL) APPLICATION PAGE =====
+           See jcfd_openManualAppModal()/jcfd_createManualApplication(). The same
+           information the online JCF Noise Abatement application collects
+           (event and promoter, venue, entertainment), keyed in by an officer for a walk-in promoter. The briefing
+           videos, declaration and signature are left out: they are
+           replaced by the "Promoter briefed in person" item on the Official Use
+           Checklist, ticked by the officer. Documents can be attached here or
+           afterwards from the application's own page. -->
+      <div class="page hidden" id="jcfd_page-manualEntry">
+        <button class="btn btn-sm" style="margin-bottom:18px;" onclick="jcfd_closeManualAppModal()">&larr; Back to applications</button>
+        <div class="panel">
+          <div class="panel-head"><h2>New Manual Application (Walk-in)</h2></div>
+          <p class="col-desc" style="margin:0 0 14px;">File a JCF Noise Abatement application on behalf of a walk-in promoter. It asks for the same information as the online application, without the briefing videos, declaration and signature. The application is tagged as a manual entry.</p>
+
+          <div class="field-group" style="margin:6px 0 4px;">
+            <label style="font-weight:800; font-size:13px; color:var(--text);">How is this filing linked?</label>
+            <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:4px;">
+              <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="poa" checked onchange="jcfd_setManualMode(this.value)"> Has a Places of Amusement application number</label>
+              <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="standalone" onchange="jcfd_setManualMode(this.value)"> No municipal application (standalone)</label>
+            </div>
+          </div>
+          <div id="jcfdManualStandaloneNote" class="info-banner hidden" style="margin-bottom:8px;">Standalone filing: there is no Places of Amusement record behind it, so enter the promoter, event and venue details below. It is filed under your division's municipality.</div>
+
+          <div class="field-row" id="jcfdManualPoaRow">
+            <div class="field-group">
+              <label for="jcfdManualPoaNumber">Places of Amusement (POA) application number</label>
+              <input type="text" id="jcfdManualPoaNumber" placeholder="e.g. POA-042026-01" onblur="jcfd_lookupPoaForManualApp()">
+            </div>
+            <div class="field-group">
+              <button class="btn" type="button" style="margin-top:22px;" onclick="jcfd_lookupPoaForManualApp()">Look up</button>
+            </div>
+          </div>
+          <div id="jcfdManualPoaLookupResult"></div>
+
+          <div id="jcfdManualFormBody" class="hidden"></div>
+
+          <div id="jcfdManualAppError" class="info-banner warn hidden" style="margin-top:14px;"></div>
+          <div class="btn-row" style="margin-top:16px; justify-content:flex-end;">
+            <button class="btn" onclick="jcfd_closeManualAppModal()">Cancel</button>
+            <button class="btn btn-primary hidden" id="jcfdManualAppSubmitBtn" onclick="jcfd_createManualApplication()">Create application</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ===== APPLICATION DETAIL PAGE ===== -->
       <div class="page hidden" id="jcfd_page-appdetail">
         <button class="btn btn-sm" style="margin-bottom:18px;" onclick="jcfd_goPage('applications')">&larr; Back to applications</button>
@@ -15848,6 +15892,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </div>
 
 <!-- ===== JCF Document Viewer Modal (photo ID / event flyer / signature on file) ===== -->
+<!-- ===== Waive JAMMS / JCAP requirement ===== -->
+<div class="modal-overlay hidden" id="jcfd_waiveModal">
+  <div class="modal-box">
+    <h3 id="jcfd_waiveTitle">Waive requirement</h3>
+    <p class="modal-sub">Use this when the document is not needed for this filing. The checklist will then treat it as satisfied. Your name, the date and the reason are recorded on the application, and the requirement can be reinstated later.</p>
+    <div class="field-group">
+      <label for="jcfd_waiveReason">Reason for waiving <span class="required-mark">*</span></label>
+      <textarea id="jcfd_waiveReason" rows="3" maxlength="500" placeholder="e.g. Small private gathering — approval not applicable"></textarea>
+    </div>
+    <div id="jcfd_waiveError" class="info-banner warn hidden"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeWaiveModal()">Cancel</button>
+      <button class="btn btn-primary" id="jcfd_waiveConfirmBtn" onclick="jcfd_confirmWaive()">Waive requirement</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="jcfd_docModal">
   <div class="modal-box modal-wide">
     <h3 id="jcfd_docModalTitle">Document</h3>
@@ -16018,118 +16079,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 <div id="jcfdPermitPrintArea" class="print-only"></div>
 
 <!-- ===== Manual (walk-in) application intake — Police Supervisor only ===== -->
-<!-- See jcfd_openManualAppModal()/jcfd_createManualApplication(). A JCF
-     filing always derives from an existing POA (Places of Amusement)
-     application — this modal requires that number up front, looks it up,
-     and carries over the applicant/venue/municipality details exactly like
-     openJcfForm() does for a normal online filing. Documents (Photo ID,
-     Event Flyer, Proof of Ownership) are deliberately NOT collected here —
-     the filing is created first, then the Supervisor uploads them from the
-     application's own detail page (see jcfd_detailRowDoc's manual-entry
-     branch) once they're on hand. -->
-<div class="modal-overlay hidden" id="jcfdManualAppModal">
-  <div class="modal-box modal-wide">
-    <h3>New Manual Application (Walk-in)</h3>
-    <p class="modal-sub">File a JCF Noise Abatement application on behalf of a walk-in promoter. This is tagged as a manual entry — you'll upload the required documents from the application's own page afterward.</p>
-
-    <div class="field-group" style="margin:6px 0 4px;">
-      <label style="font-weight:800; font-size:13px; color:var(--text);">How is this filing linked?</label>
-      <div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:4px;">
-        <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="poa" checked onchange="jcfd_setManualMode(this.value)"> Has a Places of Amusement application number</label>
-        <label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdManualMode" value="standalone" onchange="jcfd_setManualMode(this.value)"> No municipal application (standalone)</label>
-      </div>
-    </div>
-    <div id="jcfdManualStandaloneNote" class="info-banner hidden" style="margin-bottom:8px;">Standalone filing: there is no Places of Amusement record behind it, so enter the promoter, event and venue details below. It is filed under your division's municipality.</div>
-
-    <div class="field-row" id="jcfdManualPoaRow">
-      <div class="field-group">
-        <label for="jcfdManualPoaNumber">Places of Amusement (POA) application number</label>
-        <input type="text" id="jcfdManualPoaNumber" placeholder="e.g. POA-042026-01" onblur="jcfd_lookupPoaForManualApp()">
-      </div>
-      <div class="field-group">
-        <button class="btn" type="button" style="margin-top:22px;" onclick="jcfd_lookupPoaForManualApp()">Look up</button>
-      </div>
-    </div>
-    <div id="jcfdManualPoaLookupResult"></div>
-
-    <div id="jcfdManualAppFields" class="hidden">
-      <div class="field-group" style="margin:10px 0 2px;">
-        <label style="font-weight:800; font-size:13px; color:var(--text);">Promoter information</label>
-      </div>
-      <div class="field-row">
-        <div class="field-group">
-          <label for="jcfdManualPromoterName">Promoter name</label>
-          <input type="text" id="jcfdManualPromoterName" placeholder="Full name">
-        </div>
-        <div class="field-group">
-          <label for="jcfdManualPromoterTrn">TRN</label>
-          <input type="text" id="jcfdManualPromoterTrn" placeholder="TRN">
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field-group">
-          <label for="jcfdManualPromoterPhone">Phone</label>
-          <input type="text" id="jcfdManualPromoterPhone" placeholder="Phone number">
-        </div>
-        <div class="field-group">
-          <label for="jcfdManualPatrons">Expected patrons</label>
-          <input type="number" id="jcfdManualPatrons" min="1" placeholder="e.g. 150">
-        </div>
-      </div>
-
-      <div class="field-group" style="margin:10px 0 2px;">
-        <label style="font-weight:800; font-size:13px; color:var(--text);">Event information</label>
-      </div>
-      <div class="field-row">
-        <div class="field-group">
-          <label for="jcfdManualEventName">Event name</label>
-          <input type="text" id="jcfdManualEventName" placeholder="Event name">
-        </div>
-        <div class="field-group">
-          <label for="jcfdManualEventDate">Event date</label>
-          <input type="date" id="jcfdManualEventDate">
-        </div>
-      </div>
-
-      <div class="field-group" style="margin:10px 0 2px;">
-        <label style="font-weight:800; font-size:13px; color:var(--text);">Venue information</label>
-      </div>
-      <div class="field-row">
-        <div class="field-group">
-          <label for="jcfdManualVenueName">Venue name</label>
-          <input type="text" id="jcfdManualVenueName" placeholder="Venue name">
-        </div>
-        <div class="field-group">
-          <label for="jcfdManualVenueAddress">Venue address</label>
-          <input type="text" id="jcfdManualVenueAddress" placeholder="Street/district">
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field-group">
-          <label for="jcfdManualVenueOwner">Venue owner</label>
-          <input type="text" id="jcfdManualVenueOwner" placeholder="Owner name">
-        </div>
-        <div class="field-group">
-          <label for="jcfdManualOwnerContact">Owner contact</label>
-          <input type="text" id="jcfdManualOwnerContact" placeholder="Phone number">
-        </div>
-      </div>
-
-      <div class="field-group">
-        <label for="jcfdManualNote">Internal note (optional)</label>
-        <textarea id="jcfdManualNote" rows="2" placeholder="Anything useful for your records — not shown to the applicant."></textarea>
-      </div>
-    </div>
-
-    <div id="jcfdManualAppError" class="info-banner warn hidden"></div>
-
-    <div class="modal-actions">
-      <button class="btn" onclick="jcfd_closeManualAppModal()">Cancel</button>
-      <button class="btn btn-primary hidden" id="jcfdManualAppSubmitBtn" onclick="jcfd_createManualApplication()">Create application</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="jcfd_toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 
@@ -18467,7 +18416,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const el = document.getElementById('jcfd_page-' + page);
     if(el) el.classList.remove('hidden');
     document.querySelectorAll('#shell-jcfd .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-    const titles = { dashboard:'Dashboard', applications:'Applications', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches' };
+    const titles = { dashboard:'Dashboard', applications:'Applications', manualEntry:'New Manual Application', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches' };
     document.getElementById('jcfd_topbarTitle').textContent = titles[page] || 'Dashboard';
     if(page === 'dashboard') jcfd_renderDashboard();
     if(page === 'applications') jcfd_renderApplications();
@@ -19502,78 +19451,251 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.addEventListener('focus', jcfd_autoRefreshNow);
 
   // ==================== Manual (walk-in) application intake ====================
-  // Gated by the 'manualEntry' role permission (Supervisor on by default;
-  // the Chief can change it — see jcfd_hasPerm and jcfd_renderApplications() above). Unlike the Municipal Officer's manual
-  // intake — which builds a brand-new Places of Amusement application from
-  // scratch — every JCF filing is inherently tied to an existing POA
-  // application, so this flow requires and validates that POA application
-  // number FIRST and only then reveals the rest of the form, prefilled from
-  // that record exactly like a normal online filing already carries its
-  // applicant/venue/municipality details over (see openJcfForm()'s own
-  // payload-building). Documents (Photo ID, Event Flyer, Proof of
-  // Ownership) are deliberately not collected here — "create first, upload
-  // after" (see the user's confirmed scope decision) — the Supervisor
-  // uploads them afterward from the created application's own detail page
-  // (see jcfd_detailRowDoc/jcfd_detailRowAction's isManual branch and
-  // jcfd_uploadManualDoc() below).
+  // Needs the 'manualEntry' role permission (Supervisor on by default; the
+  // Chief can change it — see jcfd_hasPerm and jcfd_renderApplications()
+  // above). Unlike the Municipal Officer's manual intake — which builds a
+  // brand-new Places of Amusement application from scratch — a JCF filing
+  // either derives from an existing POA application (mode 'poa', details
+  // prefilled from that record) or stands alone (mode 'standalone').
+  //
+  // The form asks for the same information as the online Special Event
+  // application (event and promoter, venue, entertainment). The briefing
+  // videos, declaration and signature are left out: for the briefing the
+  // officer instead ticks "Promoter briefed in person" on the Official Use
+  // Checklist (see jcfd_computeChecklistAutoFields). Photo ID, event flyer and
+  // proof of ownership may be attached here or afterwards from the
+  // application's own page (see jcfd_uploadManualDoc below); the spirit
+  // licence evidence, when the answer is Yes, must be attached here. JAMMS and
+  // JCAP are not collected here: with a linked POA application they are read
+  // from that application, and a standalone filing does not need them.
   let jcfdManualPoaRecord = null;
   // 'poa' = derive from an existing Places of Amusement application;
   // 'standalone' = no POA record exists (promoter, event and venue are keyed
   // in by hand and the filing is attached to the division's municipality).
   let jcfdManualMode = 'poa';
+  const JCFD_M_PARISHES = ['Kingston','St. Andrew','St. Thomas','Portland','St. Mary','St. Ann','Trelawny','St. James','Hanover','Westmoreland','St. Elizabeth','Manchester','Clarendon','St. Catherine','Portmore'];
+  let jcfdMFiles = {};                       // key -> { name, data }
+  let jcfdMDjs = [], jcfdMSounds = [], jcfdMArtists = [];
+  let jcfdMCarry = {};                       // details carried over from the linked POA application
+
+  const jmEl = id => document.getElementById('jcfdM_' + id);
+  const jmVal = id => { const el = jmEl(id); return el ? String(el.value || '').trim() : ''; };
+  const jmRadio = name => { const el = document.querySelector(`input[name="jcfdM_${name}"]:checked`); return el ? el.value : ''; };
+  const JCFD_M_DATA_OK = /^data:(image\/(png|jpeg|webp|gif|heic|heif)|application\/pdf);base64,/i;
+
+  function jcfd_mField(id, label, type, extra){
+    return `<div class="field-group"><label for="jcfdM_${id}">${label}</label><input type="${type || 'text'}" id="jcfdM_${id}" ${extra || ''}></div>`;
+  }
+  function jcfd_mRadios(name, label, opts){
+    return `<div class="field-group"><label>${label}</label><div style="display:flex; gap:18px; flex-wrap:wrap; margin-top:2px;">` +
+      opts.map(o => `<label style="font-weight:600; font-size:13px;"><input type="radio" name="jcfdM_${name}" value="${o}" onchange="jcfd_mRadioChanged('${name}')"> ${o}</label>`).join('') +
+      `</div></div>`;
+  }
+  function jcfd_mParishSelect(id, label){
+    return `<div class="field-group"><label for="jcfdM_${id}">${label}</label><select id="jcfdM_${id}"><option value="">Select an option</option>${JCFD_M_PARISHES.map(x => `<option>${x}</option>`).join('')}</select></div>`;
+  }
+  function jcfd_mFile(key, label, accept, hint){
+    return `<div class="field-group"><label for="jcfdM_${key}">${label}</label><input type="file" id="jcfdM_${key}" accept="${accept}" onchange="jcfd_mFileChosen('${key}', this)">` +
+      `<div class="field-hint" id="jcfdM_${key}_info">${hint || ''}</div></div>`;
+  }
+  function jcfd_mHead(title, sub){
+    return `<div class="field-group" style="margin:22px 0 6px; padding-top:14px; border-top:1px solid var(--border);"><label style="font-weight:800; font-size:14px; color:var(--text);">${title}</label>${sub ? `<div class="col-desc" style="margin-top:2px;">${sub}</div>` : ''}</div>`;
+  }
+  function jcfd_mEntBlock(kind, title, fields){
+    // fields: [id, label, required, extra]
+    return `<div class="field-group" style="margin-top:10px;"><label style="font-weight:700;">${title}</label><div id="jcfdM_${kind}List" class="record-list"></div>
+      <div class="info-banner" style="margin:6px 0;">` +
+      fields.map(f => jcfd_mField(kind + f[0], f[1] + (f[2] ? ' <span class="required-mark">*</span>' : ''), 'text', f[3] || '')).join('') +
+      jcfd_mParishSelect(kind + 'Parish', 'Parish') +
+      `<button class="btn btn-sm" type="button" onclick="jcfd_mAddEntertainer('${kind}')">+ Add ${title.replace(/s$/, '')}</button></div></div>`;
+  }
+
+  function jcfd_renderManualForm(){
+    const body = document.getElementById('jcfdManualFormBody');
+    if(!body) return;
+    body.innerHTML =
+      jcfd_mHead('Event and promoter', 'Details about the event and the person applying.') +
+      jcfd_mRadios('eventType', 'Type of event', ['Private', 'Public']) +
+      `<div class="field-row">${jcfd_mField('eventName', 'Event name')}${jcfd_mField('dateOfEvent', 'Date of event', 'date')}</div>` +
+      `<div class="field-row">${jcfd_mField('dateOfApplication', 'Date of application', 'date', 'readonly')}${jcfd_mField('patrons', 'Number of patrons expected', 'number', 'min="0"')}</div>` +
+      `<div class="field-row">${jcfd_mFile('photoId', 'Photo ID', 'image/*', 'Optional now — can also be uploaded from the application page.')}${jcfd_mFile('flyer', 'Image of event flyer', 'image/*', 'Optional now — can also be uploaded from the application page.')}</div>` +
+      `<div class="field-row">${jcfd_mField('promoterName', 'Name of promoter')}${jcfd_mField('aliases', 'Aliases <span class="optional">(Optional)</span>')}</div>` +
+      `<div class="field-row">${jcfd_mField('dob', 'Date of birth', 'date', 'onchange="jcfd_mRecalcAge()"')}${jcfd_mField('age', 'Age of promoter', 'number', 'readonly placeholder="Calculated from date of birth"')}</div>` +
+      `<div class="field-row">${jcfd_mField('phone', 'Phone number', 'tel')}${jcfd_mField('trn', 'Tax Registration Number')}</div>` +
+      `<div class="field-row">${jcfd_mField('addr1', 'Street number')}${jcfd_mField('addr2', 'Street name')}</div>` +
+      `<div class="field-row">${jcfd_mField('district', 'District')}${jcfd_mParishSelect('parish', 'Parish')}</div>` +
+      jcfd_mRadios('promoterBreached', 'Has the promoter ever breached the Noise Abatement Act?', ['Yes', 'No']) +
+      `<div class="field-group hidden" id="jcfdM_promoterBreachWrap"><label for="jcfdM_promoterBreachReason">Please provide details <span class="required-mark">*</span></label><textarea id="jcfdM_promoterBreachReason" rows="3" maxlength="4000" oninput="jcfd_mWordCount('promoterBreachReason')" placeholder="Describe the breach (no more than 500 words)"></textarea><div class="field-hint" id="jcfdM_promoterBreachReason_wc">0 / 500 words</div></div>` +
+
+      jcfd_mHead('Venue details', 'Where the event will be held.') +
+      `<div class="field-row">${jcfd_mField('venueName', 'Venue name')}${jcfd_mField('venueAddress', 'Address', 'text', 'placeholder="Street/district"')}</div>` +
+      `<div class="field-row">${jcfd_mField('venueOwner', "Venue's owner", 'text', 'placeholder="Full name"')}${jcfd_mField('ownerContact', "Owner's contact", 'tel')}</div>` +
+      jcfd_mField('ownerAddress', "Owner's address") +
+      jcfd_mFile('permissionLetter', 'Proof of Ownership/Authorization', 'image/*,.pdf', 'Optional now — can also be uploaded from the application page.') +
+      jcfd_mRadios('ownerBreached', 'Has the owner ever breached the Noise Abatement Act?', ['Yes', 'No']) +
+      `<div class="field-group hidden" id="jcfdM_ownerBreachWrap"><label for="jcfdM_ownerBreachReason">Please provide details <span class="required-mark">*</span></label><textarea id="jcfdM_ownerBreachReason" rows="3" maxlength="4000" oninput="jcfd_mWordCount('ownerBreachReason')" placeholder="Describe the breach (no more than 500 words)"></textarea><div class="field-hint" id="jcfdM_ownerBreachReason_wc">0 / 500 words</div></div>` +
+      jcfd_mField('businessType', 'Type of business conducted at the venue on a day-to-day basis', 'text', 'placeholder="e.g. Bar, restaurant, event space"') +
+      jcfd_mRadios('spiritLicense', 'Is there a valid spirit licence in place?', ['Yes', 'No', 'Not Applicable']) +
+      `<div class="hidden" id="jcfdM_spiritWrap">${jcfd_mFile('spiritLicense', 'Evidence of the spirit licence <span class="required-mark">*</span>', 'image/*,.pdf', 'Required when the answer is Yes (image or PDF).')}</div>` +
+      jcfd_mRadios('communityArrangements', 'Arrangements made with community members?', ['Yes', 'No', 'Not Applicable']) +
+      jcfd_mRadios('parkingArrangements', 'Arrangements made for parking?', ['Yes', 'No', 'Not Applicable']) +
+      jcfd_mRadios('securityArrangements', 'Arrangements made for security of patrons and vehicles?', ['Yes', 'No', 'Not Applicable']) +
+      `<div id="jcfdM_securityFromPoa"></div>` +
+
+      jcfd_mHead('Entertainment details', 'Every DJ, sound system and artist that will be at the event.') +
+      `<div id="jcfdM_jamsJcapNote" class="col-desc"></div>` +
+      jcfd_mEntBlock('dj', 'DJs', [['Trn', 'TRN Number', true, 'placeholder="000-000-000"'], ['Name', 'Name of DJ', true], ['Alias', 'Alias of DJ', true], ['Contact', 'Contact #', true]]) +
+      jcfd_mEntBlock('sound', 'Sound Systems', [['Trn', 'TRN Number (Owner)', true, 'placeholder="000-000-000"'], ['Name', 'Name of Sound', true], ['OwnerName', 'Name of Owner', true], ['Contact', 'Contact #', true]]) +
+      jcfd_mEntBlock('artist', 'Artists', [['RealName', 'Artist Real Name', true], ['StageName', 'Stage Name', true], ['Trn', 'TRN Number', true, 'placeholder="000-000-000"'], ['Contact', 'Phone Number', true]]) +
+
+      `<div class="field-group"><label for="jcfdM_note">Internal note (optional)</label><textarea id="jcfdM_note" rows="2" placeholder="Anything useful for your records — not shown to the applicant."></textarea></div>`;
+
+    ['trn','djTrn','soundTrn','artistTrn'].forEach(id => { if(window.atdAttachTrnFormatter && jmEl(id)) window.atdAttachTrnFormatter('jcfdM_' + id); });
+    ['phone','ownerContact','djContact','soundContact','artistContact'].forEach(id => { if(window.atdAttachPhoneFormatter && jmEl(id)) window.atdAttachPhoneFormatter('jcfdM_' + id); });
+    jmEl('dateOfApplication').value = new Date().toISOString().slice(0, 10);
+    jcfd_mRenderLists();
+  }
+
+  function jcfd_mRadioChanged(name){
+    if(name === 'promoterBreached') jmEl('promoterBreachWrap').classList.toggle('hidden', jmRadio('promoterBreached') !== 'Yes');
+    if(name === 'ownerBreached') jmEl('ownerBreachWrap').classList.toggle('hidden', jmRadio('ownerBreached') !== 'Yes');
+    if(name === 'spiritLicense') jmEl('spiritWrap').classList.toggle('hidden', jmRadio('spiritLicense') !== 'Yes');
+  }
+  window.jcfd_mRadioChanged = jcfd_mRadioChanged;
+
+  function jcfd_mWordCount(id){
+    const t = jmVal(id);
+    const n = t ? t.split(/\s+/).length : 0;
+    const el = document.getElementById('jcfdM_' + id + '_wc');
+    if(el) el.textContent = `${n} / 500 words`;
+  }
+  window.jcfd_mWordCount = jcfd_mWordCount;
+
+  function jcfd_mRecalcAge(){
+    const d = jmVal('dob');
+    let age = '';
+    if(d){
+      const dob = new Date(d + 'T00:00:00');
+      if(!isNaN(dob.getTime())){
+        const t = new Date();
+        age = t.getFullYear() - dob.getFullYear();
+        const m = t.getMonth() - dob.getMonth();
+        if(m < 0 || (m === 0 && t.getDate() < dob.getDate())) age--;
+        if(age < 0) age = '';
+      }
+    }
+    jmEl('age').value = age;
+  }
+  window.jcfd_mRecalcAge = jcfd_mRecalcAge;
+
+  async function jcfd_mFileChosen(key, input){
+    const info = document.getElementById('jcfdM_' + key + '_info');
+    const file = input && input.files && input.files[0];
+    if(!file){ delete jcfdMFiles[key]; if(info) info.textContent = ''; return; }
+    const data = window.atdReadFileSmart ? await window.atdReadFileSmart(file) : null;
+    if(!data || !JCFD_M_DATA_OK.test(data)){
+      input.value = ''; delete jcfdMFiles[key]; if(info) info.textContent = '';
+      jcfd_showToast('That file could not be used. Please attach a PNG, JPEG, WebP or PDF that is not too large.');
+      return;
+    }
+    jcfdMFiles[key] = { name: file.name, data };
+    if(info) info.textContent = '✓ ' + file.name;
+  }
+  window.jcfd_mFileChosen = jcfd_mFileChosen;
+
+  // ---- entertainment lists ----
+  const JCFD_M_ENT = {
+    dj:     { title: 'DJ',           list: () => jcfdMDjs,     need: ['Trn','Name','Alias','Contact'] },
+    sound:  { title: 'sound system', list: () => jcfdMSounds,  need: ['Trn','Name','OwnerName','Contact'] },
+    artist: { title: 'artist',       list: () => jcfdMArtists, need: ['RealName','StageName','Trn','Contact'] }
+  };
+  function jcfd_mAddEntertainer(kind){
+    const cfg = JCFD_M_ENT[kind];
+    for(const f of cfg.need){
+      if(!jmVal(kind + f)){ jcfd_showToast(`Please complete all required ${cfg.title} fields before adding.`); return; }
+    }
+    const parish = jmVal(kind + 'Parish');
+    if(kind === 'artist' && !parish){ jcfd_showToast('Please choose the artist\'s parish before adding.'); return; }
+    let entry;
+    if(kind === 'dj') entry = { trn: jmVal('djTrn'), name: jmVal('djName'), alias: jmVal('djAlias'), contact: jmVal('djContact'), parish };
+    else if(kind === 'sound') entry = { trn: jmVal('soundTrn'), name: jmVal('soundName'), ownerName: jmVal('soundOwnerName'), contact: jmVal('soundContact'), parish };
+    else entry = { realName: jmVal('artistRealName'), stageName: jmVal('artistStageName'), trn: jmVal('artistTrn'), contact: jmVal('artistContact'), parish };
+    cfg.list().push(entry);
+    ['Trn','Name','Alias','Contact','OwnerName','RealName','StageName','Parish'].forEach(f => { const el = jmEl(kind + f); if(el) el.value = ''; });
+    jcfd_mRenderLists();
+  }
+  window.jcfd_mAddEntertainer = jcfd_mAddEntertainer;
+  function jcfd_mRemoveEntertainer(kind, i){
+    JCFD_M_ENT[kind].list().splice(i, 1);
+    jcfd_mRenderLists();
+  }
+  window.jcfd_mRemoveEntertainer = jcfd_mRemoveEntertainer;
+  function jcfd_mRenderLists(){
+    const row = (kind, e, i, main, sub) => `<div class="record-row"><div><div class="record-main">${acctEscapeHtml(main)}</div><div class="record-sub">${acctEscapeHtml(sub)}</div></div><div><button class="record-remove" type="button" onclick="jcfd_mRemoveEntertainer('${kind}', ${i})">Remove</button></div></div>`;
+    const set = (kind, html) => { const el = jmEl(kind + 'List'); if(el) el.innerHTML = html; };
+    set('dj', jcfdMDjs.map((e, i) => row('dj', e, i, `${e.name}${e.alias ? ' "' + e.alias + '"' : ''}`, `TRN ${e.trn} · ${e.contact}${e.parish ? ' · ' + e.parish : ''}`)).join(''));
+    set('sound', jcfdMSounds.map((e, i) => row('sound', e, i, e.name, `TRN ${e.trn} · Owner: ${e.ownerName} · ${e.contact}${e.parish ? ' · ' + e.parish : ''}`)).join(''));
+    set('artist', jcfdMArtists.map((e, i) => row('artist', e, i, `${e.realName} "${e.stageName}"`, `TRN ${e.trn} · ${e.contact}${e.parish ? ' · ' + e.parish : ''}`)).join(''));
+  }
 
   function jcfd_setManualMode(mode){
     jcfdManualMode = (mode === 'standalone') ? 'standalone' : 'poa';
     const standalone = jcfdManualMode === 'standalone';
     jcfdManualPoaRecord = null;
+    jcfdMCarry = {};
     document.getElementById('jcfdManualPoaRow').classList.toggle('hidden', standalone);
     document.getElementById('jcfdManualStandaloneNote').classList.toggle('hidden', !standalone);
     document.getElementById('jcfdManualPoaLookupResult').innerHTML = '';
     document.getElementById('jcfdManualAppError').classList.add('hidden');
-    document.getElementById('jcfdManualAppFields').classList.toggle('hidden', !standalone);
+    document.getElementById('jcfdManualFormBody').classList.toggle('hidden', !standalone);
     document.getElementById('jcfdManualAppSubmitBtn').classList.toggle('hidden', !standalone);
+    jcfd_mUpdateLinkedNotes();
   }
   window.jcfd_setManualMode = jcfd_setManualMode;
+
+  function jcfd_mUpdateLinkedNotes(){
+    const note = jmEl('jamsJcapNote');
+    if(note) note.textContent = jcfdManualMode === 'standalone'
+      ? 'JAMMS and JCAP approvals are not required for a standalone filing.'
+      : 'JAMMS and JCAP approvals are read from the linked Places of Amusement application. If they are not available, a reviewing officer can waive them from the application page.';
+    const sec = jmEl('securityFromPoa');
+    if(sec){
+      const recs = jcfdMCarry.securityRecords || [];
+      sec.innerHTML = recs.length
+        ? `<div class="col-desc">Security companies on the linked application: ${recs.map(r => acctEscapeHtml(r.companyName || r.name || 'Security company')).join(', ')}.</div>` : '';
+    }
+  }
 
   function jcfd_openManualAppModal(){
     if(!jcfd_hasPerm('manualEntry')){
       jcfd_showToast('Your account has not been given permission to create manual applications.');
       return;
     }
-    jcfdManualPoaRecord = null;
-    jcfdManualMode = 'poa';
+    jcfdManualPoaRecord = null; jcfdManualMode = 'poa'; jcfdMCarry = {};
+    jcfdMFiles = {}; jcfdMDjs = []; jcfdMSounds = []; jcfdMArtists = [];
     document.querySelectorAll('input[name="jcfdManualMode"]').forEach(r => { r.checked = (r.value === 'poa'); });
-    document.getElementById('jcfdManualPoaRow').classList.remove('hidden');
-    document.getElementById('jcfdManualStandaloneNote').classList.add('hidden');
     document.getElementById('jcfdManualPoaNumber').value = '';
-    document.getElementById('jcfdManualPoaLookupResult').innerHTML = '';
-    document.getElementById('jcfdManualAppFields').classList.add('hidden');
-    document.getElementById('jcfdManualAppSubmitBtn').classList.add('hidden');
     document.getElementById('jcfdManualAppError').classList.add('hidden');
-    ['jcfdManualPromoterName','jcfdManualPromoterTrn','jcfdManualPromoterPhone','jcfdManualPatrons',
-     'jcfdManualEventName','jcfdManualEventDate','jcfdManualVenueName','jcfdManualVenueAddress',
-     'jcfdManualVenueOwner','jcfdManualOwnerContact','jcfdManualNote'].forEach(id => {
-      const el = document.getElementById(id);
-      if(el) el.value = '';
-    });
-    document.getElementById('jcfdManualAppModal').classList.remove('hidden');
+    jcfd_renderManualForm();
+    jcfd_goPage('manualEntry');
+    jcfd_setManualMode('poa');
   }
   window.jcfd_openManualAppModal = jcfd_openManualAppModal;
 
   function jcfd_closeManualAppModal(){
-    document.getElementById('jcfdManualAppModal').classList.add('hidden');
     jcfdManualPoaRecord = null;
+    jcfd_goPage('applications');
   }
   window.jcfd_closeManualAppModal = jcfd_closeManualAppModal;
 
   async function jcfd_lookupPoaForManualApp(){
     const resultEl = document.getElementById('jcfdManualPoaLookupResult');
-    const fieldsEl = document.getElementById('jcfdManualAppFields');
+    const fieldsEl = document.getElementById('jcfdManualFormBody');
     const submitBtn = document.getElementById('jcfdManualAppSubmitBtn');
     const errEl = document.getElementById('jcfdManualAppError');
     errEl.classList.add('hidden');
     const poaNumber = (document.getElementById('jcfdManualPoaNumber').value || '').trim().toUpperCase();
-    jcfdManualPoaRecord = null;
+    jcfdManualPoaRecord = null; jcfdMCarry = {};
     fieldsEl.classList.add('hidden');
     submitBtn.classList.add('hidden');
     if(!poaNumber){
@@ -19592,6 +19714,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       resultEl.innerHTML = `<div class="info-banner warn">No Places of Amusement application found with number "${acctEscapeHtml(poaNumber)}". Double-check the number and try again.</div>`;
       return;
     }
+    const myMuni = jcfd_jurisdictionMuniId();
+    if(poaRec.muniId != null && myMuni != null && String(poaRec.muniId) !== String(myMuni)){
+      resultEl.innerHTML = `<div class="info-banner warn">${acctEscapeHtml(poaNumber)} belongs to another municipality, so it is outside this division's jurisdiction.</div>`;
+      return;
+    }
+    if(poaRec.amusement && poaRec.amusement.licenseType === 'Annual'){
+      resultEl.innerHTML = `<div class="info-banner warn">${acctEscapeHtml(poaNumber)} is an Annual licence. Annual licences do not have a walk-in option; walk-in entry is for Special Event filings only.</div>`;
+      return;
+    }
     // The storage key jcfApplication:<poaNumber> is 1:1 with the POA record
     // (same as a normal online filing — see jcf_ingestPayload()'s own
     // jcfAppNumber = poaAppNumber assignment), so don't let a second JCF
@@ -19604,25 +19735,41 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
     } catch(e){ existingJcf = null; }
     if(existingJcf){
-      resultEl.innerHTML = `<div class="info-banner warn">A JCF Noise Abatement application already exists for ${acctEscapeHtml(poaNumber)} (status: ${acctEscapeHtml(existingJcf.status || 'Submitted')}). Open it from the Applications list instead of creating a new one.</div>`;
+      resultEl.innerHTML = `<div class="info-banner warn">A JCF Noise Abatement application already exists for ${acctEscapeHtml(poaNumber)} (status: ${acctEscapeHtml(existingJcf.status || 'Submitted')}). Open it from the Applications list instead of creating a second one.</div>`;
       return;
     }
     jcfdManualPoaRecord = poaRec;
     const applicant = poaRec.applicant || {};
     const amusement = poaRec.amusement || {};
     const venue = poaRec.venue || {};
-    resultEl.innerHTML = `<div class="info-banner" style="background:var(--green-tint,var(--blue-tint)); border-color:var(--green-tint,var(--blue-tint));">Found: ${acctEscapeHtml(poaRec.municipalityName || 'Places of Amusement application')} — ${acctEscapeHtml(applicant.name || 'Unknown applicant')}. Fields below have been pre-filled from this application; adjust as needed.</div>`;
+    resultEl.innerHTML = `<div class="info-banner" style="background:var(--green-tint,var(--blue-tint)); border-color:var(--green-tint,var(--blue-tint));">Found: ${acctEscapeHtml(poaRec.municipalityName || 'Places of Amusement application')} — ${acctEscapeHtml(applicant.name || 'applicant')}${amusement.eventName ? ' · ' + acctEscapeHtml(amusement.eventName) : ''}. Details below are prefilled and can be corrected.</div>`;
 
-    document.getElementById('jcfdManualPromoterName').value = applicant.name || '';
-    document.getElementById('jcfdManualPromoterTrn').value = applicant.trn || '';
-    document.getElementById('jcfdManualPromoterPhone').value = applicant.phone || '';
-    document.getElementById('jcfdManualPatrons').value = amusement.patrons || '';
-    document.getElementById('jcfdManualEventName').value = amusement.eventName || '';
-    document.getElementById('jcfdManualEventDate').value = amusement.eventDate || '';
-    document.getElementById('jcfdManualVenueName').value = venue.name || '';
-    document.getElementById('jcfdManualVenueAddress').value = [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', ');
-    document.getElementById('jcfdManualVenueOwner').value = venue.ownerName || '';
-    document.getElementById('jcfdManualOwnerContact').value = venue.ownerPhone || '';
+    const set = (id, v) => { const el = jmEl(id); if(el) el.value = (v == null ? '' : v); };
+    set('promoterName', applicant.name); set('trn', applicant.trn); set('phone', applicant.phone);
+    set('dob', applicant.dob); set('age', applicant.age);
+    set('addr1', applicant.addr1); set('addr2', applicant.addr2); set('district', applicant.district); set('parish', applicant.parish);
+    set('patrons', amusement.patrons); set('eventName', amusement.eventName);
+    set('dateOfEvent', amusement.eventDate || amusement.applicationDate);
+    set('venueName', venue.name);
+    set('venueAddress', [venue.addr1, venue.addr2, venue.district].filter(Boolean).join(', '));
+    set('venueOwner', venue.ownerName); set('ownerContact', venue.ownerPhone); set('ownerAddress', venue.ownerAddress);
+    if(!applicant.age && applicant.dob) jcfd_mRecalcAge();
+
+    const docs = poaRec.jcfDocuments || {};
+    const docNames = Object.keys(docs);
+    const find = re => { const k = docNames.find(n => re.test(n)); return k ? docs[k] : null; };
+    const jams = find(/jamm?s/i), jcap = find(/jcap/i);
+    jcfdMCarry = {
+      multiDay: !!amusement.multiDay,
+      eventDays: amusement.multiDay ? (amusement.days || []).map(d => ({
+        day: d.day, date: d.date || '', eventName: d.eventName || '', eventType: d.eventType || '',
+        patrons: d.patrons || '', venueName: d.venueName || '', venueAddr: d.venueAddr || ''
+      })) : [],
+      securityRecords: amusement.securityRecords || [],
+      jamsFileName: (jams && jams.fileName) || '', jamsFileData: (jams && jams.fileData) || null,
+      jcapFileName: (jcap && jcap.fileName) || '', jcapFileData: (jcap && jcap.fileData) || null
+    };
+    jcfd_mUpdateLinkedNotes();
 
     fieldsEl.classList.remove('hidden');
     submitBtn.classList.remove('hidden');
@@ -19635,30 +19782,59 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     const errEl = document.getElementById('jcfdManualAppError');
+    const fail = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); errEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
     errEl.classList.add('hidden');
     const standalone = jcfdManualMode === 'standalone';
     const poaRec = standalone ? null : jcfdManualPoaRecord;
-    if(!standalone && !poaRec){
-      errEl.textContent = 'Please look up a valid Places of Amusement application number first.';
-      errEl.classList.remove('hidden');
-      return;
-    }
+    if(!standalone && !poaRec){ fail('Please look up a valid Places of Amusement application number first.'); return; }
     const jurisdictionMuniId = jcfd_jurisdictionMuniId();
     if(standalone && jurisdictionMuniId == null){
-      errEl.textContent = 'This division is not linked to a municipality yet, so a standalone filing cannot be placed anywhere. Ask your administrator to link the division first.';
-      errEl.classList.remove('hidden');
+      fail('This division is not linked to a municipality yet, so a standalone filing cannot be placed anywhere. Ask your administrator to link the division first.');
       return;
     }
-    const val = id => (document.getElementById(id).value || '').trim();
-    const promoterName = val('jcfdManualPromoterName');
-    const promoterPhone = val('jcfdManualPromoterPhone');
-    const eventName = val('jcfdManualEventName');
-    const eventDate = val('jcfdManualEventDate');
-    const patrons = val('jcfdManualPatrons');
-    const venueName = val('jcfdManualVenueName');
-    if(!promoterName || !promoterPhone || !eventName || !eventDate || !patrons || !venueName){
-      errEl.textContent = 'Please complete promoter name, phone, event name, event date, expected patrons, and venue name before creating this application.';
-      errEl.classList.remove('hidden');
+
+    // ---- required fields ----
+    if(!jmVal('promoterName') || !jmVal('phone') || !jmVal('eventName') || !jmVal('dateOfEvent') || !jmVal('patrons') || !jmVal('venueName')){
+      fail('Please complete promoter name, phone, event name, event date, expected patrons, and venue name before creating this application.');
+      return;
+    }
+    // Same per-field "required" switches the Admin sets for the online form
+    // (Admin > Application Forms). Photo ID, flyer and proof of ownership are
+    // exempt here — they may be attached afterwards.
+    let cfg = null;
+    try{ cfg = window.atdLoadFormFieldConfig ? await window.atdLoadFormFieldConfig() : null; } catch(e){ cfg = null; }
+    if(cfg && cfg.jcf){
+      const checks = [
+        ['jcfEventName','text','eventName','Event name'], ['eventType','radio','eventType','Type of event'],
+        ['promoterBreached','radio','promoterBreached','Has promoter ever breached the Act?'],
+        ['promoterName','text','promoterName','Promoter name'], ['promoterPhone','text','phone','Promoter phone number'],
+        ['promoterTrn','text','trn','Promoter TRN'], ['promoterAddr1','text','addr1','Promoter street number'],
+        ['promoterAddr2','text','addr2','Promoter street name'], ['promoterDistrict','text','district','Promoter district'],
+        ['promoterParish','text','parish','Promoter parish'], ['dateOfBirth','text','dob','Promoter date of birth'],
+        ['patronsExpected','text','patrons','Number of patrons expected'],
+        ['ownerBreached','radio','ownerBreached','Has venue owner ever breached the Act?'],
+        ['venueOwner','text','venueOwner',"Venue's owner name"], ['ownerContact','text','ownerContact',"Owner's contact number"],
+        ['ownerAddress','text','ownerAddress',"Owner's address"], ['jcf_businessType','text','businessType','Type of business conducted at venue'],
+        ['spiritLicense','radio','spiritLicense','Valid spirit license in place?'],
+        ['communityArrangements','radio','communityArrangements','Arrangements made with community members?'],
+        ['parkingArrangements','radio','parkingArrangements','Arrangements made for parking?'],
+        ['securityArrangements','radio','securityArrangements','Arrangements made for security?']
+      ];
+      for(const [key, kind, id, label] of checks){
+        if(!cfg.jcf[key]) continue;
+        const has = kind === 'radio' ? !!jmRadio(id) : !!jmVal(id);
+        if(!has){ fail(`Please complete "${label}" before creating this application.`); return; }
+      }
+    }
+    for(const [who, radioName, reasonId, label] of [['promoter','promoterBreached','promoterBreachReason','the promoter'], ['owner','ownerBreached','ownerBreachReason','the owner']]){
+      if(jmRadio(radioName) === 'Yes'){
+        const reason = jmVal(reasonId);
+        if(!reason){ fail(`Please describe the Noise Abatement Act breach by ${label}.`); return; }
+        if(reason.split(/\s+/).length > 500){ fail(`The breach details for ${label} are over 500 words.`); return; }
+      }
+    }
+    if(jmRadio('spiritLicense') === 'Yes' && !jcfdMFiles.spiritLicense){
+      fail('Please attach evidence of the valid spirit licence, or change the answer.');
       return;
     }
 
@@ -19667,19 +19843,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     submitBtn.innerHTML = window.atdLoadingHtml('Creating…', 14);
 
     try{
-      const promoterTrn = val('jcfdManualPromoterTrn');
+      const promoterName = jmVal('promoterName'), eventName = jmVal('eventName'), promoterTrn = jmVal('trn');
       // Mandatory watch list check — same rule submitJcfApp() enforces for
-      // every online filing; a walk-in promoter is no less subject to it
-      // just because an officer is keying the record in by hand.
+      // every online filing, in the same order (promoter, company directors,
+      // DJs, sound systems, artists); a walk-in is no less subject to it just
+      // because an officer is keying the record in by hand.
       let watchlistHit = null;
-      if(promoterTrn && window.atdCheckWatchlistFlag){
-        const flag = await window.atdCheckWatchlistFlag(promoterTrn);
-        if(flag) watchlistHit = { role: 'Applicant', flag };
+      const check = async (trn, role) => {
+        if(watchlistHit || !trn || !window.atdCheckWatchlistFlag) return;
+        const flag = await window.atdCheckWatchlistFlag(trn);
+        if(flag) watchlistHit = { role, flag };
+      };
+      await check(promoterTrn, 'Applicant');
+      if(poaRec && poaRec.applicantType === 'Company'){
+        for(const d of (poaRec.directors || [])) await check(d.trn, `Director (${d.name || 'unnamed'})`);
       }
+      for(const d of jcfdMDjs) await check(d.trn, 'DJ');
+      for(const x of jcfdMSounds) await check(x.trn, 'Sound System');
+      for(const a of jcfdMArtists) await check(a.trn, `Artist (${a.stageName || a.realName})`);
       const watchlistRejectionMessage = watchlistHit
         ? window.atdWatchlistRejectionMessage(watchlistHit.role, watchlistHit.flag) : '';
 
-      const applicant = (poaRec && poaRec.applicant) || {};
       let number;
       let municipalityName = poaRec ? (poaRec.municipalityName || '') : '';
       if(standalone){
@@ -19693,17 +19877,16 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         let seq = 1;
         if(window.ATDBackend && window.ATDBackend.isConfigured()){
           try{ seq = await window.ATDBackend.reserveNumber(`JCFWALKIN-${mm}${yy}`); }
-          catch(numErr){
-            errEl.textContent = 'Could not reserve an application number just now. Nothing was saved; please try again in a moment.';
-            errEl.classList.remove('hidden');
-            return;
-          }
+          catch(numErr){ fail('Could not reserve an application number just now. Nothing was saved; please try again in a moment.'); return; }
         }
         number = `JCFW${mm}-${mm}${yy}-${String(seq).padStart(2, '0')}`;
       } else {
         number = poaRec.appNumber; // 1:1 linkage, same as a normal online filing
       }
 
+      const spiritYes = jmRadio('spiritLicense') === 'Yes';
+      const photoId = jcfdMFiles.photoId, flyer = jcfdMFiles.flyer, proof = jcfdMFiles.permissionLetter;
+      const today = new Date().toISOString().slice(0, 10);
       const record = {
         jcfAppNumber: number,
         poaAppNumber: poaRec ? poaRec.appNumber : null,
@@ -19711,7 +19894,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         ownerEmail: poaRec ? (poaRec.ownerEmail || null) : null,
         muniId: standalone ? jurisdictionMuniId : (poaRec.muniId != null ? poaRec.muniId : null),
         municipalityName: municipalityName,
-        submittedDate: new Date().toISOString().slice(0,10),
+        submittedDate: today,
         submittedAt: new Date().toISOString(),
         status: watchlistHit ? 'Rejected' : 'Submitted',
         assignedOfficerId: null,
@@ -19723,65 +19906,88 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         finalDecision: watchlistRejectionMessage,
         permitGenerated: false,
         permit: null,
-        // Additive fields only — nothing else in the app reads these,
+        // Additive fields only — nothing else in the app depends on them,
         // mirrors the Municipal Officer's own manual-entry tagging
         // (entrySource/enteredBy/enteredAt/manualNote).
         entrySource: 'manual',
         enteredBy: { id: jcfdCurrentUser.id, name: jcfdCurrentUser.name, email: jcfdCurrentUser.email, role: jcfdCurrentUser.role },
         enteredAt: new Date().toISOString(),
-        manualNote: val('jcfdManualNote'),
+        manualNote: jmVal('note'),
         eventOverview: {
-          eventType: 'Special Event',
-          dateOfApplication: new Date().toISOString().slice(0,10),
-          dateOfEvent: eventDate,
+          eventType: jmRadio('eventType'),
+          dateOfApplication: jmVal('dateOfApplication') || today,
+          dateOfEvent: jmVal('dateOfEvent'),
           eventName: eventName,
+          eventDays: jcfdMCarry.multiDay ? (jcfdMCarry.eventDays || []) : [],
           promoterName: promoterName,
-          aliases: '',
-          dateOfBirth: applicant.dob || '',
-          ageOfPromoter: applicant.age || '',
-          phoneNumber: promoterPhone,
+          aliases: jmVal('aliases'),
+          dateOfBirth: jmVal('dob'),
+          ageOfPromoter: jmVal('age'),
+          phoneNumber: jmVal('phone'),
           trn: promoterTrn,
-          addr1: applicant.addr1 || '', addr2: applicant.addr2 || '', district: applicant.district || '', parish: applicant.parish || '',
-          patronsExpected: patrons,
-          promoterBreachedNoiseAct: '',
-          promoterBreachReason: '',
-          // No Photo ID collected yet — "create first, upload after" (see
-          // the user's confirmed scope decision). Stays Not Uploaded until
-          // the Supervisor uploads it from this application's own detail
-          // page (see jcfd_uploadManualDoc()).
-          photoIdFileName: '', photoIdStatus: 'Not Uploaded', photoIdOfficerNote: ''
+          addr1: jmVal('addr1'), addr2: jmVal('addr2'), district: jmVal('district'), parish: jmVal('parish'),
+          patronsExpected: jmVal('patrons'),
+          promoterBreachedNoiseAct: jmRadio('promoterBreached'),
+          promoterBreachReason: jmRadio('promoterBreached') === 'Yes' ? jmVal('promoterBreachReason') : '',
+          // The file itself is stored under jcfApplicationFiles (below),
+          // same as an online filing; 'Not Uploaded' until attached.
+          photoIdFileName: photoId ? photoId.name : '',
+          photoIdStatus: photoId ? 'Submitted' : 'Not Uploaded', photoIdOfficerNote: ''
         },
         venueInfo: {
-          venueName: venueName,
-          venueAddress: val('jcfdManualVenueAddress'),
-          venueOwner: val('jcfdManualVenueOwner'),
-          ownerContact: val('jcfdManualOwnerContact'),
-          ownerAddress: '',
-          ownerBreachedNoiseAct: '',
-          ownerBreachReason: '',
-          businessType: '',
-          validSpiritLicense: '',
-          communityArrangements: '',
-          parkingArrangements: '',
-          securityArrangements: '',
-          securityCompaniesFromPoa: (poaRec && poaRec.amusement && poaRec.amusement.securityRecords) || [],
-          permissionLetterFileName: '', permissionLetterStatus: 'Not Uploaded', permissionLetterOfficerNote: ''
+          venueName: jmVal('venueName'),
+          venueAddress: jmVal('venueAddress'),
+          venueOwner: jmVal('venueOwner'),
+          ownerContact: jmVal('ownerContact'),
+          ownerAddress: jmVal('ownerAddress'),
+          ownerBreachedNoiseAct: jmRadio('ownerBreached'),
+          ownerBreachReason: jmRadio('ownerBreached') === 'Yes' ? jmVal('ownerBreachReason') : '',
+          businessType: jmVal('businessType'),
+          validSpiritLicense: jmRadio('spiritLicense'),
+          communityArrangements: jmRadio('communityArrangements'),
+          parkingArrangements: jmRadio('parkingArrangements'),
+          securityArrangements: jmRadio('securityArrangements'),
+          securityCompaniesFromPoa: jcfdMCarry.securityRecords || [],
+          permissionLetterFileName: proof ? proof.name : '',
+          permissionLetterStatus: proof ? 'Submitted' : 'Not Uploaded', permissionLetterOfficerNote: '',
+          spiritLicenseFileName: spiritYes ? jcfdMFiles.spiritLicense.name : '',
+          spiritLicenseStatus: spiritYes ? 'Submitted' : 'Not Uploaded',
+          spiritLicenseOfficerNote: ''
         },
-        djs: [],
-        soundSystems: [],
-        artists: [],
+        djs: jcfdMDjs.slice(),
+        soundSystems: jcfdMSounds.slice(),
+        artists: jcfdMArtists.slice(),
         briefings: {
+          // The three briefing videos are not shown for a walk-in; the
+          // officer confirms an in-person briefing on the Official Use
+          // Checklist instead (see jcfd_computeChecklistAutoFields).
           noiseAbatementWatched: false,
           loudSpeakersWatched: false,
           chargesWatched: false,
-          eventFlyerFileName: ''
+          videosSkipped: true,
+          eventFlyerFileName: flyer ? flyer.name : ''
         },
-        carriedJcfDocuments: { jamsFileName: '', jcapFileName: '' },
+        carriedJcfDocuments: { jamsFileName: jcfdMCarry.jamsFileName || '', jcapFileName: jcfdMCarry.jcapFileName || '' },
+        // No declaration or signature is collected for a walk-in: the
+        // officer is filing on the promoter's behalf at the desk.
         signature: null
       };
 
       if(window.storage){
         await window.storage.set(`jcfApplication:${number}`, JSON.stringify(record), true);
+      }
+      // Attached documents go under their own key, like an online filing.
+      let filesSaved = true;
+      const filesRow = {};
+      if(photoId) filesRow.photoIdFileData = photoId.data;
+      if(flyer) filesRow.flyerFileData = flyer.data;
+      if(proof) filesRow.permissionLetterFileData = proof.data;
+      if(spiritYes) filesRow.spiritLicenseFileData = jcfdMFiles.spiritLicense.data;
+      if(jcfdMCarry.jamsFileData) filesRow.jamsFileData = jcfdMCarry.jamsFileData;
+      if(jcfdMCarry.jcapFileData) filesRow.jcapFileData = jcfdMCarry.jcapFileData;
+      if(window.storage && Object.keys(filesRow).length){
+        try{ await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify(filesRow), true); }
+        catch(fileErr){ filesSaved = false; }
       }
 
       if(window.atdLogAudit){
@@ -19804,13 +20010,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
 
       jcfd_closeManualAppModal();
-      jcfd_showToast(watchlistHit ? 'Application created — auto-rejected on watch list match.' : 'Manual JCF application created.');
+      jcfd_showToast(!filesSaved ? 'Application created, but the attached documents could not be saved. Upload them from the application page.'
+        : watchlistHit ? 'Application created — auto-rejected on watch list match.' : 'Manual JCF application created.');
       await jcfd_renderDashboard();
       await jcfd_openApplication(`jcfApplication:${number}`);
     } catch(err){
       console.error('jcfd_createManualApplication() failed:', err);
-      errEl.textContent = 'We could not create this application. Please try again. (Details: ' + ((err && err.message) || String(err)) + ')';
-      errEl.classList.remove('hidden');
+      fail('We could not create this application. Please try again. (Details: ' + ((err && err.message) || String(err)) + ')');
     } finally{
       submitBtn.disabled = false;
       submitBtn.textContent = 'Create application';
@@ -19912,6 +20118,122 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!jcfdActiveAppKey || !window.storage) return;
     await window.storage.set(jcfdActiveAppKey, JSON.stringify(rec), true);
   }
+
+  // ---- JAMMS / JCAP waiver ----
+  // A reviewing officer (anyone with the 'checklist' permission) can waive
+  // the JAMMS Approval or JCAP Approval requirement for a filing. The waiver
+  // lives on the JCF filing itself (rec.jcfDocWaivers.jams / .jcap), not on
+  // the linked Places of Amusement application, so it also works for filings
+  // the police division cannot write to the POA record for. It is recorded
+  // with who, when and why, shown wherever the document is listed, counts as
+  // "uploaded" in the Official Use Checklist (see
+  // jcfd_computeChecklistAutoFields), and can be reinstated.
+  function jcfd_waiver(rec, kind){
+    const w = rec && rec.jcfDocWaivers && rec.jcfDocWaivers[kind];
+    return (w && w.waived) ? w : null;
+  }
+  function jcfd_waivedText(rec, kind){
+    const w = jcfd_waiver(rec, kind);
+    if(!w) return '';
+    return `Waived by ${w.by || 'an officer'}${w.at ? ' on ' + String(w.at).slice(0, 10) : ''}${w.reason ? ' — ' + w.reason : ''}`;
+  }
+  function jcfd_jcfDocRow(rec, kind, label, doc){
+    if(!rec.poaAppNumber) return jcfd_detailRow(label, 'Not required — no linked Places of Amusement application');
+    const canEdit = jcfd_hasPerm('checklist');
+    const w = jcfd_waiver(rec, kind);
+    if(w){
+      return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value"><span class="badge badge-amber">Waived</span> ${acctEscapeHtml('by ' + (w.by || 'an officer') + (w.at ? ' on ' + String(w.at).slice(0, 10) : ''))}` +
+        (w.reason ? `<div class="cell-sub">Reason: ${acctEscapeHtml(w.reason)}</div>` : '') +
+        (canEdit ? ` <button class="btn btn-sm" style="margin-top:6px;" onclick="jcfd_reinstateDoc('${kind}')">Reinstate requirement</button>` : '') +
+        `</div></div>`;
+    }
+    let row = jcfd_detailRowDoc(label, doc && doc.fileName, doc && doc.status, kind);
+    const needsDoc = !(doc && doc.fileName) || (doc && doc.status === 'Rejected');
+    if(canEdit && needsDoc){
+      row = row.replace(/<\/div><\/div>$/, ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openWaiveModal('${kind}')">Waive requirement</button></div></div>`);
+    }
+    return row;
+  }
+
+  let jcfdWaiveKind = null;
+  function jcfd_openWaiveModal(kind){
+    if(!jcfd_hasPerm('checklist')){ jcfd_showToast("You don't have permission to waive document requirements."); return; }
+    jcfdWaiveKind = kind;
+    document.getElementById('jcfd_waiveTitle').textContent = 'Waive ' + (kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval');
+    document.getElementById('jcfd_waiveReason').value = '';
+    document.getElementById('jcfd_waiveError').classList.add('hidden');
+    document.getElementById('jcfd_waiveModal').classList.remove('hidden');
+  }
+  window.jcfd_openWaiveModal = jcfd_openWaiveModal;
+  function jcfd_closeWaiveModal(){
+    document.getElementById('jcfd_waiveModal').classList.add('hidden');
+    jcfdWaiveKind = null;
+  }
+  window.jcfd_closeWaiveModal = jcfd_closeWaiveModal;
+
+  async function jcfd_confirmWaive(){
+    const kind = jcfdWaiveKind;
+    if(kind !== 'jams' && kind !== 'jcap') return;
+    const errEl = document.getElementById('jcfd_waiveError');
+    const reason = document.getElementById('jcfd_waiveReason').value.trim();
+    if(reason.length < 3){
+      errEl.textContent = 'Please give a reason for waiving this requirement.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if(!jcfd_hasPerm('checklist')){ jcfd_showToast("You don't have permission to waive document requirements."); return; }
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    const label = kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
+    rec.jcfDocWaivers = rec.jcfDocWaivers || {};
+    rec.jcfDocWaivers[kind] = {
+      waived: true, reason: reason.slice(0, 500),
+      by: jcfdCurrentUser.name, byEmail: jcfdCurrentUser.email || '', byRole: jcfdCurrentUser.role,
+      at: new Date().toISOString()
+    };
+    try{
+      await jcfd_saveActiveApp(rec);
+    } catch(e){
+      errEl.textContent = 'Could not save the waiver. Nothing was changed; please try again.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if(window.atdLogAudit){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'document.waived',
+        details: `Waived ${label} for JCF application ${rec.jcfAppNumber || ''}: ${reason.slice(0, 200)}`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
+    jcfd_closeWaiveModal();
+    jcfd_showToast(`${label} requirement waived.`);
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_confirmWaive = jcfd_confirmWaive;
+
+  async function jcfd_reinstateDoc(kind){
+    if(!jcfd_hasPerm('checklist')){ jcfd_showToast("You don't have permission to change document requirements."); return; }
+    const rec = await jcfd_getActiveApp();
+    if(!rec || !jcfd_waiver(rec, kind)) return;
+    const label = kind === 'jams' ? 'JAMMS Approval' : 'JCAP Approval';
+    if(!(await window.atdConfirm(`Reinstate the ${label} requirement? The document will have to be uploaded again before the checklist can be completed.`))) return;
+    delete rec.jcfDocWaivers[kind];
+    if(!Object.keys(rec.jcfDocWaivers).length) delete rec.jcfDocWaivers;
+    try{ await jcfd_saveActiveApp(rec); }
+    catch(e){ jcfd_showToast('Could not reinstate the requirement. Please try again.'); return; }
+    if(window.atdLogAudit){
+      await window.atdLogAudit({
+        portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
+        action: 'document.waiverRemoved',
+        details: `Reinstated the ${label} requirement for JCF application ${rec.jcfAppNumber || ''}.`,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
+      });
+    }
+    jcfd_showToast(`${label} requirement reinstated.`);
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_reinstateDoc = jcfd_reinstateDoc;
 
   // Same row style as the Municipal Officer's submission column
   // (detailRow()/.detail-row/.dr-label/.dr-value) — reused here so the two
@@ -20098,7 +20420,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Briefing &amp; Documents</div>`;
-    html += jcfd_detailRow('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
+    html += jcfd_detailRow('Briefing videos watched', briefings.videosSkipped ? 'Not required — walk-in (briefed in person)' : (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
     const isManualEntry = rec.entrySource === 'manual';
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName, isManualEntry);
     // Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP
@@ -20118,10 +20440,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += jcfd_detailRow('JAMMS Approval', 'Not required for Dead Yard events');
       html += jcfd_detailRow('JCAP Approval', 'Not required for Dead Yard events');
     } else {
-      html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
-      html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
+      html += jcfd_jcfDocRow(rec, 'jams', 'JAMMS Approval', jams);
+      html += jcfd_jcfDocRow(rec, 'jcap', 'JCAP Approval', jcap);
     }
-    html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
+    if(isManualEntry && !(rec.signature && rec.signature.value)) html += jcfd_detailRow('Signature on file', 'Not required — walk-in');
+    else html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
     col.innerHTML = html;
@@ -20288,8 +20611,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += jcfd_detailRowDocViewOnly('Company Logo', logo && logo.fileName, logo && logo.status, 'logo');
     }
     html += jcfd_detailRowDocViewOnly('Business Registration Document', bizReg && bizReg.fileName, bizReg && bizReg.status, 'bizRegistration');
-    html += jcfd_detailRowDoc('JAMMS Approval', jams && jams.fileName, jams && jams.status, 'jams');
-    html += jcfd_detailRowDoc('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, 'jcap');
+    html += jcfd_jcfDocRow(rec, 'jams', 'JAMMS Approval', jams);
+    html += jcfd_jcfDocRow(rec, 'jcap', 'JCAP Approval', jcap);
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Other Licenses &amp; Approvals</div>`;
@@ -20398,14 +20721,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       section('Entertainment Details', ent);
       const { jams, jcap, poaEventType } = live;
       section('Briefing & Documents', [
-        R('Briefing videos watched', (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete'),
+        R('Briefing videos watched', briefings.videosSkipped ? 'Not required — walk-in (briefed in person)' : (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete'),
         R('Event flyer', briefings.eventFlyerFileName || 'Not uploaded'),
         docRow('Photo ID', eo.photoIdFileName, eo.photoIdStatus, eo.photoIdOfficerNote),
         docRow('Proof of Ownership/Authorization', vi.permissionLetterFileName, vi.permissionLetterStatus, vi.permissionLetterOfficerNote),
         ...(poaEventType === 'Dead Yard'
           ? [R('JAMMS Approval', 'Not required for Dead Yard events'), R('JCAP Approval', 'Not required for Dead Yard events')]
-          : [docRow('JAMMS Approval', jams && jams.fileName, jams && jams.status, jams && jams.officerNote), docRow('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, jcap && jcap.officerNote)]),
-        R('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No')
+          : [jcfd_waiver(rec, 'jams') ? R('JAMMS Approval', jcfd_waivedText(rec, 'jams')) : docRow('JAMMS Approval', jams && jams.fileName, jams && jams.status, jams && jams.officerNote),
+             jcfd_waiver(rec, 'jcap') ? R('JCAP Approval', jcfd_waivedText(rec, 'jcap')) : docRow('JCAP Approval', jcap && jcap.fileName, jcap && jcap.status, jcap && jcap.officerNote)]),
+        R('Signature on file', (rec.signature && rec.signature.value) ? 'Yes' : (rec.entrySource === 'manual' ? 'Not required — walk-in' : 'No'))
       ]);
 
       addAttachment('Photo ID', eo.photoIdFileName, eo.photoIdStatus || 'Submitted', files.photoIdFileData, { reason: fileNote });
@@ -20458,8 +20782,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const docRows = [];
       if(isCompany) docRows.push(docRow('Company Logo (held on the Places of Amusement application)', fixed.logo && fixed.logo.fileName, fixed.logo && fixed.logo.status));
       docRows.push(docRow('Business Registration Document (held on the Places of Amusement application)', fixed.bizReg && fixed.bizReg.fileName, fixed.bizReg && fixed.bizReg.status));
-      docRows.push(docRow('JAMMS Approval', live.jams && live.jams.fileName, live.jams && live.jams.status, live.jams && live.jams.officerNote));
-      docRows.push(docRow('JCAP Approval', live.jcap && live.jcap.fileName, live.jcap && live.jcap.status, live.jcap && live.jcap.officerNote));
+      docRows.push(jcfd_waiver(rec, 'jams') ? R('JAMMS Approval', jcfd_waivedText(rec, 'jams')) : docRow('JAMMS Approval', live.jams && live.jams.fileName, live.jams && live.jams.status, live.jams && live.jams.officerNote));
+      docRows.push(jcfd_waiver(rec, 'jcap') ? R('JCAP Approval', jcfd_waivedText(rec, 'jcap')) : docRow('JCAP Approval', live.jcap && live.jcap.fileName, live.jcap && live.jcap.status, live.jcap && live.jcap.officerNote));
       section('Documents', docRows);
       const olRows = [];
       if(ol.poa && ol.poa.checked) olRows.push(R('Municipal Places of Amusement Licence', `Auto-tracked — Application ${ol.poa.licenceNumber || rec.poaAppNumber || 'N/A'}`));
@@ -20500,7 +20824,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       checks.push({ checked: auto.requiredDocsUploaded, label: 'Required Documents Uploaded', sub: 'Photo ID, Proof of Ownership/Authorization, JAMMS Approval and JCAP Approval uploaded.' });
       checks.push({ checked: auto.promoterIdentityVerified, label: 'Promoter Identity Verified', sub: 'Photo ID approved by the officer.' });
       checks.push({ checked: !!cl.eventVenueSatisfactory, label: 'Event Venue Satisfactory', sub: 'Confirmed by a Police Supervisor.' });
-      checks.push({ checked: auto.promoterBriefedNoiseAct, label: 'Promoter Briefed on Noise Abatement Act', sub: 'Briefing videos watched — all three.' });
+      checks.push({ checked: auto.promoterBriefedNoiseAct, label: 'Promoter Briefed on Noise Abatement Act', sub: (rec && rec.entrySource === 'manual') ? 'Briefed in person (walk-in filing).' : 'Briefing videos watched — all three.' });
       checks.push({ checked: auto.proofOfOwnershipSubmitted, label: 'Proof of Ownership/Authorization Submitted', sub: 'Document approved by the officer.' });
     } else {
       checks.push({ checked: !!cl.applicantIdentityVerified, label: 'Applicant Identity Verified', sub: 'Confirmed by a Police Supervisor.' });
@@ -20695,11 +21019,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // events: the applicant's own Documents tab never asks for JAMMS/JCAP
     // for that event type (see renderMmJcfDocuments), so this gate must not
     // wait on them either.
-    const jamsJcapSatisfied = !rec.poaAppNumber || poaEventType === 'Dead Yard' || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
+    const jamsJcapSatisfied = !rec.poaAppNumber || poaEventType === 'Dead Yard'
+      || ((!!(jams && jams.uploaded) || !!jcfd_waiver(rec, 'jams')) && (!!(jcap && jcap.uploaded) || !!jcfd_waiver(rec, 'jcap')));
     return {
       requiredDocsUploaded: !!eo.photoIdFileName && !!vi.permissionLetterFileName && jamsJcapSatisfied,
       promoterIdentityVerified: eo.photoIdStatus === 'Approved',
-      promoterBriefedNoiseAct: !!(briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched),
+      // Walk-in filings skip the three videos; the officer ticks "Promoter briefed in person" instead.
+      promoterBriefedNoiseAct: rec.entrySource === 'manual'
+        ? !!(rec.officialChecklist && rec.officialChecklist.promoterBriefedInPerson)
+        : !!(briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched),
       proofOfOwnershipSubmitted: vi.permissionLetterStatus === 'Approved'
     };
   }
@@ -20732,7 +21060,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // application (no Main Menu to upload either from in the first place),
     // same reasoning as the Special Event checklist's own jamsJcapSatisfied.
     const { jams, jcap } = await jcfd_getLiveJcfDocuments(rec);
-    const jamsJcapSatisfied = !rec.poaAppNumber || (!!(jams && jams.uploaded) && !!(jcap && jcap.uploaded));
+    const jamsJcapSatisfied = !rec.poaAppNumber
+      || ((!!(jams && jams.uploaded) || !!jcfd_waiver(rec, 'jams')) && (!!(jcap && jcap.uploaded) || !!jcfd_waiver(rec, 'jcap')));
 
     let requiredDocsUploaded = jamsJcapSatisfied;
     if(ci.existingNotices === 'Yes' && ci.noiseNoticeStatus !== 'Approved') requiredDocsUploaded = false;
@@ -20941,11 +21270,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         // pattern (Document Check / JCF Approval Granted cards). Only
         // "Event Venue Satisfactory" stays a manual Supervisor judgment call.
         const auto = autoChecklist;
-        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP Approval have all been uploaded.');
+        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP Approval have all been uploaded (or the JAMMS/JCAP requirement has been waived by an officer).');
         html += autoRow(auto.promoterIdentityVerified, 'Promoter Identity Verified', 'Auto-checked when the Officer approves the uploaded Photo ID.');
         const venueChecked = !!cl.eventVenueSatisfactory;
         html += `<label class="checkbox-row"><input type="checkbox" ${venueChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('eventVenueSatisfactory', this.checked)"> Event Venue Satisfactory</label>`;
-        html += autoRow(auto.promoterBriefedNoiseAct, 'Promoter Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
+        if(rec.entrySource === 'manual'){
+          html += `<label class="checkbox-row"><input type="checkbox" ${cl.promoterBriefedInPerson ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('promoterBriefedInPerson', this.checked)"> Promoter Briefed on Noise Abatement Act <span class="cell-sub" style="display:block;">Walk-in filing: tick once the promoter has been briefed in person on the Noise Abatement Act, loud speakers and charges for breaches.</span></label>`;
+        } else {
+          html += autoRow(auto.promoterBriefedNoiseAct, 'Promoter Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
+        }
         html += autoRow(auto.proofOfOwnershipSubmitted, 'Proof of Ownership/Authorization Submitted', 'Auto-checked when the Officer verifies the document.');
       } else {
         // Annual filings: "Applicant Identity Verified" and "Premises
@@ -20966,7 +21299,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const premisesChecked = !!cl.premisesInformationVerified;
         html += `<label class="checkbox-row"><input type="checkbox" ${premisesChecked ? 'checked' : ''} ${canCheck ? '' : 'disabled'} onchange="jcfd_toggleChecklistItem('premisesInformationVerified', this.checked)"> Premises Information Verified</label>`;
         html += autoRow(auto.promoterBriefedNoiseAct, 'Applicant Briefed on Noise Abatement Act', 'Auto-checked based on responses from "Briefing videos watched — Yes, all three."');
-        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when JAMMS Approval and JCAP Approval have been uploaded on the Main Menu, and every uploaded document on this filing (Noise Notice, Other Licenses, Signature) has been Approved.');
+        html += autoRow(auto.requiredDocsUploaded, 'Required Documents Uploaded', 'Auto-checked when JAMMS Approval and JCAP Approval have been uploaded on the Main Menu (or waived by an officer), and every uploaded document on this filing (Noise Notice, Other Licenses, Signature) has been Approved.');
       }
       if(cl.updatedBy){
         html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
@@ -30117,6 +30450,18 @@ function renderMmJcfDocuments(){
     const doc = (r.jcfDocuments && r.jcfDocuments[docName]) || { uploaded: false, status: 'Not Uploaded' };
     const status = doc.status || (doc.uploaded ? 'Submitted' : 'Not Uploaded');
 
+    const waiver = currentLinkedJcfApp && currentLinkedJcfApp.jcfDocWaivers && currentLinkedJcfApp.jcfDocWaivers[i === 0 ? 'jams' : 'jcap'];
+    if(waiver && waiver.waived){
+      return `
+        <div class="mm-doc-item">
+          <div class="mm-doc-upload uploaded" style="cursor:default;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div class="mm-doc-label">${poa_escapeHtml(docName)}</div>
+          <div class="mm-doc-status">Waived by the JCF — no upload needed</div>
+        </div>
+      `;
+    }
     if(!jamsJcapRequired){
       return `
         <div class="mm-doc-item">
@@ -47871,21 +48216,12 @@ async function submitJcfApp(){
     errorBox.classList.remove('hidden');
     return;
   }
-  // "Dead Yard" events don't require JAMMS/JCAP at all (see openJcfForm's own
-  // comment on why poaData.eventType is carried over) — skip both checks
-  // entirely for this one event type rather than blocking submission on a
-  // document the applicant was never asked to provide in the first place.
-  const jamsJcapRequiredForEvent = jcf_jamsJcapRequired();
-  if(jamsJcapRequiredForEvent && poaData && !jamsFileData){
-    errorBox.textContent = 'JAMMS Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
-    errorBox.classList.remove('hidden');
-    return;
-  }
-  if(jamsJcapRequiredForEvent && poaData && !jcapFileData){
-    errorBox.textContent = 'JCAP Approval has not been uploaded on your Places of Amusement application yet. Please upload it there before submitting.';
-    errorBox.classList.remove('hidden');
-    return;
-  }
+  // JAMMS/JCAP Approval no longer block submission. A filing can be sent
+  // without them: the JCF officer's Official Use Checklist keeps "Required
+  // Documents Uploaded" unticked (so no permit can be approved) until the
+  // documents are uploaded on the linked Places of Amusement application or
+  // the reviewing officer waives the requirement (see jcfd_waiver /
+  // jcfd_confirmWaive in the JCF Officer scope).
   if(!hasSignature()){
     errorBox.textContent = 'Please provide your signature (typed, uploaded, or drawn) before submitting.';
     errorBox.classList.remove('hidden');
