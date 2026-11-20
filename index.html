@@ -9333,6 +9333,7 @@
              for hire) -- an Annual business operates at its own known
              premises, so this whole block is hidden for Annual and the
              manual fields below are shown directly instead. -->
+        <div class="info-banner hidden" id="poa_venueRequiredNotice" style="margin-bottom:16px;"></div>
         <div id="venueDatabaseSearchSection">
           <div class="section-title">Search Venue</div>
           <div class="col-desc" style="margin-bottom:10px;">Add data from a venue in our database</div>
@@ -16548,6 +16549,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // the NEXT person who refreshes straight into this account's
     // application after they've logged out.
     try{ sessionStorage.removeItem('atdMainMenuRestore'); }catch(e){}
+    // Same shared-computer reasoning: wipe the Places of Amusement wizard too,
+    // so the next person does not find this applicant's half-filled (or
+    // just-submitted) application, ID photo and contact details in it.
+    try{ if(window.poa_resetWizard) window.poa_resetWizard(); }catch(e){}
+    try{ if(window.jcf_resetWizard) window.jcf_resetWizard(); }catch(e){}
     if(window.atdUpdateAuthNav) window.atdUpdateAuthNav();
   }
   window.acct_logout = acct_logout;
@@ -19503,7 +19509,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   function jcfd_mEntBlock(kind, title, fields){
     // fields: [id, label, required, extra]
-    return `<div class="field-group" style="margin-top:10px;"><label style="font-weight:700;">${title}</label><div id="jcfdM_${kind}List" class="record-list"></div>
+    return `<div class="field-group" style="margin-top:10px;"><label style="font-weight:700;">${title} <span class="optional">(Optional)</span></label><div id="jcfdM_${kind}List" class="record-list"></div>
       <div class="info-banner" style="margin:6px 0;">` +
       fields.map(f => jcfd_mField(kind + f[0], f[1] + (f[2] ? ' <span class="required-mark">*</span>' : ''), 'text', f[3] || '')).join('') +
       jcfd_mParishSelect(kind + 'Parish', 'Parish') +
@@ -19542,8 +19548,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_mRadios('securityArrangements', 'Arrangements made for security of patrons and vehicles?', ['Yes', 'No', 'Not Applicable']) +
       `<div id="jcfdM_securityFromPoa"></div>` +
 
-      jcfd_mHead('Entertainment details', 'Every DJ, sound system and artist that will be at the event.') +
-      `<div id="jcfdM_jamsJcapNote" class="col-desc"></div>` +
+      jcfd_mHead('Entertainment details', 'Optional. Add any DJs, sound systems or artists that will be at the event; none of them is required.') +
+      `<div id="jcfdM_jamsJcapNote" class="col-desc"></div><div id="jcfdM_jamsJcapUploads"></div>` +
       jcfd_mEntBlock('dj', 'DJs', [['Trn', 'TRN Number', true, 'placeholder="000-000-000"'], ['Name', 'Name of DJ', true], ['Alias', 'Alias of DJ', true], ['Contact', 'Contact #', true]]) +
       jcfd_mEntBlock('sound', 'Sound Systems', [['Trn', 'TRN Number (Owner)', true, 'placeholder="000-000-000"'], ['Name', 'Name of Sound', true], ['OwnerName', 'Name of Owner', true], ['Contact', 'Contact #', true]]) +
       jcfd_mEntBlock('artist', 'Artists', [['RealName', 'Artist Real Name', true], ['StageName', 'Stage Name', true], ['Trn', 'TRN Number', true, 'placeholder="000-000-000"'], ['Contact', 'Phone Number', true]]) +
@@ -19656,8 +19662,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jcfd_mUpdateLinkedNotes(){
     const note = jmEl('jamsJcapNote');
     if(note) note.textContent = jcfdManualMode === 'standalone'
-      ? 'JAMMS and JCAP approvals are not required for a standalone filing.'
+      ? 'JAMMS and JCAP approvals are not required for a standalone filing. If you feel they are needed, attach them below (optional).'
       : 'JAMMS and JCAP approvals are read from the linked Places of Amusement application. If they are not available, a reviewing officer can waive them from the application page.';
+    const upl = jmEl('jamsJcapUploads');
+    if(upl){
+      if(jcfdManualMode === 'standalone'){
+        if(!upl.firstChild){
+          upl.innerHTML = jcfd_mFile('jams', 'JAMMS Approval <span class="optional">(Optional)</span>', 'image/*,.pdf', '') +
+                          jcfd_mFile('jcap', 'JCAP Approval <span class="optional">(Optional)</span>', 'image/*,.pdf', '');
+        }
+      } else {
+        upl.innerHTML = '';
+        delete jcfdMFiles.jams; delete jcfdMFiles.jcap;
+      }
+    }
     const sec = jmEl('securityFromPoa');
     if(sec){
       const recs = jcfdMCarry.securityRecords || [];
@@ -19967,7 +19985,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           videosSkipped: true,
           eventFlyerFileName: flyer ? flyer.name : ''
         },
-        carriedJcfDocuments: { jamsFileName: jcfdMCarry.jamsFileName || '', jcapFileName: jcfdMCarry.jcapFileName || '' },
+        carriedJcfDocuments: standalone
+          ? { jamsFileName: (jcfdMFiles.jams && jcfdMFiles.jams.name) || '', jcapFileName: (jcfdMFiles.jcap && jcfdMFiles.jcap.name) || '' }
+          : { jamsFileName: jcfdMCarry.jamsFileName || '', jcapFileName: jcfdMCarry.jcapFileName || '' },
         // No declaration or signature is collected for a walk-in: the
         // officer is filing on the promoter's behalf at the desk.
         signature: null
@@ -19983,8 +20003,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       if(flyer) filesRow.flyerFileData = flyer.data;
       if(proof) filesRow.permissionLetterFileData = proof.data;
       if(spiritYes) filesRow.spiritLicenseFileData = jcfdMFiles.spiritLicense.data;
-      if(jcfdMCarry.jamsFileData) filesRow.jamsFileData = jcfdMCarry.jamsFileData;
-      if(jcfdMCarry.jcapFileData) filesRow.jcapFileData = jcfdMCarry.jcapFileData;
+      if(standalone){
+        // not required for a standalone filing, but the officer may attach them
+        if(jcfdMFiles.jams) filesRow.jamsFileData = jcfdMFiles.jams.data;
+        if(jcfdMFiles.jcap) filesRow.jcapFileData = jcfdMFiles.jcap.data;
+      } else {
+        if(jcfdMCarry.jamsFileData) filesRow.jamsFileData = jcfdMCarry.jamsFileData;
+        if(jcfdMCarry.jcapFileData) filesRow.jcapFileData = jcfdMCarry.jcapFileData;
+      }
       if(window.storage && Object.keys(filesRow).length){
         try{ await window.storage.set(`jcfApplicationFiles:${number}`, JSON.stringify(filesRow), true); }
         catch(fileErr){ filesSaved = false; }
@@ -20033,7 +20059,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!file) return;
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
-    const label = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer' : kind === 'permissionLetter' ? 'Proof of Ownership/Authorization' : kind;
+    const label = kind === 'photoId' ? 'Photo ID' : kind === 'flyer' ? 'Event Flyer' : kind === 'permissionLetter' ? 'Proof of Ownership/Authorization'
+      : kind === 'jams' ? 'JAMMS Approval' : kind === 'jcap' ? 'JCAP Approval' : kind;
+    if((kind === 'jams' || kind === 'jcap') && rec.poaAppNumber){
+      jcfd_showToast('This filing is linked to a Places of Amusement application; JAMMS and JCAP come from there.');
+      inputEl.value = '';
+      return;
+    }
+    if((kind === 'jams' || kind === 'jcap') && (!/^(image\/(png|jpeg|webp)|application\/pdf)$/i.test(file.type) || file.size > 3 * 1024 * 1024)){
+      jcfd_showToast('Please attach a PNG, JPEG, WebP or PDF under 3 MB.');
+      inputEl.value = '';
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async function(){
       const dataUrl = reader.result;
@@ -20047,6 +20084,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           if(kind === 'photoId') files.photoIdFileData = dataUrl;
           else if(kind === 'flyer') files.flyerFileData = dataUrl;
           else if(kind === 'permissionLetter') files.permissionLetterFileData = dataUrl;
+          else if(kind === 'jams') files.jamsFileData = dataUrl;
+          else if(kind === 'jcap') files.jcapFileData = dataUrl;
           await window.storage.set(`jcfApplicationFiles:${rec.jcfAppNumber}`, JSON.stringify(files), true);
         }
       } catch(err){
@@ -20064,6 +20103,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         rec.venueInfo = rec.venueInfo || {};
         rec.venueInfo.permissionLetterFileName = file.name;
         rec.venueInfo.permissionLetterStatus = 'Submitted';
+      } else if(kind === 'jams' || kind === 'jcap'){
+        rec.carriedJcfDocuments = rec.carriedJcfDocuments || {};
+        rec.carriedJcfDocuments[kind === 'jams' ? 'jamsFileName' : 'jcapFileName'] = file.name;
       }
       await jcfd_saveActiveApp(rec);
       if(window.atdLogAudit && jcfdCurrentUser){
@@ -20138,7 +20180,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return `Waived by ${w.by || 'an officer'}${w.at ? ' on ' + String(w.at).slice(0, 10) : ''}${w.reason ? ' — ' + w.reason : ''}`;
   }
   function jcfd_jcfDocRow(rec, kind, label, doc){
-    if(!rec.poaAppNumber) return jcfd_detailRow(label, 'Not required — no linked Places of Amusement application');
+    if(!rec.poaAppNumber){
+      // Standalone filing: not required, but an officer who feels it is needed can attach (or replace) the file.
+      const carried = rec.carriedJcfDocuments || {};
+      const fn = kind === 'jams' ? carried.jamsFileName : carried.jcapFileName;
+      const canUpload = jcfd_hasPerm('checklist');
+      return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+        (fn ? `${acctEscapeHtml(fn)} <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>`
+            : 'Not required for a standalone filing') +
+        (canUpload ? `<input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" accept="image/*,.pdf" onchange="jcfd_uploadManualDoc('${kind}', this)">
+          <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">${fn ? 'Replace' : 'Upload if needed'}</button>` : '') +
+        `</div></div>`;
+    }
     const canEdit = jcfd_hasPerm('checklist');
     const w = jcfd_waiver(rec, kind);
     if(w){
@@ -22697,7 +22750,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   async function jcfd_openDocModal(kind){
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
-    jcfdActiveDocKind = JCFD_REVIEWABLE_DOC_KINDS.includes(kind) ? kind : null;
+    const standaloneJcfDoc = (kind === 'jams' || kind === 'jcap') && !rec.poaAppNumber;
+    jcfdActiveDocKind = (JCFD_REVIEWABLE_DOC_KINDS.includes(kind) && !standaloneJcfDoc) ? kind : null;
     // Read-side audit trail (Phase D finding #8) — someone's uploaded ID,
     // event flyer, or venue permission letter is exactly the kind of thing
     // a breach investigation needs a "who looked at this and when" trail
@@ -22891,7 +22945,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       ? `<button class="btn btn-sm" onclick="jcfd_downloadActiveDoc()">⬇ Download</button>`
       : '';
 
-    if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind)){
+    if(JCFD_REVIEWABLE_DOC_KINDS.includes(kind) && !standaloneJcfDoc){
       document.getElementById('jcfd_docStatusRow').innerHTML = `<span class="badge ${jcfd_docStatusBadgeClass(status)}">${atdH(status)}</span>` +
         (status === 'Rejected' && officerNote ? `<div class="readback-row">Previous note: ${acctEscapeHtml(officerNote)}</div>` : '');
       const canReviewDoc = jcfd_hasPerm('checklist');
@@ -25109,7 +25163,108 @@ async function confirmMuniSelect(){
   await startApplication();
 }
 
+// Puts the whole application wizard back to a blank first step.
+//
+// Why this exists: the wizard is ONE set of form controls that stays in the
+// page for the life of the tab. Nothing cleared it when an application was
+// submitted, abandoned, or when a different applicant signed in, so the next
+// "Apply" opened the wizard on whatever step it was last left on (the Review
+// step, after a submit) with the previous applicant's name, TRN, address,
+// phone, email, ID/flier images, venue and costs still in it. Reported from a
+// screen recording on the test site: after submitting to one municipality,
+// choosing Apply and a different municipality landed on the old Review page,
+// where pressing Submit would have filed the old details to the new agency.
+// On a shared computer it also showed one person's personal details to the
+// next. Called at the start of every new/resumed application (a resumed
+// draft then refills only what it saved), after a successful submit, and on
+// sign-out. Never touches the municipality choice: callers set that first.
+const POA_FILE_LABEL_DEFAULTS = {};
+function poa_resetWizard(){
+  const flow = document.getElementById('poa_applicationFlow');
+  if(!flow) return;
+
+  // 1. In-memory state
+  currentStep = 1;
+  companyDirectors = [];
+  securityRecords = [];
+  appliedPromotion = null;
+  poa_profileAutofillPhotoData = null;  poa_profileAutofillPhotoName = '';
+  poa_profileAutofillLogoData = null;   poa_profileAutofillLogoName = '';
+  poa_profileAutofillBizRegData = null; poa_profileAutofillBizRegName = '';
+  mdDays = [];
+  additionalParkingList = [];
+  savedVenues = [];
+  dbVenues = [];
+  muniFormElements = null;
+  poa_adLocationAssignments = {};
+  poa_adLocationStartDates = {};
+
+  // 2. Remember what each upload label says on a pristine page (the first
+  // call happens before anyone has chosen a file), then restore it.
+  flow.querySelectorAll('input[type="file"]').forEach(inp => {
+    const m = /fileChosen\(this,\s*'([^']+)'\)/.exec(inp.getAttribute('onchange') || '');
+    if(!m) return;
+    const lab = document.getElementById(m[1]);
+    if(!lab) return;
+    if(!(m[1] in POA_FILE_LABEL_DEFAULTS)) POA_FILE_LABEL_DEFAULTS[m[1]] = lab.textContent;
+    lab.textContent = POA_FILE_LABEL_DEFAULTS[m[1]];
+  });
+
+  // 3. Form controls back to the values the page shipped with
+  const toRefire = [];
+  flow.querySelectorAll('input, select, textarea').forEach(el => {
+    const t = el.type;
+    if(t === 'file'){ try{ el.value = ''; }catch(e){} return; }
+    if(t === 'radio' || t === 'checkbox'){
+      if(el.checked !== el.defaultChecked){ el.checked = el.defaultChecked; toRefire.push(el); }
+      return;
+    }
+    if(el.tagName === 'SELECT'){
+      let idx = Array.prototype.findIndex.call(el.options, o => o.defaultSelected);
+      if(idx < 0) idx = el.options.length ? 0 : -1;
+      el.selectedIndex = idx;
+      return;
+    }
+    el.value = el.defaultValue || '';
+  });
+
+  // 4. Dynamic sections: lists, previews, summaries, messages
+  ['directorList','securityList','additionalParkingList','mdDaysList',
+   'revBasic','revAmusement','revAd','poa_revVenue','poa_revUploads','revCosts',
+   'poa_calcSummaryText','savedVenueCard','dbVenueCard'].forEach(id => { const e = document.getElementById(id); if(e) e.innerHTML = ''; });
+  ['savedVenueCardWrap','dbVenueCardWrap','poa_venueRequiredNotice','poa_calcSummary','poa_promoMessage','poa_submitError'].forEach(id => {
+    const e = document.getElementById(id); if(e) e.classList.add('hidden');
+  });
+  // Venue step: drop the previous applicant's saved-venue options and re-hide the manual form
+  const vSel = document.getElementById('venueSearch');
+  if(vSel){ Array.from(vSel.options).forEach(o => { if(o.value !== '') o.remove(); }); vSel.selectedIndex = 0; }
+  const vManual = document.getElementById('manualVenueFields'); if(vManual) vManual.classList.add('hidden');
+  const vStatus = document.getElementById('venueSaveStatus'); if(vStatus) vStatus.textContent = '';
+  const revMuni = document.getElementById('revMuni'); if(revMuni) revMuni.textContent = '—';
+  flow.querySelectorAll('img[id$="PreviewImg"]').forEach(img => { img.removeAttribute('src'); });
+  flow.querySelectorAll('[id$="PreviewWrap"]').forEach(w => w.classList.add('hidden'));
+  // Profile autofill appends a note under the ID preview each time it runs
+  const idWrap = document.getElementById('poa_photoIdPreviewWrap');
+  if(idWrap) idWrap.querySelectorAll('.col-desc').forEach((n, i) => { if(i > 0) n.remove(); });
+
+  // 5. Re-apply the show/hide logic that hangs off the controls reset above
+  toRefire.forEach(el => { try{ el.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){} });
+  try{ poa_applyLicenseTypeFields(poa_isAnnualSelected()); }catch(e){}
+  try{ renderDirectors(); }catch(e){}
+  try{ renderSecurity(); }catch(e){}
+  try{ renderAdditionalParking(); }catch(e){}
+  try{ poa_mdRestoreFromDraft(); }catch(e){}
+  try{ poa_updateAdLocationButton(); }catch(e){}
+
+  // 6. Back to Step 1
+  document.getElementById('poa_stepReview').classList.add('hidden');
+  document.getElementById('poa_stepHeader').classList.remove('hidden');
+  poa_goStep(1);
+}
+window.poa_resetWizard = poa_resetWizard;
+
 async function startApplication(){
+  poa_resetWizard();
   document.getElementById('muniSelectPage').classList.add('hidden');
   document.getElementById('poa_infoPage').classList.add('hidden');
   // Fix: this used to leave trackPage/mainMenuPage exactly as they were,
@@ -25495,6 +25650,14 @@ async function poa_goStepSaving(n){
   // across however many items/quantities the applicant picked) — so it's
   // gated here instead, only when actually leaving Step 3 with at least one
   // required-but-unassigned sign outstanding (see poa_adLocationRequirement()).
+  if(currentStep === 4){
+    const venueMsg = poa_venueMissingMessage();
+    if(venueMsg){
+      poa_updateVenueRequiredNotice();
+      poa_showToast(venueMsg);
+      return;
+    }
+  }
   if(currentStep === 3){
     const req = poa_adLocationRequirement();
     if(req.totalAssigned < req.totalRequired){
@@ -25621,7 +25784,7 @@ function poa_goStep(n){
   document.getElementById('poa_progressFill').style.width = (displayNum/effSteps.length*100)+'%';
   currentStep = n;
   if(n === 3){ loadMunicipalityAdItems(); loadMunicipalityAdLocations(); }
-  if(n === 4) loadMunicipalityVenues().then(poa_mdReapplyDay1Venue).catch(()=>{});
+  if(n === 4){ loadMunicipalityVenues().then(poa_mdReapplyDay1Venue).catch(()=>{}).then(poa_updateVenueRequiredNotice); }
   if(n === 2 && poa_mdActive()){ poa_mdRender(); updateRequiredDocs(); }
   if(n === 5) renderCosts();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -26730,6 +26893,47 @@ async function loadMunicipalityVenues(){
     select.appendChild(option);
   });
 }
+
+// An application can never be filed without a venue. The venue is either one
+// picked from the municipality's database, or one the applicant types in.
+// Until now nothing enforced this: the manual venue fields sit behind a
+// "Manually add venue details" button, and a required-field rule only applies
+// to a field that is currently on screen, so a municipality with no database
+// venues (or an applicant who simply picked nothing) could press Next through
+// the whole Venue step and submit a record with an empty venue. Returns the
+// message to show, or '' when a venue is present. Checked when leaving the
+// Venue step and again at Submit; not an admin setting.
+function poa_venueMissingMessage(){
+  const isAnnual = poa_isAnnualSelected();
+  const sv = poa_val('venueSearch');
+  const dbPicked = !isAnnual && !!sv && sv.indexOf('db-') === 0 && dbVenues.some(v => 'db-' + v.id === sv);
+  if(dbPicked) return '';
+  // Multi-day: Day 1 can take its registered venue from Step 2
+  if(!isAnnual && poa_mdActive() && mdDays[0] && mdDays[0].loc === 'db' && mdDays[0].venueId
+     && dbVenues.some(v => v.id === mdDays[0].venueId)) return '';
+  if((poa_val('poa_venueName') || '').trim()) return '';
+  if(isAnnual) return 'Please enter the venue (premises) name and details before continuing. An application cannot be submitted without a venue.';
+  return dbVenues.length
+    ? 'Please choose a venue from the database, or add one manually, before continuing. An application cannot be submitted without a venue.'
+    : 'This municipality has no registered venues, so please add your venue manually ("Manually add venue details") before continuing. An application cannot be submitted without a venue.';
+}
+
+// Venue step banner + auto-open the manual form when there is nothing to pick
+function poa_updateVenueRequiredNotice(){
+  const note = document.getElementById('poa_venueRequiredNotice');
+  if(!note) return;
+  if(poa_isAnnualSelected()){ note.classList.add('hidden'); return; }
+  const none = !dbVenues.length;
+  note.textContent = none
+    ? 'This municipality has no registered venues available to choose from, so you need to add your venue manually below. An application cannot be submitted without a venue.'
+    : 'An application cannot be submitted without a venue. Choose one from the database, or add one manually.';
+  note.classList.remove('hidden');
+  if(none){
+    const f = document.getElementById('manualVenueFields');
+    if(f) f.classList.remove('hidden');
+  }
+}
+window.poa_updateVenueRequiredNotice = poa_updateVenueRequiredNotice;
 
 function saveVenueDetails(){
   const status = document.getElementById('venueSaveStatus');
@@ -28198,6 +28402,14 @@ async function submitApp(){
     }
     // Same safety-net reasoning as above, for Sign Location Assignment (see
     // poa_goStepSaving's own gate on the way forward through Step 3).
+    if(s === 4){
+      const venueMsg = poa_venueMissingMessage();
+      if(venueMsg){
+        errorBox.textContent = venueMsg;
+        errorBox.classList.remove('hidden');
+        return;
+      }
+    }
     if(s === 3){
       const adLocReq = poa_adLocationRequirement();
       if(adLocReq.totalAssigned < adLocReq.totalRequired){
@@ -28468,6 +28680,9 @@ async function submitApp(){
       window.AccountBridge.clearDraft('poa');
     }
     openMainMenu(record);
+    // The applicant's details must not stay in the (now hidden) wizard for the
+    // next person or the next application — see poa_resetWizard().
+    try{ poa_resetWizard(); }catch(resetErr){ console.error('Could not clear the application form:', resetErr); }
   } catch(err){
     // Surface the real failure reason on-screen (not just in the console —
     // most applicants won't have dev tools open) so this can actually be
@@ -47067,6 +47282,76 @@ function jcf_resumeDraft(data){
 }
 window.jcf_resumeDraft = jcf_resumeDraft;
 
+// Puts both JCF wizards (Special Event and Annual) back to a blank state.
+//
+// Same defect as the Places of Amusement wizard (see poa_resetWizard()): the
+// forms are one fixed set of controls that nothing cleared, so starting a
+// JCF filing for a DIFFERENT linked application kept the previous filing's
+// promoter/venue-owner/DJ/sound/artist details, breach reasons, uploads and
+// signature wherever prefillFromPoa() did not overwrite them (20 of 29 text
+// fields in a test). Run at the top of every start/resume, before the
+// prefill, so a resumed draft refills only what it saved. poaData and
+// jcfAppNumber are the link to the POA application and are left alone.
+function jcf_resetWizard(){
+  // In-memory state — Special Event
+  djs = []; editingDjIndex = null;
+  soundSystems = []; editingSoundIndex = null;
+  artists = []; editingArtistIndex = null;
+  photoIdFileName = ''; photoIdFileData = null;
+  flyerFileName = ''; flyerFileData = null;
+  permissionLetterFileName = ''; permissionLetterFileData = null;
+  spiritLicenseFileName = ''; spiritLicenseFileData = null;
+  jamsFileName = ''; jamsFileData = null;
+  jcapFileName = ''; jcapFileData = null;
+  sigMode = 'type'; sigUploadFileData = null; sigUploadFileName = ''; sigHasDrawing = false;
+  // In-memory state — Annual
+  jcfAnnualPropertyOwner = { name: '', phone: '', email: '' };
+  jcfAnnualNoiseNoticeFileName = ''; jcfAnnualNoiseNoticeFileData = null;
+  jcfAnnualOtherLicenseFiles = {};
+  jcfAnnualSigMode = 'type'; jcfAnnualSigUploadFileData = null; jcfAnnualSigUploadFileName = ''; jcfAnnualSigHasDrawing = false;
+  jcfAnnualCurrentVideoIndex = 0;
+  jcfAnnualBriefingWatched = { noise: false, loudspeakers: false, charges: false };
+
+  // Form controls back to the values the page shipped with
+  const toRefire = [];
+  ['jcf_applicationFlow','jcfAnnual_applicationFlow'].forEach(flowId => {
+    const flow = document.getElementById(flowId);
+    if(!flow) return;
+    flow.querySelectorAll('input, select, textarea').forEach(el => {
+      const t = el.type;
+      if(t === 'file'){ try{ el.value = ''; }catch(e){} return; }
+      if(t === 'radio' || t === 'checkbox'){
+        if(el.checked !== el.defaultChecked){ el.checked = el.defaultChecked; toRefire.push(el); }
+        return;
+      }
+      if(el.tagName === 'SELECT'){
+        let idx = Array.prototype.findIndex.call(el.options, o => o.defaultSelected);
+        if(idx < 0) idx = el.options.length ? 0 : -1;
+        el.selectedIndex = idx;
+        return;
+      }
+      el.value = el.defaultValue || '';
+    });
+  });
+
+  // Lists, previews, canvases built from the state above
+  [renderDjCards, renderSoundCards, renderArtistCards, renderPhotoIdPreview, renderFlyerPreview,
+   renderPermissionLetterPreview, renderSpiritLicensePreview, renderJamsPreview, renderJcapPreview,
+   clearSigCanvas, jcfAnnual_clearSigCanvas, () => renderSecurityCards([])
+  ].forEach(fn => { try{ fn(); }catch(e){} });
+  const wrapIds = ['djFormWrap','soundFormWrap','artistFormWrap','securityCardsWrap'];
+  wrapIds.forEach(id => { const e = document.getElementById(id); if(e && id === 'securityCardsWrap') e.innerHTML = ''; else if(e) e.classList.add('hidden'); });
+  ['jcfAnnual_noiseNoticePreviewWrap','jcfAnnual_sigUploadPreviewWrap','sigUploadPreviewWrap'].forEach(id => {
+    const e = document.getElementById(id); if(e){ e.classList.add('hidden'); const im = e.querySelector('img'); if(im) im.removeAttribute('src'); }
+  });
+  ['jcf_stepReview','jcfAnnual_stepReview'].forEach(id => { const e = document.getElementById(id); if(e) e.classList.add('hidden'); });
+
+  // Re-apply the show/hide logic that hangs off the controls reset above
+  toRefire.forEach(el => { try{ el.dispatchEvent(new Event('change', {bubbles:true})); }catch(e){} });
+  try{ toggleBreachReason('promoter'); toggleBreachReason('owner'); }catch(e){}
+}
+window.jcf_resetWizard = jcf_resetWizard;
+
 function startWizard(){
   // Backstop: a JCF Noise Abatement application can only be started from a
   // linked Places of Amusement application. The Continue button is hidden
@@ -47077,6 +47362,8 @@ function startWizard(){
     window.scrollTo({top:0, behavior:'smooth'});
     return;
   }
+  // Start from blank forms every time (a resumed draft refills what it saved).
+  jcf_resetWizard();
   // An Annual POA license gets its own, entirely separate wizard
   // (jcfAnnual_*) instead of this one — the Special Event flow below is
   // built around a single event date/flyer/promoter, none of which exist
