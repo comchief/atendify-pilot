@@ -1640,6 +1640,23 @@
   .detail-row .dr-label{ color: var(--text-muted); }
   .detail-row .dr-value{ font-weight:600; }
 
+  /* Documents & briefing rows in the JCF Division detail view: file name and status tag on the
+     left (one tag per row, always in the same place), buttons on the right in one aligned
+     column. Outline buttons view/review/replace; the filled button adds a missing file. */
+  .detail-row.doc-row .dr-value{ display:flex; align-items:center; justify-content:space-between; gap:14px; }
+  .doc-row .doc-main{ min-width:0; flex:1 1 auto; }
+  .doc-row .doc-line{ display:flex; align-items:center; gap:8px; flex-wrap:nowrap; min-height:30px; }
+  .doc-row .doc-name{ font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc-row .doc-line .badge{ flex:0 0 auto; white-space:nowrap; }
+  .doc-row .doc-note{ font-size:12.5px; font-weight:400; color:var(--text-muted); margin-top:2px; }
+  .doc-row .doc-actions{ display:flex; align-items:center; justify-content:flex-end; gap:8px; flex:0 0 auto; }
+  .doc-row .doc-actions .btn{ min-width:92px; justify-content:center; text-align:center; white-space:nowrap; margin:0; }
+  .doc-row .doc-actions .badge{ white-space:nowrap; }
+  @media (max-width: 700px){
+    .detail-row.doc-row .dr-value{ flex-direction:column; align-items:flex-start; }
+    .doc-row .doc-actions{ justify-content:flex-start; flex-wrap:wrap; }
+  }
+
   /* Status stepper */
   .status-stepper{
     display:flex;
@@ -20330,33 +20347,49 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!w) return '';
     return `Waived by ${w.by || 'an officer'}${w.at ? ' on ' + String(w.at).slice(0, 10) : ''}${w.reason ? ' — ' + w.reason : ''}`;
   }
+  // One shared layout for every document / briefing row (see .doc-row in the CSS):
+  //   [label]  [file name] [status tag]                    [View] [Replace] ...
+  // o = { fileName, tag:{text, cls}, note, noteHtml, actions: html string of buttons }
+  function jcfd_docRow(label, o){
+    o = o || {};
+    const tag = o.tag ? `<span class="badge ${o.tag.cls || 'badge-gray'}">${acctEscapeHtml(o.tag.text)}</span>` : '';
+    const name = o.fileName ? `<span class="doc-name" title="${acctEscapeHtml(o.fileName)}">${acctEscapeHtml(o.fileName)}</span>` : '';
+    const note = o.noteHtml || (o.note ? `<div class="doc-note">${acctEscapeHtml(o.note)}</div>` : '');
+    return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+      `<div class="doc-main"><div class="doc-line">${name}${tag}</div>${note}</div>` +
+      `<div class="doc-actions">${o.actions || ''}</div></div></div>`;
+  }
+  // Button builders so every row uses the same two styles
+  function jcfd_docBtn(label, onclick){ return `<button class="btn btn-sm" onclick="${onclick}">${acctEscapeHtml(label)}</button>`; }
+  function jcfd_docAddBtn(kind, label, accept){
+    return `<input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input"${accept ? ` accept="${accept}"` : ''} onchange="jcfd_uploadManualDoc('${kind}', this)">` +
+      `<button class="btn btn-sm btn-primary" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">${acctEscapeHtml(label)}</button>`;
+  }
+
   function jcfd_jcfDocRow(rec, kind, label, doc){
     if(!rec.poaAppNumber){
       // Standalone filing: not required, but an officer who feels it is needed can attach (or replace) the file.
       const carried = rec.carriedJcfDocuments || {};
       const fn = kind === 'jams' ? carried.jamsFileName : carried.jcapFileName;
       const canUpload = jcfd_hasPerm('checklist');
-      return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
-        (fn ? `${acctEscapeHtml(fn)} <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>`
-            : 'Not required for a standalone filing') +
-        (canUpload ? `<input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" accept="image/*,.pdf" onchange="jcfd_uploadManualDoc('${kind}', this)">
-          <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">${fn ? 'Replace' : 'Upload if needed'}</button>` : '') +
-        `</div></div>`;
+      return jcfd_docRow(label, fn
+        ? { fileName: fn, tag: { text: 'Attached', cls: 'badge-blue' },
+            actions: jcfd_docBtn('View', `jcfd_openDocModal('${kind}')`) + (canUpload ? jcfd_docAddBtn(kind, 'Replace', 'image/*,.pdf').replace('btn btn-sm btn-primary', 'btn btn-sm') : '') }
+        : { tag: { text: 'Not required', cls: 'badge-gray' }, note: 'Not required for a standalone filing',
+            actions: canUpload ? jcfd_docAddBtn(kind, 'Upload if needed', 'image/*,.pdf') : '' });
     }
     const canEdit = jcfd_hasPerm('checklist');
     const w = jcfd_waiver(rec, kind);
     if(w){
-      return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value"><span class="badge badge-amber">Waived</span> ${acctEscapeHtml('by ' + (w.by || 'an officer') + (w.at ? ' on ' + String(w.at).slice(0, 10) : ''))}` +
-        (w.reason ? `<div class="cell-sub">Reason: ${acctEscapeHtml(w.reason)}</div>` : '') +
-        (canEdit ? ` <button class="btn btn-sm" style="margin-top:6px;" onclick="jcfd_reinstateDoc('${kind}')">Reinstate requirement</button>` : '') +
-        `</div></div>`;
+      return jcfd_docRow(label, {
+        tag: { text: 'Waived', cls: 'badge-amber' },
+        noteHtml: `<div class="doc-note">${acctEscapeHtml('by ' + (w.by || 'an officer') + (w.at ? ' on ' + String(w.at).slice(0, 10) : ''))}${w.reason ? `<br>Reason: ${acctEscapeHtml(w.reason)}` : ''}</div>`,
+        actions: canEdit ? jcfd_docBtn('Reinstate requirement', `jcfd_reinstateDoc('${kind}')`) : ''
+      });
     }
-    let row = jcfd_detailRowDoc(label, doc && doc.fileName, doc && doc.status, kind);
     const needsDoc = !(doc && doc.fileName) || (doc && doc.status === 'Rejected');
-    if(canEdit && needsDoc){
-      row = row.replace(/<\/div><\/div>$/, ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openWaiveModal('${kind}')">Waive requirement</button></div></div>`);
-    }
-    return row;
+    return jcfd_detailRowDoc(label, doc && doc.fileName, doc && doc.status, kind, false,
+      (canEdit && needsDoc) ? jcfd_docBtn('Waive requirement', `jcfd_openWaiveModal('${kind}')`) : '');
   }
 
   let jcfdWaiveKind = null;
@@ -20624,7 +20657,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += `</div>`;
 
     html += `<div class="panel"><div class="detail-section-title">Briefing &amp; Documents</div>`;
-    html += jcfd_detailRow('Briefing videos watched', briefings.videosSkipped ? 'Not required — walk-in (briefed in person)' : (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched) ? 'Yes — all three' : 'Incomplete');
+    html += briefings.videosSkipped
+      ? jcfd_docRow('Briefing videos watched', { tag: { text: 'Not required', cls: 'badge-gray' }, note: 'Walk-in (briefed in person)' })
+      : (briefings.noiseAbatementWatched && briefings.loudSpeakersWatched && briefings.chargesWatched)
+        ? jcfd_docRow('Briefing videos watched', { tag: { text: 'Complete', cls: 'badge-green' }, note: 'All three videos watched' })
+        : jcfd_docRow('Briefing videos watched', { tag: { text: 'Incomplete', cls: 'badge-amber' } });
     const isManualEntry = rec.entrySource === 'manual';
     html += jcfd_detailRowAction('Event flyer', briefings.eventFlyerFileName || 'Not uploaded', 'flyer', !!briefings.eventFlyerFileName, isManualEntry);
     // Photo ID, Proof of Ownership/Authorization, JAMMS Approval, and JCAP
@@ -20641,13 +20678,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     html += jcfd_detailRowDoc('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId', isManualEntry);
     html += jcfd_detailRowDoc("Proof of Ownership/Authorization", vi.permissionLetterFileName, vi.permissionLetterStatus, 'permissionLetter', isManualEntry);
     if(poaEventType === 'Dead Yard'){
-      html += jcfd_detailRow('JAMMS Approval', 'Not required for Dead Yard events');
-      html += jcfd_detailRow('JCAP Approval', 'Not required for Dead Yard events');
+      html += jcfd_docRow('JAMMS Approval', { tag: { text: 'Not required', cls: 'badge-gray' }, note: 'Not required for Dead Yard events' });
+      html += jcfd_docRow('JCAP Approval', { tag: { text: 'Not required', cls: 'badge-gray' }, note: 'Not required for Dead Yard events' });
     } else {
       html += jcfd_jcfDocRow(rec, 'jams', 'JAMMS Approval', jams);
       html += jcfd_jcfDocRow(rec, 'jcap', 'JCAP Approval', jcap);
     }
-    if(isManualEntry && !(rec.signature && rec.signature.value)) html += jcfd_detailRow('Signature on file', 'Not required — walk-in');
+    if(isManualEntry && !(rec.signature && rec.signature.value)) html += jcfd_docRow('Signature on file', { tag: { text: 'Not required', cls: 'badge-gray' }, note: 'Walk-in' });
     else html += jcfd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -20660,20 +20697,20 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // filing uploaded before officer document review existed and never
   // explicitly given a status) instead of a bare filename, and labels the
   // action button "Review" rather than "View" to match.
-  function jcfd_detailRowDoc(label, fileName, status, kind, isManual){
+  function jcfd_detailRowDoc(label, fileName, status, kind, isManual, extraActions){
     const hasFile = !!fileName;
     const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
-    const badge = hasFile ? ` <span class="badge ${jcfd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">Review</button>` : '';
     // Manual (walk-in) filings ("create first, upload after") let a
     // Supervisor upload this document straight from here once it's on
     // hand, instead of it only ever arriving through the applicant's own
     // online wizard. Never shown for jams/jcap — those are only ever
     // sourced from the linked POA application's own Main Menu.
-    const uploadCtl = (!hasFile && isManual && jcfd_hasPerm('checklist')) ? `
-      <input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" onchange="jcfd_uploadManualDoc('${kind}', this)">
-      <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">Upload</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}${uploadCtl}</div></div>`;
+    const canUpload = (!hasFile && isManual && jcfd_hasPerm('checklist'));
+    return jcfd_docRow(label, {
+      fileName: hasFile ? fileName : '',
+      tag: { text: effectiveStatus, cls: jcfd_docStatusBadgeClass(effectiveStatus) },
+      actions: (hasFile ? jcfd_docBtn('Review', `jcfd_openDocModal('${kind}')`) : '') + (canUpload ? jcfd_docAddBtn(kind, 'Upload') : '') + (extraActions || '')
+    });
   }
 
   // Like jcfd_detailRowDoc above, but for a document the MUNICIPALITY (not
@@ -20688,9 +20725,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jcfd_detailRowDocViewOnly(label, fileName, status, kind){
     const hasFile = !!fileName;
     const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
-    const badge = hasFile ? ` <span class="badge ${jcfd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
+    return jcfd_docRow(label, {
+      fileName: hasFile ? fileName : '',
+      tag: { text: effectiveStatus, cls: jcfd_docStatusBadgeClass(effectiveStatus) },
+      actions: hasFile ? jcfd_docBtn('View', `jcfd_openDocModal('${kind}')`) : ''
+    });
   }
 
   // Annual variant of jcfd_renderSubmissionColumn — reads the
@@ -21110,14 +21149,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Same as jcfd_detailRow() but with a "View" button in the value cell that
   // opens jcfd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
   function jcfd_detailRowAction(label, valueText, kind, hasFile, isManual){
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jcfd_openDocModal('${kind}')">View</button>` : '';
     // Only the Event Flyer is a manually-uploadable file among the kinds
     // this renderer covers (the other caller is Signature on File, which
     // isn't something a Supervisor can upload on a promoter's behalf).
-    const uploadCtl = (!hasFile && isManual && kind === 'flyer' && jcfd_hasPerm('checklist')) ? `
-      <input type="file" id="jcfdManualDocUpload_${kind}" class="manual-doc-upload-input" onchange="jcfd_uploadManualDoc('${kind}', this)">
-      <button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="document.getElementById('jcfdManualDocUpload_${kind}').click()">Upload</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}${btn}${uploadCtl}</div></div>`;
+    const canUpload = (!hasFile && isManual && kind === 'flyer' && jcfd_hasPerm('checklist'));
+    const isSig = kind === 'signature';
+    return jcfd_docRow(label, {
+      fileName: (!isSig && hasFile) ? valueText : '',
+      tag: hasFile ? { text: isSig ? 'On file' : 'Uploaded', cls: isSig ? 'badge-green' : 'badge-blue' }
+                   : { text: isSig ? 'Not on file' : 'Not uploaded', cls: 'badge-gray' },
+      actions: (hasFile ? jcfd_docBtn('View', `jcfd_openDocModal('${kind}')`) : '') + (canUpload ? jcfd_docAddBtn(kind, 'Upload') : '')
+    });
   }
 
   // Live status of the 4 reviewable documents on a Special Event filing —
