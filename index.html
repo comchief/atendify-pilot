@@ -19728,6 +19728,46 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_closeManualAppModal = jcfd_closeManualAppModal;
 
+  // Reasons a walk-in (manual) JCF filing must not be created for a POA
+  // number. Re-read live from storage every time (lookup AND create) so a stale
+  // lookup or a filing/approval made by someone else in the meantime can't slip
+  // through. Returns a message string, or '' when the POA is open for a
+  // walk-in. Fails CLOSED: if the check itself can't run, the walk-in is refused.
+  // The database guard (security_jcfd_staff_guard.sql) enforces the filed and
+  // approved rules as well; the "event already passed" rule is screen-side only.
+  async function jcfd_poaWalkInBlockReason(poaNumber, poaRecHint){
+    if(!window.storage) return '';
+    let poaRec = poaRecHint || null, existingJcf = null;
+    try{
+      const r1 = await window.storage.get(`application:${poaNumber}`, true);
+      poaRec = (r1 && r1.value) ? JSON.parse(r1.value) : null;
+      const r2 = await window.storage.get(`jcfApplication:${poaNumber}`, true);
+      existingJcf = (r2 && r2.value) ? JSON.parse(r2.value) : null;
+    } catch(e){
+      return 'We could not confirm the current status of this Places of Amusement application, so a walk-in cannot be created right now. Please try again.';
+    }
+    const n = acctEscapeHtml(poaNumber);
+    if(!poaRec) return `No Places of Amusement application found with number "${n}". Double-check the number and try again.`;
+    if(existingJcf){
+      return `A JCF Noise Abatement application has already been submitted for ${n} (status: ${acctEscapeHtml(existingJcf.status || 'Submitted')}). A walk-in cannot be created for a POA number that already has a JCF filing. Open the existing filing from the Applications list instead.`;
+    }
+    if(String(poaRec.status || '') === 'Approved' || poaRec.permitGenerated === true){
+      return `${n} has already been approved${poaRec.permitGenerated === true ? ' and its permit issued' : ''}, so a walk-in cannot be created for it.`;
+    }
+    // Event already over? Use the last day of a multi-day event.
+    const am = poaRec.amusement || {};
+    let last = am.eventEndDate || am.eventDate || '';
+    if(am.multiDay && Array.isArray(am.days)){
+      for(const d of am.days){ if(d && d.date && String(d.date) > String(last)) last = d.date; }
+    }
+    const d0 = new Date();
+    const todayLocal = d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' + String(d0.getDate()).padStart(2, '0');
+    if(/^\d{4}-\d{2}-\d{2}/.test(String(last)) && String(last).slice(0, 10) < todayLocal){
+      return `The event date on ${n} (${acctEscapeHtml(String(last).slice(0, 10))}) has already passed, so a walk-in cannot be created for this past application.`;
+    }
+    return '';
+  }
+
   async function jcfd_lookupPoaForManualApp(){
     const resultEl = document.getElementById('jcfdManualPoaLookupResult');
     const fieldsEl = document.getElementById('jcfdManualFormBody');
@@ -19763,19 +19803,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       resultEl.innerHTML = `<div class="info-banner warn">${acctEscapeHtml(poaNumber)} is an Annual licence. Annual licences do not have a walk-in option; walk-in entry is for Special Event filings only.</div>`;
       return;
     }
-    // The storage key jcfApplication:<poaNumber> is 1:1 with the POA record
-    // (same as a normal online filing — see jcf_ingestPayload()'s own
-    // jcfAppNumber = poaAppNumber assignment), so don't let a second JCF
-    // filing be created on top of one that already exists.
-    let existingJcf = null;
-    try{
-      if(window.storage){
-        const r = await window.storage.get(`jcfApplication:${poaNumber}`, true);
-        existingJcf = (r && r.value) ? JSON.parse(r.value) : null;
-      }
-    } catch(e){ existingJcf = null; }
-    if(existingJcf){
-      resultEl.innerHTML = `<div class="info-banner warn">A JCF Noise Abatement application already exists for ${acctEscapeHtml(poaNumber)} (status: ${acctEscapeHtml(existingJcf.status || 'Submitted')}). Open it from the Applications list instead of creating a second one.</div>`;
+    // 1:1 linkage (jcfApplication:<poaNumber>): refuse POAs that already have a
+    // JCF filing, are approved, or are past.
+    const blockMsg = await jcfd_poaWalkInBlockReason(poaNumber, poaRec);
+    if(blockMsg){
+      resultEl.innerHTML = `<div class="info-banner warn">${blockMsg}</div>`;
       return;
     }
     jcfdManualPoaRecord = poaRec;
@@ -19827,6 +19859,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const standalone = jcfdManualMode === 'standalone';
     const poaRec = standalone ? null : jcfdManualPoaRecord;
     if(!standalone && !poaRec){ fail('Please look up a valid Places of Amusement application number first.'); return; }
+    if(!standalone){
+      const blockNow = await jcfd_poaWalkInBlockReason(String(poaRec.appNumber || '').toUpperCase(), poaRec);
+      if(blockNow){ const tmp = document.createElement('div'); tmp.innerHTML = blockNow; fail(tmp.textContent); return; }
+    }
     const jurisdictionMuniId = jcfd_jurisdictionMuniId();
     if(standalone && jurisdictionMuniId == null){
       fail('This division is not linked to a municipality yet, so a standalone filing cannot be placed anywhere. Ask your administrator to link the division first.');
