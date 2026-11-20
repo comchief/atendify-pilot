@@ -3136,7 +3136,13 @@
     font-size: 26px; font-weight: 800; margin: 14px 0; padding: 14px; border: 1px dashed var(--border);
     border-radius: var(--radius); letter-spacing: 0.02em;
   }
-  .ent-buttons-row{ display:flex; gap:14px; margin: 6px 0 22px; flex-wrap:wrap; }
+  /* The "+ Add DJ / Sound System / Artist" button sits at the bottom of its own
+     section. While that section's entry form is open the form has its own
+     Save/Cancel, so the add button steps out of the way. */
+  .ent-add-row{ margin-top: 14px; }
+  #djFormWrap:not(.hidden) ~ .ent-add-row,
+  #soundFormWrap:not(.hidden) ~ .ent-add-row,
+  #artistFormWrap:not(.hidden) ~ .ent-add-row{ display:none; }
   .ent-subsection{ margin-bottom: 34px; }
   .ent-subsection-title{ font-size: 15.5px; font-weight:700; margin-bottom: 12px; }
   .flyer-preview-left{ margin-top:20px; }
@@ -14162,12 +14168,6 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
              wrapping id itself doesn't change anything about how this block
              behaves inside the Special Event flow. -->
         <div id="jcf_djSoundBlock">
-        <div class="ent-buttons-row">
-          <button class="btn btn-gold" type="button" onclick="openDjForm()">+ Add DJ</button>
-          <button class="btn btn-gold" type="button" onclick="openSoundForm()">+ Add Sound System</button>
-          <button class="btn btn-gold" type="button" onclick="openArtistForm()">+ Add Artist</button>
-        </div>
-
         <div class="ent-subsection">
           <div class="ent-subsection-title">DJs</div>
           <div id="djCards" class="record-list"></div>
@@ -14211,6 +14211,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <button class="btn btn-primary" onclick="saveDj()">Save DJ</button>
             </div>
           </div>
+          <div class="ent-add-row"><button class="btn btn-gold" type="button" onclick="openDjForm()">+ Add DJ</button></div>
         </div>
 
         <div class="ent-subsection">
@@ -14256,6 +14257,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <button class="btn btn-primary" onclick="saveSound()">Save Sound System</button>
             </div>
           </div>
+          <div class="ent-add-row"><button class="btn btn-gold" type="button" onclick="openSoundForm()">+ Add Sound System</button></div>
         </div>
 
         <div class="ent-subsection">
@@ -14301,6 +14303,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <button class="btn btn-primary" onclick="saveArtist()">Save Artist</button>
             </div>
           </div>
+          <div class="ent-add-row"><button class="btn btn-gold" type="button" onclick="openArtistForm()">+ Add Artist</button></div>
         </div>
         </div><!-- /#jcf_djSoundBlock -->
 
@@ -19509,11 +19512,17 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   function jcfd_mEntBlock(kind, title, fields){
     // fields: [id, label, required, extra]
-    return `<div class="field-group" style="margin-top:10px;"><label style="font-weight:700;">${title} <span class="optional">(Optional)</span></label><div id="jcfdM_${kind}List" class="record-list"></div>
-      <div class="info-banner" style="margin:6px 0;">` +
+    // Same layout as the online form: the section's saved entries, then the
+    // "+ Add" button BELOW them; the entry form opens in place when it is pressed.
+    const one = title.replace(/s$/, '');
+    return `<div class="field-group" style="margin-top:10px;"><label style="font-weight:700;">${title} <span class="optional">(Optional)</span></label>
+      <div id="jcfdM_${kind}List" class="record-list"></div>
+      <div id="jcfdM_${kind}Form" class="info-banner hidden" style="margin:6px 0;">` +
       fields.map(f => jcfd_mField(kind + f[0], f[1] + (f[2] ? ' <span class="required-mark">*</span>' : ''), 'text', f[3] || '')).join('') +
       jcfd_mParishSelect(kind + 'Parish', 'Parish') +
-      `<button class="btn btn-sm" type="button" onclick="jcfd_mAddEntertainer('${kind}')">+ Add ${title.replace(/s$/, '')}</button></div></div>`;
+      `<div class="btn-row" style="margin-top:12px;"><button class="btn btn-sm" type="button" onclick="jcfd_mCloseEntertainer('${kind}')">Cancel</button>` +
+      `<button class="btn btn-sm btn-primary" type="button" onclick="jcfd_mAddEntertainer('${kind}')">Save ${one}</button></div></div>` +
+      `<div id="jcfdM_${kind}AddRow" style="margin-top:10px;"><button class="btn btn-gold" type="button" onclick="jcfd_mOpenEntertainer('${kind}')">+ Add ${one}</button></div></div>`;
   }
 
   function jcfd_renderManualForm(){
@@ -19615,6 +19624,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     sound:  { title: 'sound system', list: () => jcfdMSounds,  need: ['Trn','Name','OwnerName','Contact'] },
     artist: { title: 'artist',       list: () => jcfdMArtists, need: ['RealName','StageName','Trn','Contact'] }
   };
+  function jcfd_mOpenEntertainer(kind){
+    const f = jmEl(kind + 'Form'), a = jmEl(kind + 'AddRow');
+    if(f) f.classList.remove('hidden');
+    if(a) a.classList.add('hidden');
+  }
+  window.jcfd_mOpenEntertainer = jcfd_mOpenEntertainer;
+  function jcfd_mCloseEntertainer(kind){
+    ['Trn','Name','Alias','Contact','OwnerName','RealName','StageName','Parish'].forEach(f => { const el = jmEl(kind + f); if(el) el.value = ''; });
+    const f = jmEl(kind + 'Form'), a = jmEl(kind + 'AddRow');
+    if(f) f.classList.add('hidden');
+    if(a) a.classList.remove('hidden');
+  }
+  window.jcfd_mCloseEntertainer = jcfd_mCloseEntertainer;
   function jcfd_mAddEntertainer(kind){
     const cfg = JCFD_M_ENT[kind];
     for(const f of cfg.need){
@@ -19627,7 +19649,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     else if(kind === 'sound') entry = { trn: jmVal('soundTrn'), name: jmVal('soundName'), ownerName: jmVal('soundOwnerName'), contact: jmVal('soundContact'), parish };
     else entry = { realName: jmVal('artistRealName'), stageName: jmVal('artistStageName'), trn: jmVal('artistTrn'), contact: jmVal('artistContact'), parish };
     cfg.list().push(entry);
-    ['Trn','Name','Alias','Contact','OwnerName','RealName','StageName','Parish'].forEach(f => { const el = jmEl(kind + f); if(el) el.value = ''; });
+    jcfd_mCloseEntertainer(kind);
     jcfd_mRenderLists();
   }
   window.jcfd_mAddEntertainer = jcfd_mAddEntertainer;
