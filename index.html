@@ -5844,6 +5844,17 @@
       return !!res.data;
     },
 
+    // Enhanced Security policy of the JCF division covering a municipality
+    // (backend/security_enhanced_security.sql): only {enabled, threshold}.
+    enhancedSecurityPolicy: async function (muniNumber) {
+      if (!client) return { enabled: false, threshold: null };
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_enhanced_security_policy', { p_muni_number: String(muniNumber == null ? '' : muniNumber) });
+      });
+      if (res.error || !res.data) { if (res.error) window.atdShowDebugError('enhancedSecurityPolicy(' + muniNumber + ')', res.error); return { enabled: false, threshold: null }; }
+      return res.data;
+    },
+
     // Public directory of the agencies (finding 14, backend/security_agency_directory.sql):
     // only the fields the public screens need (name, type, municipality
     // number, parish, status, application fees, linked municipality).
@@ -6969,6 +6980,35 @@
       // change / approval / rejection that triggered this.
     }
   };
+
+  // Enhanced Security (large events): does the JCF division covering this
+  // municipality require an in-person visit for an event of this size? Returns
+  // the flag object to put on the filing, or null. The database makes the same
+  // decision itself when the filing is saved (backend/security_enhanced_security.sql),
+  // so this only lets the screen react at once (confirmation page, email).
+  window.atdEnhancedSecurityFlag = async function(muniId, patronsText){
+    try{
+      const patrons = parseInt(String(patronsText == null ? '' : patronsText).replace(/[^0-9]/g, ''), 10);
+      if(!patrons || muniId == null) return null;
+      let pol = { enabled: false, threshold: null };
+      if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.enhancedSecurityPolicy){
+        pol = await window.ATDBackend.enhancedSecurityPolicy(muniId);
+      } else if(window.atdLoadAgencies && window.storage){
+        // local preview only: no database function, so read the same rows directly
+        const agencies = await window.atdLoadAgencies();
+        const muni = agencies.find(a => a.type === 'Municipal Corporation' && String(a.muniNumber) === String(muniId));
+        const jcf = muni && agencies.find(a => a.type === 'JCF' && a.linkedMuniId === muni.id);
+        const r = jcf ? await window.storage.get(`jcfBranch:${jcf.id}:settings`, true) : null;
+        const es = (r && r.value) ? (JSON.parse(r.value).enhancedSecurity || {}) : {};
+        if(es.enabled && es.patronThreshold >= 1) pol = { enabled: true, threshold: Math.floor(es.patronThreshold) };
+      }
+      if(pol && pol.enabled && pol.threshold >= 1 && patrons >= pol.threshold){
+        return { required: true, auto: true, source: 'threshold', threshold: pol.threshold, patrons: patrons, flaggedAt: new Date().toISOString() };
+      }
+    } catch(e){ /* no flag from here; the database still decides */ }
+    return null;
+  };
+  window.ATD_ENHANCED_SECURITY_MESSAGE = 'Enhanced Security Required for Event - Please contact/visit Divisional HQ.';
 
   // ---- Real applicant/staff email (Supabase Edge Function + Resend) ----
   // The one place in the client that sends a real email. Everything else
@@ -9583,12 +9623,12 @@
   <!-- TRACK APPLICATION ENTRY -->
   <section id="trackPage" class="hidden info-page">
     <h1 class="page-title" style="margin-bottom:8px;">Track Application</h1>
-    <p class="col-desc" style="margin-bottom:32px;">Enter your application number and tracking code to view your application, upload documents, or check its status.</p>
+    <p class="col-desc" style="margin-bottom:32px;">Enter your application number and tracking code to view your application, upload documents, or check its status. This works for Places of Amusement applications (POA-…) and for Noise Abatement applications filed for you at a Police Division (JCFM-…).</p>
 
     <div style="max-width:480px;">
       <div class="field-group">
         <label for="trackAppNumber">Application Number</label>
-        <input type="text" id="trackAppNumber" placeholder="e.g. PA04202601">
+        <input type="text" id="trackAppNumber" placeholder="e.g. POA-012026-05 or JCFM-012026-05">
       </div>
       <div class="field-group">
         <label for="trackCode">Application Tracking Code</label>
@@ -9599,6 +9639,7 @@
         <button class="btn btn-primary" id="trackBtn" onclick="submitTrackApplication()">Track Application</button>
       </div>
     </div>
+    <div id="trackJcfResult" class="hidden" style="max-width:640px; margin-top:32px;"></div>
   </section>
 
   <!-- APPLICATION MAIN MENU -->
@@ -9666,6 +9707,7 @@
                submitted — same layout/style as the Places Of Amusement summary
                view (mm-view-head, status badge, Export PDF, two-column details). -->
           <div id="mmNoiseSubmitted" class="hidden">
+            <div id="mmNoiseEnhancedSecurity" class="hidden"></div>
             <div class="mm-view-head">
               <h2>Application: Noise Abatement (JCF) Permit</h2>
               <div style="display:flex; align-items:center; gap:16px;">
@@ -15803,6 +15845,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
         </div>
         <div class="panel">
+          <div class="panel-head"><h2 style="font-size:18px;">Enhanced Security</h2><span class="badge badge-amber" style="font-size:11.5px;">Police Chief only</span></div>
+          <p style="font-size:13px; color:var(--text-muted); margin:-6px 0 18px;">When on, any Noise Abatement application expecting at least the patron figure below is automatically flagged <strong>Enhanced Security Required</strong>. The promoter must visit Divisional HQ in person, and a permit cannot be issued until an officer confirms the visit. Walk-in (manual) entries are not affected, since the promoter is already at the station.</p>
+          <div class="toggle-row" style="margin-bottom:14px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="jcfd_esToggle" onchange="jcfd_renderEsPreview(); jcfd_saveSettings()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span style="font-size:14px; font-weight:600;">Require an in-person visit for large events</span>
+          </div>
+          <div class="field-group" style="max-width:300px;">
+            <label for="jcfd_esPatrons">Patron figure (flag events expecting this many or more)</label>
+            <input type="number" id="jcfd_esPatrons" min="1" step="1" oninput="jcfd_renderEsPreview()" onchange="jcfd_saveSettings()">
+          </div>
+          <p style="font-size:12.5px; color:var(--text-muted); margin:6px 0 0;">Applies to applications submitted after you save. Applications already in the queue keep their current flag; an officer can still tick or untick the box on any application.</p>
+          <div id="jcfd_esPreview" style="margin-top:14px; padding:12px 14px; border:1px dashed var(--border); border-radius:10px; font-size:13px;"></div>
+        </div>
+        <div class="panel">
           <div class="panel-head"><h2 style="font-size:18px;">Permit Signing</h2></div>
           <div class="field-group" style="max-width:560px; margin-bottom:12px;">
             <label for="jcfd_settingsSignMethod">How are issued permits signed?</label>
@@ -18716,7 +18775,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Under Review -> Processing -> Approved/Rejected lifecycle this now
   // reflects, matching what the user asked to see "across all views
   // (Dashboard and Application tabs)".
+  // The code staff and promoters quote for a filing. Online filings use
+  // jcfAppNumber (same as the POA number); walk-in (manual) filings carry a
+  // JCFM-<municipality><year>-<count> code in manualCode. A walk-in tied to a POA
+  // stays stored under the POA number (the rest of the app finds a POA's JCF
+  // filing by that key), so its JCFM code lives here rather than in jcfAppNumber.
+  function jcfd_code(rec){ return (rec && (rec.manualCode || rec.jcfAppNumber)) || ''; }
+  // Walk-ins have their own tracking code; online filings use the POA's.
+  function jcfd_trackCode(rec){ return (rec && (rec.trackingCode || rec.linkedTrackingCode)) || ''; }
+
   function jcfd_statusBadge(rec){
+    // a flagged filing waiting for the promoter's visit to Divisional HQ carries a small extra chip
+    if(rec.status !== 'Approved' && rec.status !== 'Rejected' && jcfd_esBlocksApproval(rec)){
+      return jcfd_statusBadgeBase(rec) + ' <span class="badge badge-red" title="Enhanced Security Required: the promoter has not yet visited Divisional HQ" style="margin-left:4px;">Security visit</span>';
+    }
+    return jcfd_statusBadgeBase(rec);
+  }
+  function jcfd_statusBadgeBase(rec){
     if(rec.status === 'Approved') return '<span class="badge badge-green">Approved</span>';
     if(rec.status === 'Rejected') return '<span class="badge badge-red">Rejected</span>';
     if(rec.status === 'Processing') return '<span class="badge badge-blue">Processing</span>';
@@ -19059,7 +19134,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const sevBadge = { Critical: 'badge-red', High: 'badge-amber', Medium: 'badge-gray' }[severity];
       return `
         <tr>
-          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication(${atdJs(String(r.a.key))}); return false;">${acctEscapeHtml(rec.jcfAppNumber || '')}</a></td>
+          <td class="cell-primary"><a href="#" onclick="jcfd_openApplication(${atdJs(String(r.a.key))}); return false;">${acctEscapeHtml(jcfd_code(rec))}</a></td>
           <td>${acctEscapeHtml(eventLabel)}<br><span style="font-size:12px; color:var(--text-muted); font-weight:400;">${acctEscapeHtml(venueName)}</span></td>
           <td>${acctEscapeHtml(issue)}</td>
           <td><span class="badge ${sevBadge}">${severity}</span></td>
@@ -19095,21 +19170,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     let html = '';
     if(fresh.length){
-      const names = fresh.map(x => acctEscapeHtml(x.a.rec.jcfAppNumber)).join(', ');
+      const names = fresh.map(x => acctEscapeHtml(jcfd_code(x.a.rec))).join(', ');
       html += `<div class="status-banner info">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16v-4"/><path d="M12 8h.01"/><circle cx="12" cy="12" r="10"/></svg>
         ${fresh.length === 1 ? 'A new application has been assigned' : `${fresh.length} new applications have been assigned`}: ${names}.
       </div>`;
     }
     if(warn.length){
-      const names = warn.map(x => acctEscapeHtml(x.a.rec.jcfAppNumber)).join(', ');
+      const names = warn.map(x => acctEscapeHtml(jcfd_code(x.a.rec))).join(', ');
       html += `<div class="status-banner warn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         ${warn.length === 1 ? 'An assigned application has' : `${warn.length} assigned applications have`} not been actioned within 12 hours: ${names}.
       </div>`;
     }
     if(overdue.length){
-      const names = overdue.map(x => acctEscapeHtml(x.a.rec.jcfAppNumber)).join(', ');
+      const names = overdue.map(x => acctEscapeHtml(jcfd_code(x.a.rec))).join(', ');
       html += `<div class="status-banner bad">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         ${overdue.length === 1 ? 'An assigned application is' : `${overdue.length} assigned applications are`} overdue — not actioned within 24 hours: ${names}.
@@ -19307,7 +19382,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     body.innerHTML = commented.map(a => {
       const eo = a.rec.eventOverview || {};
       return `<tr>
-        <td>${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
+        <td>${acctEscapeHtml(jcfd_code(a.rec))}</td>
         <td>${acctEscapeHtml(eo.eventName || 'N/A')}</td>
         <td>${acctEscapeHtml(window.atdJcfDatesText(eo) || 'N/A')}</td>
         <td><span class="badge badge-green">Commented</span></td>
@@ -19338,8 +19413,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const eo = a.rec.eventOverview || {};
     const vi = a.rec.venueInfo || {};
     return `<tr>
-      <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
-      <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${rowDot(jcfd_code(a.rec))}${acctEscapeHtml(jcfd_code(a.rec))}</td>
+      <td>${jcfd_trackCode(a.rec) ? acctEscapeHtml(jcfd_trackCode(a.rec)) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${acctEscapeHtml(eo.promoterName || 'N/A')}</td>
       <td>${acctEscapeHtml(vi.venueName || 'N/A')}</td>
       <td>${acctEscapeHtml(window.atdJcfDatesText(eo) || 'N/A')}</td>
@@ -19352,8 +19427,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const ai = a.rec.applicantInfo || {};
     const pi = a.rec.premisesInfo || {};
     return `<tr>
-      <td>${rowDot(a.rec.jcfAppNumber)}${acctEscapeHtml(a.rec.jcfAppNumber)}</td>
-      <td>${a.rec.linkedTrackingCode ? acctEscapeHtml(a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td>${rowDot(jcfd_code(a.rec))}${acctEscapeHtml(jcfd_code(a.rec))}</td>
+      <td>${jcfd_trackCode(a.rec) ? acctEscapeHtml(jcfd_trackCode(a.rec)) : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td>${acctEscapeHtml(ai.name || 'N/A')}</td>
       <td>${acctEscapeHtml(pi.businessName || 'N/A')}</td>
       <td>${jcfd_statusBadge(a.rec)}</td>
@@ -19399,8 +19474,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       visible = visible.filter(a => {
         const isAnnual = a.rec.formVariant === 'Annual';
         const name = isAnnual ? (a.rec.applicantInfo && a.rec.applicantInfo.name) : (a.rec.eventOverview && a.rec.eventOverview.promoterName);
-        return (a.rec.jcfAppNumber || '').toLowerCase().includes(search) ||
-          (a.rec.linkedTrackingCode || '').toLowerCase().includes(search) ||
+        return (jcfd_code(a.rec) || '').toLowerCase().includes(search) || (a.rec.jcfAppNumber || '').toLowerCase().includes(search) || (a.rec.trackingCode || '').toLowerCase().includes(search) ||
+          (jcfd_trackCode(a.rec) || '').toLowerCase().includes(search) ||
           (name || '').toLowerCase().includes(search);
       });
     }
@@ -19943,28 +20018,46 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       let number;
       let municipalityName = poaRec ? (poaRec.municipalityName || '') : '';
       if(standalone){
-        // No POA number to borrow, so reserve one from the same server-side
-        // counter the permit numbers use (never a guessed or time-based
-        // number, which could collide with someone else's filing).
         const linked = jcfd_agencies().find(a => a.id === (jcfdCurrentBranch && jcfdCurrentBranch.linkedMuniId));
         municipalityName = (linked && (linked.name || linked.municipalityName)) || '';
-        const mm = String(jurisdictionMuniId).padStart(2, '0');
-        const yy = String(new Date().getFullYear()).slice(-2);
-        let seq = 1;
-        if(window.ATDBackend && window.ATDBackend.isConfigured()){
-          try{ seq = await window.ATDBackend.reserveNumber(`JCFWALKIN-${mm}${yy}`); }
-          catch(numErr){ fail('Could not reserve an application number just now. Nothing was saved; please try again in a moment.'); return; }
-        }
-        number = `JCFW${mm}-${mm}${yy}-${String(seq).padStart(2, '0')}`;
-      } else {
-        number = poaRec.appNumber; // 1:1 linkage, same as a normal online filing
       }
+      // Every walk-in gets its own application code, mirroring the POA number
+      // format: JCFM-<municipality no.><year>-<count>, e.g. JCFM-012026-05. It is
+      // reserved from the same server-side counter the POA numbers use (never a
+      // guessed or time-based number, which could collide with someone else's).
+      const muniNo = standalone ? jurisdictionMuniId : (poaRec.muniId != null ? poaRec.muniId : jurisdictionMuniId);
+      const mm = String(muniNo == null ? 0 : muniNo).padStart(2, '0');
+      const prefix = `JCFM-${mm}${new Date().getFullYear()}`;
+      let seq = 1;
+      if(window.ATDBackend && window.ATDBackend.isConfigured()){
+        try{ seq = await window.ATDBackend.reserveNumber(prefix); }
+        catch(numErr){ fail('Could not reserve an application number just now. Nothing was saved; please try again in a moment.'); return; }
+      } else if(window.storage){
+        // local preview only (no server counter): keep a simple local one
+        try{
+          const r = await window.storage.get('localCounter:' + prefix, true);
+          seq = ((r && r.value) ? parseInt(JSON.parse(r.value), 10) || 0 : 0) + 1;
+          await window.storage.set('localCounter:' + prefix, JSON.stringify(seq), true);
+        } catch(e){ seq = 1; }
+      }
+      const manualCode = `${prefix}-${String(seq).padStart(2, '0')}`;
+      // A walk-in tied to a POA stays stored under the POA number (that is how
+      // the rest of the app finds a POA's JCF filing); a standalone one is
+      // stored under its own JCFM code.
+      number = standalone ? manualCode : poaRec.appNumber;
+      const ownTrackingCode = (() => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz0123456789';
+        let c = ''; for(let i = 0; i < 9; i++) c += chars.charAt(Math.floor(Math.random() * chars.length));
+        return c;
+      })();
 
       const spiritYes = jmRadio('spiritLicense') === 'Yes';
       const photoId = jcfdMFiles.photoId, flyer = jcfdMFiles.flyer, proof = jcfdMFiles.permissionLetter;
       const today = new Date().toISOString().slice(0, 10);
       const record = {
         jcfAppNumber: number,
+        manualCode: manualCode,
+        trackingCode: ownTrackingCode,
         poaAppNumber: poaRec ? poaRec.appNumber : null,
         linkedTrackingCode: poaRec ? (poaRec.trackingCode || null) : null,
         ownerEmail: poaRec ? (poaRec.ownerEmail || null) : null,
@@ -20079,8 +20172,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role,
           action: 'application.manualCreate',
           details: standalone
-            ? `Created standalone manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}); no Places of Amusement application.`
-            : `Created manual JCF Noise Abatement application ${number} for walk-in promoter ${promoterName} (${eventName}), linked to Places of Amusement application ${poaRec.appNumber}.`,
+            ? `Created standalone manual JCF Noise Abatement application ${manualCode} for walk-in promoter ${promoterName} (${eventName}); no Places of Amusement application.`
+            : `Created manual JCF Noise Abatement application ${manualCode} for walk-in promoter ${promoterName} (${eventName}), linked to Places of Amusement application ${poaRec.appNumber}.`,
           muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null
         });
       }
@@ -20095,7 +20188,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
       jcfd_closeManualAppModal();
       jcfd_showToast(!filesSaved ? 'Application created, but the attached documents could not be saved. Upload them from the application page.'
-        : watchlistHit ? 'Application created — auto-rejected on watch list match.' : 'Manual JCF application created.');
+        : watchlistHit ? `Application ${manualCode} created — auto-rejected on watch list match.` : `Manual JCF application created. Code ${manualCode} · Tracking code ${ownTrackingCode}`);
       await jcfd_renderDashboard();
       await jcfd_openApplication(`jcfApplication:${number}`);
     } catch(err){
@@ -21212,7 +21305,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // code rides along here too, since that's the number the promoter
     // actually has in hand when they call or email in about their case.
     const jcfdTopbarTitleEl = document.getElementById('jcfd_topbarTitle');
-    if(jcfdTopbarTitleEl) jcfdTopbarTitleEl.textContent = `Application Details — ${rec.jcfAppNumber} (Tracking Code: ${rec.linkedTrackingCode || '—'})`;
+    if(jcfdTopbarTitleEl) jcfdTopbarTitleEl.textContent = `Application Details — ${jcfd_code(rec)} (Tracking Code: ${jcfd_trackCode(rec) || '—'})`;
 
     const eo = rec.eventOverview || {};
 
@@ -21226,8 +21319,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     // Header — same layout/style as the Municipal Officer's app-detail header.
     const jcfdIsManualEntry = rec.entrySource === 'manual';
-    document.getElementById('jcfd_detailAppNumber').innerHTML = acctEscapeHtml(rec.jcfAppNumber || '—') + (jcfdIsManualEntry ? ' <span class="badge-manual-entry" title="Created by a Police Supervisor on behalf of a walk-in promoter">Manual Entry</span>' : '');
-    document.getElementById('jcfd_detailAppSub').textContent = `${eo.promoterName || 'N/A'} · Submitted ${rec.submittedDate || 'N/A'} · Tracking Code: ${rec.linkedTrackingCode || '—'}`;
+    document.getElementById('jcfd_detailAppNumber').innerHTML = acctEscapeHtml(jcfd_code(rec) || '—') + (jcfdIsManualEntry ? ' <span class="badge-manual-entry" title="Created by a Police Supervisor on behalf of a walk-in promoter">Manual Entry</span>' : '');
+    document.getElementById('jcfd_detailAppSub').textContent = `${eo.promoterName || 'N/A'} · Submitted ${rec.submittedDate || 'N/A'} · Tracking Code: ${jcfd_trackCode(rec) || '—'}`;
     document.getElementById('jcfd_detailStatusBadge').innerHTML = jcfd_statusBadge(rec);
     jcfd_renderStatusStepper(rec);
 
@@ -21552,6 +21645,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // Review" button — reopening (jcfd_reopenForReview()) sets the status
     // back to 'Submitted', which is what un-hides the rest of the Official
     // Use column above and restores the Approve/Reject controls here.
+    // Enhanced Security card, immediately above Final Decision
+    html += jcfd_esCardHtml(rec);
+
     if(canDecide){
       const cl = rec.officialChecklist || {};
       let missingChecklistItems;
@@ -21585,6 +21681,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const annualChecklistValues = { ...auto, applicantIdentityVerified: !!cl.applicantIdentityVerified, premisesInformationVerified: !!cl.premisesInformationVerified };
         missingChecklistItems = Object.keys(annualChecklistLabels).filter(key => !annualChecklistValues[key]).map(key => annualChecklistLabels[key]);
       }
+      if(jcfd_esBlocksApproval(rec)) missingChecklistItems.push('Enhanced Security is required: the promoter has not yet visited Divisional HQ (visit not confirmed)');
       const isDecided = rec.status === 'Approved' || rec.status === 'Rejected';
       const isAwaiting = !!(rec.pendingSignature && rec.pendingSignature.permit);
       html += `<div class="official-card">
@@ -21599,7 +21696,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             ? `<button class="btn" onclick="jcfd_cancelPendingApproval()">Cancel approval</button>`
             : isDecided
             ? `<button class="btn" onclick="jcfd_reopenForReview()">Reopen for Review</button>`
-            : `<button class="btn btn-primary" onclick="jcfd_openApproveModal()" ${missingChecklistItems.length ? 'disabled title="Complete the Official Use Checklist before approving"' : ''}>Approve &amp; issue permit</button>
+            : `<button class="btn btn-primary" onclick="jcfd_openApproveModal()" ${missingChecklistItems.length ? 'disabled title="Complete the Official Use Checklist (and any Enhanced Security visit) before approving"' : ''}>Approve &amp; issue permit</button>
                <button class="btn" onclick="jcfd_reject()">Reject</button>`}
         </div>
       </div>`;
@@ -21746,7 +21843,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
 
     // ---- JCF Division side ----
-    add(rec.submittedDate, 'Applicant', `JCF application ${acctEscapeHtml(rec.jcfAppNumber || '')} submitted.`);
+    add(rec.submittedDate, 'Applicant', `JCF application ${acctEscapeHtml(jcfd_code(rec))} submitted.`);
     add(rec.assignedAt, 'JCF Division', `Assigned to ${acctEscapeHtml(rec.assignedOfficerName || 'an officer')}.`);
     add(rec.recommendedAt, 'JCF Division', `Recommendation recorded: ${acctEscapeHtml(rec.recommendation || '—')}${rec.recommendedBy ? ' (by ' + acctEscapeHtml(rec.recommendedBy) + ')' : ''}.`);
     add(rec.recommendationWithdrawalRequestedDate, 'JCF Division', `Withdrawal of recommendation requested${rec.recommendationWithdrawalRequestedBy ? ' by ' + acctEscapeHtml(rec.recommendationWithdrawalRequestedBy) : ''}.`);
@@ -21797,7 +21894,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         poaRec = (r && r.value) ? JSON.parse(r.value) : null;
       } catch(e){ /* leave poaRec null -- timeline still shows the JCF side */ }
     }
-    document.getElementById('jcfd_activityTimelineModalSub').textContent = `Application #${rec.jcfAppNumber || ''}`;
+    document.getElementById('jcfd_activityTimelineModalSub').textContent = `Application #${jcfd_code(rec)}`;
     document.getElementById('jcfd_activityTimelineModalBody').innerHTML = jcfd_renderApplicationTimeline(rec, poaRec);
     document.getElementById('jcfd_activityTimelineModal').classList.remove('hidden');
   }
@@ -22020,6 +22117,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!rec) return;
     if(!jcfd_canDecideApp(rec)){
       jcfd_showToast("You don't have permission to approve or reject this application.");
+      return;
+    }
+    if(jcfd_esBlocksApproval(rec)){
+      jcfd_showToast('Cannot approve — Enhanced Security is required and the promoter\'s visit to Divisional HQ has not been confirmed.');
       return;
     }
     let jcfPermitNumber;
@@ -22410,6 +22511,202 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return JSON.parse(JSON.stringify(JCFD_DEFAULT_SLA_RULES));
   }
 
+  // ==================== Enhanced Security ====================
+  // Large events (at or above the patron figure the Police Chief sets under SLA
+  // Policy) are flagged when the filing is submitted: the promoter must visit
+  // Divisional HQ, and an officer confirms the visit (date and time required)
+  // before a permit can be issued. Stored on the filing as rec.enhancedSecurity
+  // { required, auto, source, threshold, patrons, flaggedAt, visit{...}, ... }.
+  // The database sets the flag on submission and enforces the permit block
+  // (backend/security_enhanced_security.sql + security_jcfd_staff_guard.sql).
+  // Walk-in entries and Annual filings are never flagged.
+  function jcfd_esApplies(rec){
+    return !!rec && rec.entrySource !== 'manual' && rec.formVariant !== 'Annual';
+  }
+  function jcfd_esVisit(rec){
+    const v = rec && rec.enhancedSecurity && rec.enhancedSecurity.visit;
+    return (v && typeof v === 'object') ? v : null;
+  }
+  // true when the permit must wait for a confirmed visit
+  function jcfd_esBlocksApproval(rec){
+    return jcfd_esApplies(rec) && !!(rec.enhancedSecurity && rec.enhancedSecurity.required === true) && !jcfd_esVisit(rec);
+  }
+  function jcfd_renderEsPreview(){
+    const el = document.getElementById('jcfd_esPreview');
+    if(!el) return;
+    const on = document.getElementById('jcfd_esToggle').checked;
+    const n = parseInt(document.getElementById('jcfd_esPatrons').value, 10);
+    el.innerHTML = (on && n >= 1)
+      ? `<strong>Preview:</strong> an event with ${n.toLocaleString()} patrons or more is flagged automatically. An event with ${(n - 1).toLocaleString()} or fewer is not, unless an officer ticks the box by hand.`
+      : '<strong>Preview:</strong> off — no event is flagged automatically. An officer can still tick the box by hand on any application.';
+  }
+  function jcfd_fmtVisit(v){
+    const d = String(v.date || '');
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const nice = m ? `${parseInt(m[3], 10)} ${months[parseInt(m[2], 10) - 1]} ${m[1]}` : d;
+    return `${nice} at ${v.time || ''}`;
+  }
+  function jcfd_esCardHtml(rec){
+    if(!jcfd_esApplies(rec) || rec.status === 'Rejected') return '';
+    const es = rec.enhancedSecurity || {};
+    const required = es.required === true;
+    const visit = jcfd_esVisit(rec);
+    const canAct = jcfd_hasPerm('checklist');
+    const decided = rec.status === 'Approved' || !!(rec.pendingSignature && rec.pendingSignature.permit) || !!rec.permitGenerated;
+    const shield = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+    const badge = visit ? '<span class="badge badge-green" style="margin-left:8px; font-size:11px;">Visit confirmed</span>'
+      : required ? '<span class="badge badge-red" style="margin-left:8px; font-size:11px;">Required</span>' : '';
+    const boxDisabled = !canAct || decided || !!visit;
+    let h = `<div class="official-card" id="jcfd_esCard"><h4>Enhanced Security${badge}</h4>
+      <p class="col-desc">Checked if event requires Enhanced Security</p>
+      <label style="display:flex; gap:10px; align-items:center; font-size:14px; font-weight:600; margin:10px 0;${boxDisabled ? ' opacity:.8;' : ''}">
+        <input type="checkbox" id="jcfd_esCheck" ${required ? 'checked' : ''} ${boxDisabled ? 'disabled' : ''} onchange="jcfd_toggleEnhancedSecurity(this.checked)"> Enhanced Security Required</label>`;
+    if(required){
+      const why = es.auto
+        ? `Flagged automatically: ${acctEscapeHtml(String(es.patrons != null ? Number(es.patrons).toLocaleString() : (jcfd_expectedPatronsForApp(rec) || '')))} patrons expected${es.threshold ? ' (threshold ' + acctEscapeHtml(Number(es.threshold).toLocaleString()) + ')' : ''}.`
+        : `Flagged by ${acctEscapeHtml(es.flaggedBy || 'an officer')}${es.flaggedAt ? ' on ' + acctEscapeHtml(String(es.flaggedAt).slice(0, 10)) : ''}.`;
+      if(!visit){
+        h += `<div class="status-banner warn" style="margin-top:6px;">${shield}<span>${why} The promoter must visit Divisional HQ before a permit can be issued. The applicant is notified by email and at the top of the JCF section of their Main Menu.</span></div>`;
+      } else {
+        h += `<div class="status-banner good" style="margin-top:6px;">${shield}<span>Promoter visited Divisional HQ on <strong>${acctEscapeHtml(jcfd_fmtVisit(visit))}</strong>. Confirmed by ${acctEscapeHtml(visit.confirmedBy || 'an officer')}${visit.confirmedByRole ? ' (' + acctEscapeHtml(visit.confirmedByRole) + ')' : ''}${visit.confirmedAt ? ' on ' + acctEscapeHtml(String(visit.confirmedAt).slice(0, 16).replace('T', ', ')) : ''}. The application is released for a final decision.${visit.note ? ' Note: ' + acctEscapeHtml(visit.note) : ''}</span></div>`;
+        if(canAct && !decided) h += `<div class="btn-row" style="justify-content:flex-start; margin-top:10px;"><button class="btn btn-sm" onclick="jcfd_undoEsVisit()">Undo confirmation</button></div>`;
+      }
+      if(!visit && canAct && !decided){
+        h += `<div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
+          <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Confirm in-person visit</div>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div class="field-group" style="margin:0;"><label for="jcfd_esVisitDate">Date of visit <span style="color:var(--red)">*</span></label><input type="date" id="jcfd_esVisitDate" max="${new Date().toISOString().slice(0, 10)}"></div>
+            <div class="field-group" style="margin:0;"><label for="jcfd_esVisitTime">Time of visit <span style="color:var(--red)">*</span></label><input type="time" id="jcfd_esVisitTime"></div>
+          </div>
+          <div class="field-group" style="margin-top:10px;"><label for="jcfd_esVisitNote">Note (optional)</label><input type="text" id="jcfd_esVisitNote" maxlength="200" placeholder="e.g. Presented photo ID; briefed on event security plan"></div>
+          <div id="jcfd_esVisitError" class="hidden" style="color:var(--red); font-size:13px; margin-top:8px;"></div>
+          <div class="btn-row" style="justify-content:flex-start; margin-top:10px;"><button class="btn btn-primary" id="jcfd_esConfirmBtn" onclick="jcfd_confirmEsVisit()">Confirm visit &amp; release application</button></div>
+          <p style="font-size:12px; color:var(--text-muted); margin:8px 0 0;">Recorded with your name, role and the time you confirmed. Only an officer with checklist permission can confirm.</p>
+        </div>`;
+      } else if(!visit && !decided){
+        h += `<p style="font-size:12.5px; color:var(--text-muted); margin:10px 0 0;">Waiting for the promoter's visit. An officer with checklist permission will confirm it here.</p>`;
+      }
+    } else if(es.clearedBy){
+      h += `<p style="font-size:12.5px; color:var(--text-muted); margin:0;">Flag removed by ${acctEscapeHtml(es.clearedBy)}${es.clearedAt ? ' on ' + acctEscapeHtml(String(es.clearedAt).slice(0, 10)) : ''}.</p>`;
+    } else {
+      h += `<p style="font-size:12.5px; color:var(--text-muted); margin:0;">Not flagged${jcfd_expectedPatronsForApp(rec) ? ': ' + acctEscapeHtml(String(jcfd_expectedPatronsForApp(rec))) + ' patrons expected' : ''}. Tick the box if this event still needs the promoter to visit in person; the same notice and visit confirmation then apply.</p>`;
+    }
+    return h + '</div>';
+  }
+
+  async function jcfd_esAudit(action, details, rec){
+    if(!window.atdLogAudit) return;
+    try{
+      await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action, details,
+        muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
+    } catch(e){ /* best-effort */ }
+  }
+
+  async function jcfd_toggleEnhancedSecurity(checked){
+    if(!jcfd_hasPerm('checklist')){
+      jcfd_showToast('Your account has not been given permission to change Enhanced Security.');
+      jcfd_renderApplicationDetail();
+      return;
+    }
+    const rec = await jcfd_getActiveApp();
+    if(!rec || !jcfd_esApplies(rec)) return;
+    if(rec.status === 'Approved' || (rec.pendingSignature && rec.pendingSignature.permit) || rec.permitGenerated){
+      jcfd_showToast('This application has already been decided. Reopen it for review to change Enhanced Security.');
+      jcfd_renderApplicationDetail();
+      return;
+    }
+    if(jcfd_esVisit(rec)){
+      jcfd_showToast('Undo the visit confirmation first.');
+      jcfd_renderApplicationDetail();
+      return;
+    }
+    const who = `${jcfdCurrentUser.name} (${jcfdCurrentUser.role})`;
+    const now = new Date().toISOString();
+    const before = rec.enhancedSecurity || {};
+    if(checked){
+      rec.enhancedSecurity = { required: true, auto: false, source: 'manual', flaggedBy: who, flaggedAt: now };
+    } else {
+      rec.enhancedSecurity = { required: false, auto: false, clearedBy: who, clearedAt: now, clearedFromAuto: !!before.auto };
+    }
+    try{
+      await jcfd_saveActiveApp(rec);
+    } catch(err){
+      jcfd_showToast('Could not save: ' + ((err && err.message) || 'please try again'));
+      jcfd_renderApplicationDetail();
+      return;
+    }
+    await jcfd_esAudit(checked ? 'enhancedSecurity.flag' : 'enhancedSecurity.unflag',
+      `${checked ? 'Marked' : 'Removed the Enhanced Security requirement on'} JCF application ${jcfd_code(rec)}${checked ? ' as requiring Enhanced Security (in-person visit)' : (before.auto ? ' (it had been flagged automatically)' : '')}.`, rec);
+    if(checked){
+      const email = await jcfd_resolveApplicantEmail(rec);
+      if(email){
+        if(window.atdSendEmail) window.atdSendEmail('enhanced_security_flagged', email, { appNumber: rec.jcfAppNumber, kind: 'jcf' });
+        if(window.atdNotifyApplicant) window.atdNotifyApplicant(email, 'enhanced_security_required', window.ATD_ENHANCED_SECURITY_MESSAGE + ` (Application ${jcfd_code(rec)})`, rec.jcfAppNumber);
+      }
+    }
+    jcfd_showToast(checked ? 'Enhanced Security required — the applicant has been notified.' : 'Enhanced Security requirement removed.');
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_toggleEnhancedSecurity = jcfd_toggleEnhancedSecurity;
+
+  async function jcfd_confirmEsVisit(){
+    const errEl = document.getElementById('jcfd_esVisitError');
+    const fail = m => { if(errEl){ errEl.textContent = m; errEl.classList.remove('hidden'); } };
+    if(errEl) errEl.classList.add('hidden');
+    if(!jcfd_hasPerm('checklist')){ fail('Your account has not been given permission to confirm a visit.'); return; }
+    const date = (document.getElementById('jcfd_esVisitDate').value || '').trim();
+    const time = (document.getElementById('jcfd_esVisitTime').value || '').trim();
+    const note = (document.getElementById('jcfd_esVisitNote').value || '').trim().slice(0, 200);
+    if(!date || !time){ fail('Enter the date and time of the visit.'); return; }
+    const today = new Date(); today.setDate(today.getDate() + 1);
+    if(date > today.toISOString().slice(0, 10)){ fail('The visit date cannot be in the future.'); return; }
+    const btn = document.getElementById('jcfd_esConfirmBtn'); if(btn) btn.disabled = true;
+    try{
+      const rec = await jcfd_getActiveApp();
+      if(!rec || !jcfd_esApplies(rec) || !(rec.enhancedSecurity && rec.enhancedSecurity.required)){ fail('This application is not flagged for Enhanced Security.'); if(btn) btn.disabled = false; return; }
+      rec.enhancedSecurity.visit = {
+        date, time, note,
+        confirmedBy: jcfdCurrentUser.name, confirmedByRole: jcfdCurrentUser.role, confirmedByEmail: jcfdCurrentUser.email,
+        confirmedAt: new Date().toISOString()
+      };
+      await jcfd_saveActiveApp(rec);
+      await jcfd_esAudit('enhancedSecurity.visitConfirmed', `Confirmed the promoter's visit to Divisional HQ for JCF application ${jcfd_code(rec)} (visit ${date} ${time}).`, rec);
+      const email = await jcfd_resolveApplicantEmail(rec);
+      if(email && window.atdNotifyApplicant) window.atdNotifyApplicant(email, 'enhanced_security_visit_confirmed', `Your Enhanced Security visit to Divisional HQ was confirmed (${jcfd_fmtVisit(rec.enhancedSecurity.visit)}). Application ${jcfd_code(rec)} can now proceed to a final decision.`, rec.jcfAppNumber);
+      jcfd_showToast('Visit confirmed — application released for a final decision.');
+      jcfd_renderApplicationDetail();
+    } catch(err){
+      fail('Could not save the confirmation: ' + ((err && err.message) || 'please try again'));
+      if(btn) btn.disabled = false;
+    }
+  }
+  window.jcfd_confirmEsVisit = jcfd_confirmEsVisit;
+
+  async function jcfd_undoEsVisit(){
+    if(!jcfd_hasPerm('checklist')){ jcfd_showToast('Your account has not been given permission to change this.'); return; }
+    const rec = await jcfd_getActiveApp();
+    if(!rec || !jcfd_esVisit(rec)) return;
+    if(window.atdConfirm){
+      const ok = await window.atdConfirm('Undo the visit confirmation? The application will be held again until a visit is confirmed.');
+      if(!ok) return;
+    }
+    const prior = rec.enhancedSecurity.visit;
+    delete rec.enhancedSecurity.visit;
+    try{
+      await jcfd_saveActiveApp(rec);
+    } catch(err){
+      jcfd_showToast('Could not save: ' + ((err && err.message) || 'please try again'));
+      jcfd_renderApplicationDetail();
+      return;
+    }
+    await jcfd_esAudit('enhancedSecurity.visitUndone', `Undid the visit confirmation (${jcfd_fmtVisit(prior)}) on JCF application ${jcfd_code(rec)}.`, rec);
+    jcfd_showToast('Visit confirmation undone.');
+    jcfd_renderApplicationDetail();
+  }
+  window.jcfd_undoEsVisit = jcfd_undoEsVisit;
+  window.jcfd_renderEsPreview = jcfd_renderEsPreview;
+
   async function jcfd_loadSettings(){
     if(!jcfdCurrentBranch) return;
     let settings = {};
@@ -22426,6 +22723,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaReviewDays').value = rules.review.targetDays;
     document.getElementById('jcfd_slaDecisionToggle').checked = rules.decision.enabled;
     document.getElementById('jcfd_slaDecisionDays').value = rules.decision.targetDays;
+    const esCfg = settings.enhancedSecurity || {};
+    document.getElementById('jcfd_esToggle').checked = !!esCfg.enabled;
+    document.getElementById('jcfd_esPatrons').value = esCfg.patronThreshold || '';
+    jcfd_renderEsPreview();
     document.getElementById('jcfd_settingsAutoRejectToggle').checked = !!settings.autoRejectOnMuniReject;
     const signMethodEl = document.getElementById('jcfd_settingsSignMethod');
     if(signMethodEl) signMethodEl.value = settings.permitSignatureMethod === 'upload' ? 'upload' : 'stamp';
@@ -22463,11 +22764,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_slaAssignmentHours').value = slaRules.assignment.targetHours;
     document.getElementById('jcfd_slaReviewDays').value = slaRules.review.targetDays;
     document.getElementById('jcfd_slaDecisionDays').value = slaRules.decision.targetDays;
+    // Enhanced Security: a patron figure is required to switch it on.
+    const esOn = document.getElementById('jcfd_esToggle').checked;
+    const esFigure = parseInt(document.getElementById('jcfd_esPatrons').value, 10);
+    if(esOn && !(esFigure >= 1)){
+      document.getElementById('jcfd_esToggle').checked = false;
+      jcfd_renderEsPreview();
+      jcfd_showToast('Enter a patron figure (1 or more) before switching Enhanced Security on.');
+      return;
+    }
+    const enhancedSecurity = { enabled: esOn, patronThreshold: (esFigure >= 1) ? esFigure : null };
+    document.getElementById('jcfd_esPatrons').value = enhancedSecurity.patronThreshold || '';
+    jcfd_renderEsPreview();
     const autoRejectOnMuniReject = document.getElementById('jcfd_settingsAutoRejectToggle').checked;
     const signMethodSel = document.getElementById('jcfd_settingsSignMethod');
     const permitSignatureMethod = (signMethodSel && signMethodSel.value === 'upload') ? 'upload' : 'stamp';
     try{
-      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject, permitSignatureMethod }), true);
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject, permitSignatureMethod, enhancedSecurity }), true);
       jcfd_showToast('Settings saved.');
     } catch(err){
       jcfd_showToast('Could not save settings right now.');
@@ -22546,8 +22859,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     atdRenderGrouped('jcfd_slaBreachesBody', breached, { colspan: 8, defaultOpen: 'all', groupers: [ { id: 'stage', label: 'Stage', of: r => atdGrp.plain(r.label) }, { id: 'role', label: 'Responsible role', of: r => atdGrp.plain(r.responsibleRole) }, { id: 'late', label: 'How late', of: r => { const d = r.overdueDays || 0; return d >= 7 ? { key: 'w', label: 'A week or more', rank: 0 } : d >= 1 ? { key: 'd', label: '1 to 6 days', rank: 1 } : { key: 'h', label: 'Under a day', rank: 2 }; } } ], rowHtml: r =>`
       <tr>
-        <td>${acctEscapeHtml(r.a.rec.jcfAppNumber || '')}</td>
-        <td>${r.a.rec.linkedTrackingCode ? acctEscapeHtml(r.a.rec.linkedTrackingCode) : '<span style="color:var(--text-muted);">—</span>'}</td>
+        <td>${acctEscapeHtml(jcfd_code(r.a.rec))}</td>
+        <td>${jcfd_trackCode(r.a.rec) ? acctEscapeHtml(jcfd_trackCode(r.a.rec)) : '<span style="color:var(--text-muted);">—</span>'}</td>
         <td>${acctEscapeHtml((r.a.rec.eventOverview && r.a.rec.eventOverview.promoterName) || '')}</td>
         <td>${acctEscapeHtml(r.label)}</td>
         <td>${acctEscapeHtml(r.responsibleRole)}</td>
@@ -22614,8 +22927,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     const snapshot = list.map(a => ({
       key: a.key,
-      jcfAppNumber: a.rec.jcfAppNumber,
-      trackingCode: a.rec.linkedTrackingCode || '',
+      jcfAppNumber: jcfd_code(a.rec),
+      trackingCode: jcfd_trackCode(a.rec),
       promoter: (a.rec.eventOverview && a.rec.eventOverview.promoterName) || '',
       submitted: a.rec.submittedDate,
       status: a.rec.status
@@ -23695,7 +24008,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         const p = a.rec.permit;
         return (p.number || '').toLowerCase().includes(search) ||
           (p.issuedTo || '').toLowerCase().includes(search) ||
-          (a.rec.jcfAppNumber || '').toLowerCase().includes(search);
+          (jcfd_code(a.rec) || '').toLowerCase().includes(search) || (a.rec.jcfAppNumber || '').toLowerCase().includes(search);
       });
     }
     issued.sort((a,b) => (b.rec.permit.issuedDate || '').localeCompare(a.rec.permit.issuedDate || ''));
@@ -23716,7 +24029,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <td>${acctEscapeHtml(p.eventName || 'N/A')}</td>
         <td>${acctEscapeHtml(p.issuedDate || '')}</td>
         <td>${acctEscapeHtml(p.expiresDate || '')}</td>
-        <td>${acctEscapeHtml(a.rec.jcfAppNumber || '')}</td>
+        <td>${acctEscapeHtml(jcfd_code(a.rec))}</td>
         <td><button class="btn btn-sm" onclick='jcfd_viewIssuedPermit(${atdJs(a.key)})'>View / Print</button></td>
       </tr>`;
     } });
@@ -23900,6 +24213,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_showToast('Cannot approve — the Official Use Checklist has not been fully completed yet.');
       return;
     }
+    if(jcfd_esBlocksApproval(rec)){
+      jcfd_showToast('Cannot approve — Enhanced Security is required and the promoter\'s visit to Divisional HQ has not been confirmed.');
+      return;
+    }
     // Annual permits are valid for a fixed government fiscal year, not an
     // event end time — hide the date/time inputs entirely and show the
     // fiscal year this approval would issue instead of asking the officer
@@ -23952,6 +24269,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!rec) return;
     if(!jcfd_canDecideApp(rec)){
       jcfd_showToast("You don't have permission to approve and issue permits.");
+      return;
+    }
+    if(jcfd_esBlocksApproval(rec)){
+      jcfd_showToast('Cannot approve — Enhanced Security is required and the promoter\'s visit to Divisional HQ has not been confirmed.');
       return;
     }
     const eo = rec.eventOverview || {};
@@ -28878,6 +29199,7 @@ function showTrackApplication(){
   });
   document.getElementById('poa_applicationFlow').classList.add('hidden');
   document.getElementById('trackError').classList.add('hidden');
+  const jr = document.getElementById('trackJcfResult'); if(jr){ jr.classList.add('hidden'); jr.innerHTML = ''; }
   document.getElementById('trackPage').classList.remove('hidden');
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -28913,6 +29235,75 @@ async function poa_lookupTrackedApplication(appNumber, code){
   return record;
 }
 
+// Walk-in (JCFM-…) Noise Abatement filings. Where a real backend is
+// configured the same SECURITY DEFINER lookup as for POA applications
+// (atd_track_application, see backend/security_track_jcfm.sql) answers,
+// returning only a short status summary and only for a matching tracking code.
+async function poa_lookupTrackedJcfManual(appNumber, code){
+  if(!window.storage) throw new Error('storage unavailable');
+  if(window.ATDBackend && window.ATDBackend.isConfigured()){
+    const rec = await window.ATDBackend.trackApplication(appNumber, code);
+    if(!rec || rec.recordType !== 'jcfManual') throw new Error('not found');
+    return rec;
+  }
+  // local-only preview: no RLS and no rpc(), so read the shim directly
+  const keys = (await window.storage.list('jcfApplication:', true) || {}).keys || [];
+  for(const k of keys){
+    const r = await window.storage.get(k, true);
+    if(!r || !r.value) continue;
+    const v = JSON.parse(r.value);
+    if(v.entrySource === 'manual' && String(v.manualCode || '').toUpperCase() === appNumber){
+      if(!v.trackingCode || v.trackingCode !== code) throw new Error('tracking code mismatch');
+      const ev = v.eventOverview || {};
+      return {
+        recordType: 'jcfManual', appNumber: v.manualCode, manualCode: v.manualCode, trackingCode: v.trackingCode,
+        poaAppNumber: v.poaAppNumber, status: v.status || 'Submitted', submittedDate: v.submittedDate,
+        municipalityName: v.municipalityName, eventName: ev.eventName, dateOfEvent: ev.dateOfEvent,
+        promoterName: ev.promoterName, venueName: (v.venueInfo || {}).venueName,
+        finalDecision: (v.status === 'Approved' || v.status === 'Rejected') ? v.finalDecision : null,
+        permitGenerated: !!v.permitGenerated,
+        permitNumber: v.permitGenerated && v.permit ? v.permit.number : null,
+        permitExpires: v.permitGenerated && v.permit ? v.permit.expiresDate : null
+      };
+    }
+  }
+  throw new Error('not found');
+}
+
+function poa_renderTrackedJcfManual(r){
+  const el = document.getElementById('trackJcfResult');
+  if(!el) return;
+  const e = poa_escapeHtml;
+  const row = (label, val) => val ? `<div style="display:flex; gap:16px; padding:9px 0; border-bottom:1px solid var(--border,#e5e5e5);"><div style="flex:0 0 190px; color:var(--text-muted);">${e(label)}</div><div style="font-weight:600;">${e(String(val))}</div></div>` : '';
+  const cls = r.status === 'Approved' ? ' approved' : r.status === 'Rejected' ? ' rejected' : '';
+  const note = r.status === 'Approved'
+    ? (r.permitGenerated ? 'Your Noise Abatement permit has been issued. Collect or present the permit as directed by the Police Division.' : 'Your application has been approved. The permit is being finalised by the Police Division.')
+    : r.status === 'Rejected' ? 'Your application was not approved. Please contact the Police Division that filed it for details.'
+    : 'Your application is with the Police Division. Check back here with the same codes to see when its status changes.';
+  el.innerHTML = `
+    <div style="border:1px solid var(--border,#e5e5e5); border-radius:12px; padding:22px 24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:6px;">
+        <h2 style="margin:0; font-size:20px;">Noise Abatement (JCF) application</h2>
+        <span class="mm-status-badge${cls}">${e(r.status || 'Submitted')}</span>
+      </div>
+      <p class="col-desc" style="margin:0 0 14px;">Filed for you at a Police Division. ${e(note)}</p>
+      ${row('Application code', r.manualCode || r.appNumber)}
+      ${row('Tracking code', r.trackingCode)}
+      ${row('Promoter', r.promoterName)}
+      ${row('Event', r.eventName)}
+      ${row('Event date', r.dateOfEvent)}
+      ${row('Venue', r.venueName)}
+      ${row('Municipal Corporation', r.municipalityName)}
+      ${row('Date filed', r.submittedDate)}
+      ${row('Linked Places of Amusement application', r.poaAppNumber)}
+      ${row('Decision', r.finalDecision)}
+      ${row('Permit number', r.permitNumber)}
+      ${row('Permit expires', r.permitExpires)}
+    </div>`;
+  el.classList.remove('hidden');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function submitTrackApplication(){
   const appNumber = document.getElementById('trackAppNumber').value.trim();
   const code = document.getElementById('trackCode').value.trim();
@@ -28933,7 +29324,16 @@ async function submitTrackApplication(){
 
   btn.disabled = true;
   btn.textContent = 'Looking up…';
+  const jcfResultEl = document.getElementById('trackJcfResult');
+  if(jcfResultEl){ jcfResultEl.classList.add('hidden'); jcfResultEl.innerHTML = ''; }
   try{
+    if(/^JCFM-/i.test(appNumber)){
+      // A walk-in Noise Abatement filing made at a Police Division: show its
+      // status summary (no officer notes or documents are ever returned).
+      const rec = await poa_lookupTrackedJcfManual(appNumber.toUpperCase(), code);
+      poa_renderTrackedJcfManual(rec);
+      return;
+    }
     const record = await poa_lookupTrackedApplication(appNumber, code);
     openMainMenu(record, `application:${appNumber}`);
   } catch(err){
@@ -30130,6 +30530,28 @@ function renderMmNoise(){
   badge.textContent = jcfApp.status || 'Submitted';
   badge.className = 'mm-status-badge' +
     (jcfApp.status === 'Approved' ? ' approved' : jcfApp.status === 'Rejected' ? ' rejected' : '');
+
+  // Enhanced Security (large events): the applicant must visit Divisional HQ before a permit can be issued.
+  const esEl = document.getElementById('mmNoiseEnhancedSecurity');
+  if(esEl){
+    const es = jcfApp.enhancedSecurity || {};
+    const visit = (es.visit && typeof es.visit === 'object') ? es.visit : null;
+    const shieldSvg = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
+    if(es.required === true && jcfApp.entrySource !== 'manual' && jcfApp.status !== 'Rejected' && !jcfApp.permitGenerated){
+      if(visit){
+        esEl.className = 'status-banner good';
+        esEl.style.cssText = 'margin:0 0 18px; padding:14px 16px; font-size:14.5px; font-weight:600; align-items:flex-start;';
+        esEl.innerHTML = shieldSvg + '<div>Enhanced Security visit confirmed — thank you for visiting Divisional HQ on ' + poa_escapeHtml(String(visit.date || '')) + ' at ' + poa_escapeHtml(String(visit.time || '')) + '.<div style="font-weight:400; font-size:13px; margin-top:4px;">Your application can now proceed to a final decision.</div></div>';
+      } else {
+        esEl.className = 'status-banner warn';
+        esEl.style.cssText = 'margin:0 0 18px; padding:14px 16px; font-size:14.5px; font-weight:600; align-items:flex-start;';
+        esEl.innerHTML = shieldSvg + '<div>Enhanced Security Required for Event — Please contact/visit Divisional HQ.<div style="font-weight:400; font-size:13px; margin-top:4px;">Bring valid photo ID. Your permit cannot be issued until an officer at the Police Division confirms your visit.</div></div>';
+      }
+    } else {
+      esEl.className = 'hidden';
+      esEl.innerHTML = '';
+    }
+  }
 
   document.getElementById('mmNoiseAppNumber').textContent = jcfApp.jcfAppNumber || '—';
   document.getElementById('mmNoiseSubmissionDate').textContent = jcfApp.submittedDate || '—';
@@ -48750,6 +49172,12 @@ async function submitJcfApp(){
     signature
   };
 
+  // Enhanced Security: a large event must be visited in person at Divisional HQ
+  // before a permit can be issued. Flagged here for the confirmation screen and
+  // the email; the database sets the same flag itself on save.
+  const enhancedFlag = watchlistHit ? null : await window.atdEnhancedSecurityFlag(record.muniId, record.eventOverview && record.eventOverview.patronsExpected);
+  if(enhancedFlag) record.enhancedSecurity = enhancedFlag;
+
   try{
     if(window.storage){
       await jcf_storageSetWithRetry(`jcfApplication:${number}`, JSON.stringify(record), true);
@@ -48811,6 +49239,16 @@ async function submitJcfApp(){
       }
     } else {
       jcf_showToast('JCF Noise Abatement application submitted.');
+      if(enhancedFlag){
+        const confirmEl = document.getElementById('confirmPage');
+        if(confirmEl) confirmEl.insertAdjacentHTML('beforeend',
+          `<div class="info-banner warn" style="margin-top:16px;"><strong>${jcf_escapeHtml(window.ATD_ENHANCED_SECURITY_MESSAGE)}</strong><br>Please bring valid photo ID. Your permit cannot be issued until an officer confirms your visit.</div>`);
+        const esEmail = (poaData && poaData.applicantEmail) || record.ownerEmail;
+        if(esEmail){
+          window.atdSendEmail('enhanced_security_required', esEmail, { appNumber: number, kind: 'jcf', trackingCode: record.linkedTrackingCode });
+          window.atdNotifyApplicant(esEmail, 'enhanced_security_required', window.ATD_ENHANCED_SECURITY_MESSAGE + ` (Application ${number})`, number);
+        }
+      }
     }
   } catch(err){
     // Same reasoning as submitApp() in the POA script: show the actual
