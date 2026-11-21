@@ -5880,6 +5880,23 @@
       return res.data;
     },
 
+    // Enhanced Security decision for one filing (backend/security_enhanced_security_rules.sql):
+    // {required, reasons:[{type:'patrons'|'artists'|'venue', ...}], threshold}. The database makes
+    // the same decision itself when the filing is saved; this lets the screen react at once.
+    enhancedSecurityCheck: async function (muniNumber, patrons, artists, venueName) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_enhanced_security_check', {
+          p_muni_number: String(muniNumber == null ? '' : muniNumber),
+          p_patrons: (patrons == null || isNaN(patrons)) ? null : patrons,
+          p_artists: artists || 0,
+          p_venue: String(venueName || '').slice(0, 200)
+        });
+      });
+      if (res.error || !res.data) { if (res.error) window.atdShowDebugError('enhancedSecurityCheck(' + muniNumber + ')', res.error); return null; }
+      return res.data;
+    },
+
     // Public directory of the agencies (finding 14, backend/security_agency_directory.sql):
     // only the fields the public screens need (name, type, municipality
     // number, parish, status, application fees, linked municipality).
@@ -7029,24 +7046,44 @@
   // the flag object to put on the filing, or null. The database makes the same
   // decision itself when the filing is saved (backend/security_enhanced_security.sql),
   // so this only lets the screen react at once (confirmation page, email).
-  window.atdEnhancedSecurityFlag = async function(muniId, patronsText){
+  window.atdEnhancedSecurityFlag = async function(muniId, patronsText, artistsCount, venueName){
     try{
-      const patrons = parseInt(String(patronsText == null ? '' : patronsText).replace(/[^0-9]/g, ''), 10);
-      if(!patrons || muniId == null) return null;
-      let pol = { enabled: false, threshold: null };
-      if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.enhancedSecurityPolicy){
-        pol = await window.ATDBackend.enhancedSecurityPolicy(muniId);
+      if(muniId == null) return null;
+      const parsed = parseInt(String(patronsText == null ? '' : patronsText).replace(/[^0-9]/g, ''), 10);
+      const patrons = isNaN(parsed) ? null : parsed;
+      const artists = parseInt(artistsCount, 10) || 0;
+      const norm = t => String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]/g, '');
+      let ev = null;
+      if(window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.enhancedSecurityCheck){
+        ev = await window.ATDBackend.enhancedSecurityCheck(muniId, patrons, artists, venueName);
       } else if(window.atdLoadAgencies && window.storage){
-        // local preview only: no database function, so read the same rows directly
+        // local preview only: no database function, so apply the same rules to the same rows directly
         const agencies = await window.atdLoadAgencies();
         const muni = agencies.find(a => a.type === 'Municipal Corporation' && String(a.muniNumber) === String(muniId));
         const jcf = muni && agencies.find(a => a.type === 'JCF' && a.linkedMuniId === muni.id);
         const r = jcf ? await window.storage.get(`jcfBranch:${jcf.id}:settings`, true) : null;
         const es = (r && r.value) ? (JSON.parse(r.value).enhancedSecurity || {}) : {};
-        if(es.enabled && es.patronThreshold >= 1) pol = { enabled: true, threshold: Math.floor(es.patronThreshold) };
+        const reasons = [];
+        let thr = null;
+        if(es.enabled && es.patronThreshold >= 1 && patrons != null && patrons >= es.patronThreshold){
+          thr = Math.floor(es.patronThreshold);
+          reasons.push({ type: 'patrons', patrons: patrons, threshold: thr });
+        }
+        if(es.artistsEnabled && artists >= 1) reasons.push({ type: 'artists', count: artists });
+        if(es.venuesEnabled && norm(venueName) && jcf){
+          const vr = await window.storage.get(`jcfBranch:${jcf.id}:esVenues`, true);
+          const list = (vr && vr.value) ? (JSON.parse(vr.value).venues || []) : [];
+          const hit = list.find(v => norm(v.name) && norm(v.name) === norm(venueName));
+          if(hit) reasons.push({ type: 'venue', name: hit.name });
+        }
+        ev = { required: reasons.length > 0, reasons: reasons, threshold: thr };
       }
-      if(pol && pol.enabled && pol.threshold >= 1 && patrons >= pol.threshold){
-        return { required: true, auto: true, source: 'threshold', threshold: pol.threshold, patrons: patrons, flaggedAt: new Date().toISOString() };
+      if(ev && ev.required){
+        const onlyPatrons = ev.reasons.length === 1 && ev.reasons[0].type === 'patrons';
+        const flag = { required: true, auto: true, source: onlyPatrons ? 'threshold' : 'rules', reasons: ev.reasons, flaggedAt: new Date().toISOString() };
+        if(patrons != null) flag.patrons = patrons;
+        if(ev.threshold) flag.threshold = ev.threshold;
+        return flag;
       }
     } catch(e){ /* no flag from here; the database still decides */ }
     return null;
@@ -15277,6 +15314,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         SLA Breaches
       </div>
 
+      <div class="nav-item hidden" data-page="esVenues" id="jcfd_navEsVenues" onclick="jcfd_goPage('esVenues')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Enhanced Security Venues
+      </div>
+
       <div class="nav-section-label">Settings</div>
       <div class="nav-item" data-page="profile" id="jcfd_navProfile" onclick="jcfd_goPage('profile')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -15676,7 +15718,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               <h2 id="jcfd_detailAppNumber" style="font-size:20px;">—</h2>
               <div class="cell-sub" id="jcfd_detailAppSub" style="margin-top:4px;"></div>
             </div>
-            <span id="jcfd_detailStatusBadge"></span>
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+              <span id="jcfd_exportPdfHint" class="cell-sub hidden"></span>
+              <button class="btn btn-sm hidden" id="jcfd_exportPdfBtn" onclick="jcfd_exportApplicationPdf()" disabled>&#11015; Export as PDF</button>
+              <span id="jcfd_detailStatusBadge"></span>
+            </div>
           </div>
           <div class="status-stepper" id="jcfd_statusStepper"></div>
         </div>
@@ -15923,6 +15969,21 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div style="margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid var(--border);">
             <div class="toggle-row" style="margin-bottom:10px;">
               <label class="toggle-switch">
+                <input type="checkbox" id="jcfd_slaStationToggle" onchange="jcfd_saveSettings()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:14px; font-weight:600;">Police Station — report back on an assigned application</span>
+            </div>
+            <div class="field-group" style="max-width:300px;">
+              <label for="jcfd_slaStationHours">Target hours from assignment</label>
+              <input type="number" id="jcfd_slaStationHours" min="1" step="1" onchange="jcfd_saveSettings()">
+            </div>
+            <p style="font-size:12.5px; color:var(--text-muted); margin:6px 0 0;">The clock starts when a Supervisor or the Chief assigns the application to a station and stops when that station posts its first comment. Reassigning to a different station starts a new clock.</p>
+          </div>
+
+          <div style="margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid var(--border);">
+            <div class="toggle-row" style="margin-bottom:10px;">
+              <label class="toggle-switch">
                 <input type="checkbox" id="jcfd_slaReviewToggle" onchange="jcfd_saveSettings()">
                 <span class="toggle-slider"></span>
               </label>
@@ -15950,17 +16011,43 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         </div>
         <div class="panel">
           <div class="panel-head"><h2 style="font-size:18px;">Enhanced Security</h2><span class="badge badge-amber" style="font-size:11.5px;">Police Chief only</span></div>
-          <p style="font-size:13px; color:var(--text-muted); margin:-6px 0 18px;">When on, any Noise Abatement application expecting at least the patron figure below is automatically flagged <strong>Enhanced Security Required</strong>. The promoter must visit Divisional HQ in person, and a permit cannot be issued until an officer confirms the visit. Walk-in (manual) entries are not affected, since the promoter is already at the station.</p>
-          <div class="toggle-row" style="margin-bottom:14px;">
-            <label class="toggle-switch">
-              <input type="checkbox" id="jcfd_esToggle" onchange="jcfd_renderEsPreview(); jcfd_saveSettings()">
-              <span class="toggle-slider"></span>
-            </label>
-            <span style="font-size:14px; font-weight:600;">Require an in-person visit for large events</span>
+          <p style="font-size:13px; color:var(--text-muted); margin:-6px 0 18px;">An application that meets <strong>any</strong> rule below is automatically flagged <strong>Enhanced Security Required</strong>: the promoter must visit Divisional HQ in person, and a permit cannot be issued until an officer confirms the visit. Walk-in (manual) entries are not affected, since the promoter is already at the station.</p>
+          <div style="border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px;">
+            <div class="toggle-row" style="margin-bottom:14px;">
+              <label class="toggle-switch">
+                <input type="checkbox" id="jcfd_esToggle" onchange="jcfd_renderEsPreview(); jcfd_saveSettings()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:14px; font-weight:600;">Require an in-person visit for large events</span>
+            </div>
+            <div class="field-group" style="max-width:300px; margin-bottom:0;">
+              <label for="jcfd_esPatrons">Patron figure (flag events expecting this many or more)</label>
+              <input type="number" id="jcfd_esPatrons" min="1" step="1" oninput="jcfd_renderEsPreview()" onchange="jcfd_saveSettings()">
+            </div>
           </div>
-          <div class="field-group" style="max-width:300px;">
-            <label for="jcfd_esPatrons">Patron figure (flag events expecting this many or more)</label>
-            <input type="number" id="jcfd_esPatrons" min="1" step="1" oninput="jcfd_renderEsPreview()" onchange="jcfd_saveSettings()">
+          <div style="border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px;">
+            <div class="toggle-row">
+              <label class="toggle-switch">
+                <input type="checkbox" id="jcfd_esArtistsToggle" onchange="jcfd_renderEsPreview(); jcfd_saveSettings()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:14px; font-weight:600;">Require an in-person visit for events with Artists</span>
+              <span class="badge badge-gray" style="font-size:10.5px;">NEW</span>
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin:8px 0 0 52px;">Flags any application that lists one or more performing artists in its Entertainment Details.</p>
+          </div>
+          <div style="border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin-bottom:14px;">
+            <div class="toggle-row">
+              <label class="toggle-switch">
+                <input type="checkbox" id="jcfd_esVenuesToggle" onchange="jcfd_renderEsPreview(); jcfd_saveSettings()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:14px; font-weight:600;">Require an in-person visit for events at listed venues</span>
+              <span class="badge badge-gray" style="font-size:10.5px;">NEW</span>
+              <span id="jcfd_esVenueCount_s" style="margin-left:auto; font-size:13px; color:var(--text-muted);"></span>
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin:8px 0 12px 52px;">Flags any application whose venue matches one of the locations below. The Police Chief can add or remove locations, and can give Supervisors (or Officer/Station) that permission under Users &amp; Roles.</p>
+            <div id="jcfd_esVenuesHost_s"></div>
           </div>
           <p style="font-size:12.5px; color:var(--text-muted); margin:6px 0 0;">Applies to applications submitted after you save. Applications already in the queue keep their current flag; an officer can still tick or untick the box on any application.</p>
           <div id="jcfd_esPreview" style="margin-top:14px; padding:12px 14px; border:1px dashed var(--border); border-radius:10px; font-size:13px;"></div>
@@ -15986,6 +16073,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <span style="font-size:14px; font-weight:600;">Auto-reject application if the Municipal Corporation rejects the linked Places of Amusement application</span>
           </div>
           <p style="font-size:13px; color:var(--text-muted); margin:0;">When on, if the Municipal Corporation rejects the linked Places of Amusement application, this JCF Noise Abatement Permit application is automatically marked Rejected as well.</p>
+        </div>
+      </div>
+
+      <!-- ===== ENHANCED SECURITY VENUES PAGE (JCF) ===== -->
+      <div class="page hidden" id="jcfd_page-esVenues">
+        <div class="panel">
+          <div class="panel-head"><h2>Enhanced Security — Listed Venues</h2><span id="jcfd_esVenueCount_p" style="font-size:13px; color:var(--text-muted);"></span></div>
+          <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 16px;">An application held at a venue on this list is flagged <strong>Enhanced Security Required</strong> when the rule is switched on (the Police Chief controls that switch). You can add and remove locations because the Police Chief has given you this permission. Every change is recorded in the audit log.</p>
+          <div id="jcfd_esVenuesHost_p"></div>
         </div>
       </div>
 
@@ -18575,7 +18671,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jcfd_logout = jcfd_logout;
 
   function jcfd_goPage(page){
-    const guardedPerm = { watchlist:'watchlist', permits:'permits', signatures:'signatures', reports:'reports', eventsCalendar:'eventsCalendar', slaBreaches:'slaBreaches' };
+    const guardedPerm = { watchlist:'watchlist', permits:'permits', signatures:'signatures', reports:'reports', eventsCalendar:'eventsCalendar', slaBreaches:'slaBreaches', esVenues:'esVenues' };
     if(guardedPerm[page] && !jcfd_hasPerm(guardedPerm[page])){
       jcfd_showToast("You don't have permission to view this page.");
       page = 'dashboard';
@@ -18588,7 +18684,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const el = document.getElementById('jcfd_page-' + page);
     if(el) el.classList.remove('hidden');
     document.querySelectorAll('#shell-jcfd .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-    const titles = { dashboard:'Dashboard', applications:'Applications', manualEntry:'New Manual Application', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches' };
+    const titles = { dashboard:'Dashboard', applications:'Applications', manualEntry:'New Manual Application', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches', esVenues:'Enhanced Security Venues' };
     document.getElementById('jcfd_topbarTitle').textContent = titles[page] || 'Dashboard';
     if(page === 'dashboard') jcfd_renderDashboard();
     if(page === 'applications') jcfd_renderApplications();
@@ -18602,6 +18698,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(page === 'settings') jcfd_loadSettings();
     if(page === 'archive') jcfd_renderArchiveYears();
     if(page === 'slaBreaches') jcfd_renderSlaBreaches();
+    if(page === 'esVenues') jcfd_renderEsVenues();
     window.scrollTo({top:0, behavior:'smooth'});
   }
   window.jcfd_goPage = jcfd_goPage;
@@ -21145,7 +21242,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // assignment
     if(!isAnnual){
       official.push({ t: 'card', title: 'Assignment', blocks: [{ t: 'rows', rows: [
-        R('Assigned to', rec.assignedOfficerName || 'Unassigned'), R('Assigned on', rec.assignedAt ? new Date(rec.assignedAt).toLocaleString() : '')
+        R('Assigned to', rec.assignedOfficerName || 'Unassigned'), R('Assigned on', rec.assignedAt ? new Date(rec.assignedAt).toLocaleString() : ''),
+        ...(rec.assignedOfficerId ? [R('Station reported', rec.stationRespondedAt ? new Date(rec.stationRespondedAt).toLocaleString() : (jcfd_stationResponded(rec) ? 'Yes (comment on file)' : 'Not yet'), (rec.stationRespondedAt || jcfd_stationResponded(rec)) ? 'good' : undefined)] : [])
       ] }] });
     }
     // checklist
@@ -21195,10 +21293,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
     official.push({ t: 'card', title: 'Watch List', blocks: [{ t: 'rows', rows: wlRows.length ? wlRows : [R('Subjects', 'No TRNs on file to check against the watch lists.')] }] });
 
+    // Enhanced Security
+    {
+      const es = rec.enhancedSecurity || {};
+      const v = es.visit || null;
+      if(es.required === true || v || es.clearedAt){
+        const esRows = [R('Enhanced Security required', es.required === true ? 'Yes' : 'No', es.required === true ? 'warn' : undefined)];
+        const why = jcfd_esReasonList(rec);
+        esRows.push(R('Flagged', es.auto ? (why.length ? 'Automatically' : `Automatically (${es.patrons || '?'} patrons expected; threshold ${es.threshold || '?'})`) : (es.flaggedBy ? `By ${es.flaggedBy}` : '')));
+        why.forEach((t, i) => esRows.push(R(why.length > 1 ? `Reason ${i + 1}` : 'Reason', t)));
+        if(es.flaggedAt) esRows.push(R('Flagged on', new Date(es.flaggedAt).toLocaleString()));
+        if(es.clearedAt) esRows.push(R('Flag removed', `${es.clearedBy || ''} on ${new Date(es.clearedAt).toLocaleString()}`));
+        if(v) esRows.push(R('Visit to Divisional HQ', `${v.date || ''} at ${v.time || ''}`, 'good'), R('Visit confirmed by', `${v.confirmedBy || ''}${v.confirmedByRole ? ' (' + v.confirmedByRole + ')' : ''}`), ...(v.note ? [R('Visit note', v.note)] : []));
+        else if(es.required === true) esRows.push(R('Visit to Divisional HQ', 'Not confirmed', 'bad'));
+        official.push({ t: 'card', title: 'Enhanced Security', blocks: [{ t: 'rows', rows: esRows }] });
+      }
+    }
+
     // comments
     const comments = rec.comments || [];
     official.push({ t: 'card', title: 'Comments', blocks: comments.length
-      ? [{ t: 'rows', rows: comments.map(c => R(`${c.by}${c.role ? ' (' + c.role + ')' : ''}`, `${c.text}${c.date ? '\n' + c.date : ''}`)) }]
+      ? [{ t: 'rows', rows: comments.map(c => R(`${c.by}${c.role ? ' (' + c.role + ')' : ''}`, `${c.text}${(c.at || c.date) ? '\n' + (c.at ? new Date(c.at).toLocaleString() : c.date) : ''}`)) }]
       : [{ t: 'p', text: 'No comments were recorded.', italic: true, color: '#6b7280' }] });
 
     // recommendation
@@ -21232,6 +21347,130 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     };
   }
   window.jcfd_buildExportModel = jcfd_buildExportModel;
+
+  // ==================== Export this JCF application as PDF ====================
+  // One PDF for the JCF Division's own file: the application as submitted,
+  // Official Use as completed, the activity timeline, the permit (when issued)
+  // and every uploaded document as pages. Same shared writer as the Municipal
+  // portal's export (window.atdPdf). Offered to the Police Chief and
+  // Supervisors once a final decision has been recorded.
+  function jcfd_canExportPdf(rec){
+    if(!rec || !jcfdCurrentUser) return false;
+    if(rec.status !== 'Approved' && rec.status !== 'Rejected') return false;
+    return jcfdCurrentUser.role === JCFD_ROLE_CHIEF || jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR;
+  }
+  function jcfd_refreshExportButton(rec){
+    const btn = document.getElementById('jcfd_exportPdfBtn');
+    const hint = document.getElementById('jcfd_exportPdfHint');
+    if(!btn) return;
+    const isStaff = jcfdCurrentUser && (jcfdCurrentUser.role === JCFD_ROLE_CHIEF || jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR);
+    btn.classList.toggle('hidden', !isStaff);
+    if(hint) hint.classList.toggle('hidden', !isStaff);
+    if(!isStaff) return;
+    const ok = jcfd_canExportPdf(rec);
+    btn.disabled = !ok || !!window.__jcfdPdfBusy;
+    btn.title = ok ? 'Download the whole application file as one PDF' : 'Available once the application has been approved or rejected';
+    if(hint) hint.textContent = ok ? '' : 'Available after a decision';
+  }
+  let jcfdPdfBusy = false;
+  async function jcfd_exportApplicationPdf(){
+    const rec = await jcfd_getActiveApp();
+    if(!rec) return;
+    if(!jcfd_canExportPdf(rec)){
+      jcfd_showToast('An application can only be exported after it has been approved or rejected, by a Police Chief or Supervisor.');
+      return;
+    }
+    if(jcfdPdfBusy) return;
+    jcfdPdfBusy = true; window.__jcfdPdfBusy = true;
+    const btn = document.getElementById('jcfd_exportPdfBtn');
+    const label = btn ? btn.innerHTML : '';
+    const setLabel = txt => { if(btn){ btn.disabled = true; btn.textContent = txt; } };
+    try{
+      setLabel('Preparing…');
+      await window.atdPdf.ensureLib();
+      const model = await jcfd_buildExportModel(rec, {});
+      let poaRec = null;
+      if(rec.poaAppNumber && window.storage){
+        try{ const r = await window.storage.get(`application:${rec.poaAppNumber}`, true); poaRec = (r && r.value) ? JSON.parse(r.value) : null; } catch(e){}
+      }
+      const tl = jcfd_buildApplicationTimeline(rec, poaRec).map(e => {
+        const w = jcfd_timelineDateTime(e.iso);
+        const d = document.createElement('div'); d.innerHTML = String(e.description || '');
+        return { when: w.date + (w.time ? ' · ' + w.time : ''), office: e.office, text: (d.textContent || '').replace(/\s+/g, ' ').trim() };
+      });
+      // permit
+      setLabel('Preparing the permit…');
+      const P = [];
+      const hasPermit = !!(rec.permitGenerated && rec.permit);
+      if(!hasPermit){
+        P.push({ t: 'note', tone: rec.status === 'Rejected' ? 'bad' : 'warn', text: rec.status === 'Rejected' ? 'This application was rejected, so no permit was issued.' : 'No permit has been issued on this application.' });
+      } else if(rec.signedPermit && /pdf/i.test(String(rec.signedPermit.mime || rec.signedPermit.fileName || ''))){
+        P.push({ t: 'note', tone: 'warn', text: `The Noise Abatement permit ${rec.permit.number} was issued as a signed PDF and is not repeated here. Open it from this application's Issued Permit card.` });
+      } else {
+        const sig = window.fetchJcfSignature ? await window.fetchJcfSignature(rec.permit.parish) : null;
+        const crest = window.fetchJcfCrest ? await window.fetchJcfCrest() : null;
+        const disp = await jcfd_permitForDisplay(rec);
+        P.push({ t: 'permit', id: 'jcf', caption: `Noise Abatement permit ${rec.permit.number} — issued ${rec.permit.issuedDate || ''} by the Jamaica Constabulary Force`,
+          html: jcfd_buildPermitDocHtml(disp, sig, 'pdfJcfPermitQr', crest), qrText: window.atdVerifyUrl(rec.jcfAppNumber) });
+      }
+      const eo = rec.eventOverview || {}, vi = rec.venueInfo || {};
+      const decidedLabel = rec.status === 'Approved' ? 'Approved' : 'Rejected';
+      const code = jcfd_code(rec) || rec.jcfAppNumber;
+      const exportedAt = new Date();
+      const divisionName = (jcfdCurrentBranch && jcfdCurrentBranch.name) || 'JCF Division';
+      const isAnnual = rec.formVariant === 'Annual';
+      const parts = [
+        { id: 'sub', title: 'A — Application as Submitted', tocLabel: 'A   Application as Submitted', blocks: model.layout },
+        { id: 'ou', title: 'B — Official Use (as completed)', tocLabel: 'B   Official Use, as completed', blocks: model.official },
+        { id: 'tl', title: 'C — Activity Timeline', tocLabel: 'C   Activity Timeline', blocks: [{ t: 'timeline', entries: tl }] },
+        { id: 'permits', title: 'D — Permit Issued', tocLabel: 'D   Permit Issued', blocks: P },
+        { id: 'att', title: 'E — Attachments', tocLabel: 'E   Attachments', blocks: [{ t: 'attachments', heading: 'Application Attachments', keyPrefix: 'j', items: model.attachments.map(it => Object.assign({}, it, { group: it.group || 'JCF filing' })),
+          intro: model.filesReadable ? 'Every file uploaded to this Noise Abatement filing. Images and PDFs are reproduced as pages after this index.' : 'Some uploaded files could not be read by this account, so they are listed but not reproduced.' }] }
+      ];
+      const bytes = await window.atdPdf.build({
+        meta: {
+          title: `JCF Application ${code}`, author: `${jcfdCurrentUser.name} (${divisionName})`,
+          subject: `JCF Noise Abatement application file — ${decidedLabel}`,
+          header: `Atendify   |   JCF Application ${code}`,
+          footer: `JCF Application ${code}   ·   Exported ${exportedAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`
+        },
+        brand: { logo: JCFD_ATENDIFY_LOGO_B64, orgName: divisionName },
+        cover: {
+          eyebrow: 'JCF application file', title: code,
+          subtitle: `${isAnnual ? 'Annual Noise Abatement Permit' : 'Noise Abatement Permit'} — ${eo.promoterName || (rec.premisesInfo && rec.premisesInfo.businessName) || ''}`,
+          status: { text: rec.status === 'Approved' ? 'Approved — permit issued' : 'Rejected — no permit issued', tone: rec.status === 'Approved' ? 'good' : 'bad',
+                    sub: rec.decidedAt ? new Date(rec.decidedAt).toLocaleString() : '' },
+          facts: [
+            ['Tracking code', jcfd_trackCode(rec) || '—'], ['JCF Division', divisionName],
+            ['Applicant', eo.promoterName || (rec.premisesInfo && rec.premisesInfo.businessName) || ''], [isAnnual ? 'Business' : 'Event', eo.eventName || (isAnnual ? 'Annual filing' : '')],
+            ['Venue', vi.venueName || '—'], ['Submitted', rec.submittedDate || '—'],
+            ['Decision', decidedLabel + (rec.decidedAt ? ' · ' + new Date(rec.decidedAt).toLocaleString() : '')],
+            ['Permit number', hasPermit ? rec.permit.number : 'None issued'],
+            ['Linked Places of Amusement application', rec.poaAppNumber || 'None (walk-in / standalone)'],
+            ['Exported by', `${jcfdCurrentUser.name}, ${jcfdCurrentUser.role}`],
+            ['Exported on', exportedAt.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })]
+          ],
+          note: 'This file was generated by Atendify from the records on file at the time shown. Uploaded documents are reproduced exactly as submitted. Officer decisions, notes and timestamps are those recorded in the system.'
+        },
+        parts: parts
+      });
+      const safe = String(code).replace(/[^A-Za-z0-9._-]+/g, '_');
+      window.atdPdf.download(bytes, `JCF_Application_${safe}_${decidedLabel}.pdf`);
+      if(window.atdLogAudit){
+        window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'application.exported',
+          details: `Exported JCF application ${code} (${rec.status}) as a PDF file.`, muniId: rec.muniId });
+      }
+      jcfd_showToast(`${code} exported as PDF.`);
+    } catch(err){
+      console.error('JCF PDF export failed', err);
+      jcfd_showToast('Could not build the PDF: ' + (err && err.message ? err.message : 'unexpected error') + '. Please try again.');
+    } finally {
+      jcfdPdfBusy = false; window.__jcfdPdfBusy = false;
+      if(btn) btn.innerHTML = label;
+      jcfd_refreshExportButton(await jcfd_getActiveApp());
+    }
+  }
+  window.jcfd_exportApplicationPdf = jcfd_exportApplicationPdf;
 
   // Same as jcfd_detailRow() but with a "View" button in the value cell that
   // opens jcfd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
@@ -21451,6 +21690,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_detailAppNumber').innerHTML = acctEscapeHtml(jcfd_code(rec) || '—') + (jcfdIsManualEntry ? ' <span class="badge-manual-entry" title="Created by a Police Supervisor on behalf of a walk-in promoter">Manual Entry</span>' : '');
     document.getElementById('jcfd_detailAppSub').textContent = `${eo.promoterName || 'N/A'} · Submitted ${rec.submittedDate || 'N/A'} · Tracking Code: ${jcfd_trackCode(rec) || '—'}`;
     document.getElementById('jcfd_detailStatusBadge').innerHTML = jcfd_statusBadge(rec);
+    jcfd_refreshExportButton(rec);
     jcfd_renderStatusStepper(rec);
 
     await jcfd_renderSubmissionColumn(rec);
@@ -21504,9 +21744,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // field officer (there's no event to attend), so this card is dropped
     // entirely for them.
     if(!isAnnualFiling){
+      const stationSlaNote = await jcfd_stationSlaNote(rec);
       html += `<div class="official-card">
         <h4>Assignment</h4>
-        <p class="col-desc">Currently assigned to: <strong>${acctEscapeHtml(rec.assignedOfficerName || 'Unassigned')}</strong></p>`;
+        <p class="col-desc">Currently assigned to: <strong>${acctEscapeHtml(rec.assignedOfficerName || 'Unassigned')}</strong></p>${stationSlaNote}`;
       if(canManage){
         html += `<div class="field-row">
           <div class="field-group"><label for="jcfd_assignSelect">Assign to</label>
@@ -21582,13 +21823,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="btn btn-primary btn-sm" onclick="jcfd_saveRecommendation()">Save recommendation</button>`;
       }
       html += `</div>`;
-    } else if(isOfficer){
-      html += `<div class="official-card"><h4>Review &amp; Recommendation</h4><p class="no-permission-note">Only a Supervisor or Chief can record a recommendation.</p></div>`;
     }
+    // (A Police Officer/Station does not see the Review & Recommendation card at all.)
 
     // Official Use Checklist card — must be checked by a Police Supervisor
-    // (or a Chief, who always has full access).
-    {
+    // (or a Chief, who always has full access). A Police Officer/Station only
+    // sees it if the Chief has granted the "Complete Official Use Checklist"
+    // permission; by default a station sees just Assignment, Watch List,
+    // Comments and the Issued Permit.
+    if(!isOfficer || jcfd_hasPerm('checklist')){
       const cl = rec.officialChecklist || {};
       const canCheck = jcfd_hasPerm('checklist');
       html += `<div class="official-card">
@@ -21775,7 +22018,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // back to 'Submitted', which is what un-hides the rest of the Official
     // Use column above and restores the Approve/Reject controls here.
     // Enhanced Security card, immediately above Final Decision
-    html += jcfd_esCardHtml(rec);
+    if(!isOfficer || jcfd_hasPerm('checklist')) html += jcfd_esCardHtml(rec);
 
     if(canDecide){
       const cl = rec.officialChecklist || {};
@@ -21831,12 +22074,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>`;
     } else if(jcfd_hasPerm('decideCapped')){
       html += `<div class="official-card"><h4>Final Decision</h4><p class="no-permission-note">Your approval permission is limited to applications with 500 or fewer expected patrons — this application's expected patron count is ${acctEscapeHtml(String(jcfd_expectedPatronsForApp(rec) ?? 'not on file'))}.</p></div>`;
-    } else if(jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR || jcfdCurrentUser.role === JCFD_ROLE_OFFICER){
+    } else if(jcfdCurrentUser.role === JCFD_ROLE_SUPERVISOR){
       html += `<div class="official-card"><h4>Final Decision</h4><p class="no-permission-note">Only a Police Chief (or a role granted the "Approve / Reject &amp; Issue Permits" permission) can finalize this application.</p></div>`;
     }
 
-    // Awaiting-signature card — sign-and-upload divisions only.
-    if(rec.pendingSignature && rec.pendingSignature.permit && !rec.permitGenerated){
+    // Awaiting-signature card — sign-and-upload divisions only. Not shown to a
+    // station unless it has been given the Permits / approval permission.
+    if(rec.pendingSignature && rec.pendingSignature.permit && !rec.permitGenerated && (!isOfficer || jcfd_hasPerm('permits') || jcfd_canDecideApp(rec))){
       const ps = rec.pendingSignature, pp = ps.permit;
       const canUploadSigned = jcfd_hasPerm('permits') || jcfd_canDecideApp(rec);
       html += `<div class="official-card">
@@ -21905,9 +22149,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!rec) return;
     const officerId = parseInt(document.getElementById('jcfd_assignSelect').value, 10);
     const officer = jcfdStaffUsers.find(u => u.id === officerId);
+    const stationChanged = (officer ? officer.id : null) !== (rec.assignedOfficerId || null);
     rec.assignedOfficerId = officer ? officer.id : null;
     rec.assignedOfficerName = officer ? officer.name : '';
     rec.assignedAt = officer ? new Date().toISOString() : '';
+    // A different station gets a fresh Station SLA clock.
+    if(stationChanged || !officer) rec.stationRespondedAt = '';
     // Fix: this used to never touch rec.status at all — the Dashboard's own
     // jcfd_statusBadge() showed "Assigned" purely by INFERRING it live from
     // assignedOfficerId truthiness, while the Application Detail view's
@@ -21937,7 +22184,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const rec = await jcfd_getActiveApp();
     if(!rec) return;
     rec.comments = rec.comments || [];
-    rec.comments.push({ by: jcfdCurrentUser.name, role: jcfdCurrentUser.role, text, date: new Date().toISOString().slice(0,10) });
+    const nowIso = new Date().toISOString();
+    rec.comments.push({ by: jcfdCurrentUser.name, byId: jcfdCurrentUser.id, role: jcfdCurrentUser.role, text, date: nowIso.slice(0,10), at: nowIso });
+    // The assigned station's first comment stops the Station SLA clock.
+    if(rec.assignedOfficerId && jcfdCurrentUser.id === rec.assignedOfficerId && !rec.stationRespondedAt){
+      rec.stationRespondedAt = nowIso;
+    }
     await jcfd_saveActiveApp(rec);
     jcfd_showToast('Comment posted.');
     jcfd_renderApplicationDetail();
@@ -21974,6 +22226,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // ---- JCF Division side ----
     add(rec.submittedDate, 'Applicant', `JCF application ${acctEscapeHtml(jcfd_code(rec))} submitted.`);
     add(rec.assignedAt, 'JCF Division', `Assigned to ${acctEscapeHtml(rec.assignedOfficerName || 'an officer')}.`);
+    add(rec.stationRespondedAt, 'JCF Division (Station)', `${acctEscapeHtml(rec.assignedOfficerName || 'The assigned station')} reported back (first comment).`);
     add(rec.recommendedAt, 'JCF Division', `Recommendation recorded: ${acctEscapeHtml(rec.recommendation || '—')}${rec.recommendedBy ? ' (by ' + acctEscapeHtml(rec.recommendedBy) + ')' : ''}.`);
     add(rec.recommendationWithdrawalRequestedDate, 'JCF Division', `Withdrawal of recommendation requested${rec.recommendationWithdrawalRequestedBy ? ' by ' + acctEscapeHtml(rec.recommendationWithdrawalRequestedBy) : ''}.`);
     add(rec.recommendationChiefRejectedDate, 'JCF Division (Chief)', `Recommendation rejected by the Chief${rec.recommendationChiefRejectionReason ? ': ' + acctEscapeHtml(rec.recommendationChiefRejectionReason) : ''}.`);
@@ -22487,12 +22740,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // Walk-in (manual) filings keyed in at the desk. Supervisors have it by
     // default (this used to be hardcoded to the Supervisor role); the Chief
     // can now switch it on for Officer/Station accounts or off for Supervisors.
-    { key: 'manualEntry', label: 'Enter manual (walk-in) applications' }
+    { key: 'manualEntry', label: 'Enter manual (walk-in) applications' },
+    // Add / remove the locations on the Enhanced Security "listed venues" list.
+    // The Chief always can; the Chief can give it to a Supervisor or Officer/Station.
+    { key: 'esVenues', label: 'Manage Enhanced Security listed venues' }
   ];
   const JCFD_ROLE_PERMISSION_DEFAULTS = {
-    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, decideCapped: true, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true },
-    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, decideCapped: false, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true },
-    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, decideCapped: false, reports: false, eventsCalendar: false, slaBreaches: false, manualEntry: false }
+    [JCFD_ROLE_CHIEF]: { checklist: true, watchlist: true, permits: true, signatures: true, decide: true, decideCapped: true, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true, esVenues: true },
+    [JCFD_ROLE_SUPERVISOR]: { checklist: true, watchlist: true, permits: true, signatures: false, decide: false, decideCapped: false, reports: true, eventsCalendar: true, slaBreaches: true, manualEntry: true, esVenues: false },
+    [JCFD_ROLE_OFFICER]: { checklist: false, watchlist: false, permits: false, signatures: false, decide: false, decideCapped: false, reports: false, eventsCalendar: false, slaBreaches: false, manualEntry: false, esVenues: false }
   };
   let jcfdRolePermissions = JSON.parse(JSON.stringify(JCFD_ROLE_PERMISSION_DEFAULTS));
 
@@ -22561,6 +22817,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const eventsCalendarNav = document.getElementById('jcfd_navEventsCalendar');
     const slaBreachesNav = document.getElementById('jcfd_navSlaBreaches');
     if(slaBreachesNav) slaBreachesNav.classList.toggle('hidden', !jcfd_hasPerm('slaBreaches'));
+    // The Chief manages the venue list inside Settings; Supervisors / Officer-Station get their own page once permitted.
+    const esVenuesNav = document.getElementById('jcfd_navEsVenues');
+    if(esVenuesNav) esVenuesNav.classList.toggle('hidden', !(jcfd_hasPerm('esVenues') && jcfdCurrentUser.role !== JCFD_ROLE_CHIEF));
     if(watchNav) watchNav.classList.toggle('hidden', !jcfd_hasPerm('watchlist'));
     if(permitsNav) permitsNav.classList.toggle('hidden', !jcfd_hasPerm('permits'));
     if(sigNav) sigNav.classList.toggle('hidden', !jcfd_hasPerm('signatures'));
@@ -22624,6 +22883,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // nothing here is persisted except the target rules themselves.
   const JCFD_DEFAULT_SLA_RULES = {
     assignment: { enabled: true, targetHours: 24 },
+    // Police Station (the assigned Officer/Station account) reports back --
+    // clock runs from assignment until the station posts its first comment.
+    // Off until the Chief switches it on, so existing divisions don't suddenly
+    // see new breaches.
+    station: { enabled: false, targetHours: 48 },
     review: { enabled: true, targetDays: 5 },
     decision: { enabled: true, targetDays: 3 }
   };
@@ -22633,6 +22897,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const r = settings.slaRules;
       return {
         assignment: { enabled: !!(r.assignment && r.assignment.enabled), targetHours: (r.assignment && r.assignment.targetHours) || JCFD_DEFAULT_SLA_RULES.assignment.targetHours },
+        station: { enabled: !!(r.station && r.station.enabled), targetHours: (r.station && r.station.targetHours) || JCFD_DEFAULT_SLA_RULES.station.targetHours },
         review: { enabled: !!(r.review && r.review.enabled), targetDays: (r.review && r.review.targetDays) || JCFD_DEFAULT_SLA_RULES.review.targetDays },
         decision: { enabled: !!(r.decision && r.decision.enabled), targetDays: (r.decision && r.decision.targetDays) || JCFD_DEFAULT_SLA_RULES.decision.targetDays }
       };
@@ -22665,16 +22930,113 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!el) return;
     const on = document.getElementById('jcfd_esToggle').checked;
     const n = parseInt(document.getElementById('jcfd_esPatrons').value, 10);
-    el.innerHTML = (on && n >= 1)
-      ? `<strong>Preview:</strong> an event with ${n.toLocaleString()} patrons or more is flagged automatically. An event with ${(n - 1).toLocaleString()} or fewer is not, unless an officer ticks the box by hand.`
-      : '<strong>Preview:</strong> off — no event is flagged automatically. An officer can still tick the box by hand on any application.';
+    const art = document.getElementById('jcfd_esArtistsToggle').checked;
+    const ven = document.getElementById('jcfd_esVenuesToggle').checked;
+    const parts = [];
+    if(on && n >= 1) parts.push(`it expects ${n.toLocaleString()}+ patrons`);
+    if(art) parts.push('it lists any artist');
+    if(ven) parts.push('it is held at a listed venue');
+    el.innerHTML = parts.length
+      ? `<strong>Preview:</strong> an event is flagged if ${parts.join(', <em>or</em> ')}. If more than one rule matches, all reasons are shown to the officer. An officer can still tick the box by hand on any application.`
+      : '<strong>Preview:</strong> all rules are off — no event is flagged automatically. An officer can still tick the box by hand on any application.';
   }
+  // ---- listed venues (jcfBranch:<id>:esVenues = {venues:[{id,name,address,reason,addedBy,addedByRole,addedAt}]}) ----
+  // A venue matches on its NAME alone, capitals/spacing/punctuation ignored (same rule as the database).
+  function jcfd_esNorm(t){ return String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  let jcfdEsVenues = [];
+  async function jcfd_loadEsVenues(){
+    jcfdEsVenues = [];
+    if(!window.storage || !jcfdCurrentBranch) return;
+    try{
+      const r = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:esVenues`, true);
+      if(r && r.value) jcfdEsVenues = (JSON.parse(r.value).venues || []).filter(v => v && v.name);
+    } catch(e){ /* empty list */ }
+  }
+  function jcfd_esVenuesHtml(sfx){
+    const can = jcfd_hasPerm('esVenues');
+    const fmt = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); };
+    let h = '';
+    if(can){
+      h += `<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:6px;">
+        <div class="field-group" style="margin:0; flex:1 1 220px;"><label for="jcfd_esVName_${sfx}">Venue / location name <span style="color:var(--red)">*</span></label><input type="text" id="jcfd_esVName_${sfx}" maxlength="120" placeholder="e.g. Bull Bay Grounds"></div>
+        <div class="field-group" style="margin:0; flex:1 1 220px;"><label for="jcfd_esVAddr_${sfx}">Address or area (optional)</label><input type="text" id="jcfd_esVAddr_${sfx}" maxlength="160" placeholder="e.g. Bull Bay, St. Andrew"></div>
+        <div class="field-group" style="margin:0; flex:1 1 220px;"><label for="jcfd_esVReason_${sfx}">Reason (optional, internal)</label><input type="text" id="jcfd_esVReason_${sfx}" data-no-capitalize maxlength="160" placeholder="e.g. Repeated noise complaints"></div>
+        <button class="btn btn-primary" onclick="jcfd_addEsVenue('${sfx}')">+ Add location</button>
+      </div>
+      <div id="jcfd_esVError_${sfx}" class="hidden" style="color:var(--red); font-size:13px; margin:6px 0;"></div>`;
+    }
+    if(!jcfdEsVenues.length){
+      h += '<p style="font-size:13px; color:var(--text-muted); margin:12px 0 0;">No locations listed yet.</p>';
+    } else {
+      h += `<div style="overflow-x:auto; margin-top:10px;"><table><thead><tr><th>Location</th><th>Address / area</th><th>Reason</th><th>Added by</th>${can ? '<th></th>' : ''}</tr></thead><tbody>` +
+        jcfdEsVenues.map(v => `<tr><td style="font-weight:700;">${acctEscapeHtml(v.name)}</td><td style="text-transform:none;">${acctEscapeHtml(v.address || '—')}</td><td style="text-transform:none;">${acctEscapeHtml(v.reason || '—')}</td>
+          <td>${acctEscapeHtml(v.addedBy || '')}${v.addedByRole && v.addedByRole !== JCFD_ROLE_CHIEF ? ' (' + acctEscapeHtml(v.addedByRole) + ')' : ''}<div style="font-size:12px; color:var(--text-muted);">${acctEscapeHtml(fmt(v.addedAt))}</div></td>
+          ${can ? `<td><button class="btn btn-sm" style="color:var(--red);" onclick="jcfd_removeEsVenue('${acctEscapeHtml(String(v.id))}')">Remove</button></td>` : ''}</tr>`).join('') + '</tbody></table></div>';
+    }
+    h += '<p style="font-size:12.5px; color:var(--text-muted); margin:12px 0 0;">A venue matches when its name is the same as a listed location (capitals, spacing and punctuation are ignored). Rules apply to applications submitted after the change; changes are recorded in the audit log.</p>';
+    return h;
+  }
+  async function jcfd_renderEsVenues(){
+    await jcfd_loadEsVenues();
+    ['s', 'p'].forEach(sfx => {
+      const host = document.getElementById('jcfd_esVenuesHost_' + sfx);
+      if(host) host.innerHTML = jcfd_esVenuesHtml(sfx);
+      const c = document.getElementById('jcfd_esVenueCount_' + sfx);
+      if(c) c.textContent = jcfdEsVenues.length + (jcfdEsVenues.length === 1 ? ' venue listed' : ' venues listed');
+    });
+  }
+  async function jcfd_addEsVenue(sfx){
+    const err = document.getElementById('jcfd_esVError_' + sfx);
+    const fail = m => { if(err){ err.textContent = m; err.classList.remove('hidden'); } };
+    if(!jcfd_hasPerm('esVenues')){ jcfd_showToast("Your account has not been given permission to change the venue list."); return; }
+    const val = id => (document.getElementById(id + '_' + sfx) || {}).value || '';
+    const name = val('jcfd_esVName').trim().replace(/\s+/g, ' ');
+    if(!name) return fail('Enter the venue or location name.');
+    if(!jcfd_esNorm(name)) return fail('The venue name needs at least one letter or number.');
+    await jcfd_loadEsVenues();
+    if(jcfdEsVenues.some(v => jcfd_esNorm(v.name) === jcfd_esNorm(name))) return fail('That location is already on the list.');
+    const entry = { id: 'esv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, address: val('jcfd_esVAddr').trim(), reason: val('jcfd_esVReason').trim(),
+      addedBy: jcfdCurrentUser.name || jcfdCurrentUser.email, addedByRole: jcfdCurrentUser.role, addedAt: new Date().toISOString() };
+    try{
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:esVenues`, JSON.stringify({ venues: jcfdEsVenues.concat([entry]) }), true);
+    } catch(e){ return fail('Could not save the venue list right now. Please try again.'); }
+    await jcfd_esAudit('enhancedSecurity.venueAdded', `Added "${name}" to the Enhanced Security listed venues.`, null);
+    await jcfd_renderEsVenues();
+    jcfd_showToast('Location added.');
+  }
+  async function jcfd_removeEsVenue(id){
+    if(!jcfd_hasPerm('esVenues')){ jcfd_showToast("Your account has not been given permission to change the venue list."); return; }
+    await jcfd_loadEsVenues();
+    const v = jcfdEsVenues.find(x => String(x.id) === String(id));
+    if(!v) return jcfd_renderEsVenues();
+    try{
+      await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:esVenues`, JSON.stringify({ venues: jcfdEsVenues.filter(x => x !== v) }), true);
+    } catch(e){ jcfd_showToast('Could not save the venue list right now.'); return; }
+    await jcfd_esAudit('enhancedSecurity.venueRemoved', `Removed "${v.name}" from the Enhanced Security listed venues.`, null);
+    await jcfd_renderEsVenues();
+    jcfd_showToast('Location removed.');
+  }
+  window.jcfd_addEsVenue = jcfd_addEsVenue;
+  window.jcfd_removeEsVenue = jcfd_removeEsVenue;
+  window.jcfd_renderEsVenues = jcfd_renderEsVenues;
   function jcfd_fmtVisit(v){
     const d = String(v.date || '');
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const nice = m ? `${parseInt(m[3], 10)} ${months[parseInt(m[2], 10) - 1]} ${m[1]}` : d;
     return `${nice} at ${v.time || ''}`;
+  }
+  // Why a filing was flagged, one entry per rule that matched (older flags only carry the patron figure).
+  function jcfd_esReasonList(rec){
+    const es = (rec && rec.enhancedSecurity) || {};
+    if(Array.isArray(es.reasons) && es.reasons.length) return es.reasons.map(r => {
+      if(r.type === 'patrons') return `${Number(r.patrons).toLocaleString()} patrons expected${r.threshold ? ' (threshold ' + Number(r.threshold).toLocaleString() + ')' : ''}`;
+      if(r.type === 'artists') return `${r.count} artist${r.count === 1 ? '' : 's'} listed in Entertainment Details`;
+      if(r.type === 'venue') return `Listed venue: ${r.name}`;
+      return '';
+    }).filter(Boolean);
+    if(es.auto) return [`${es.patrons != null ? Number(es.patrons).toLocaleString() : (jcfd_expectedPatronsForApp(rec) || '')} patrons expected${es.threshold ? ' (threshold ' + Number(es.threshold).toLocaleString() + ')' : ''}`];
+    return [];
   }
   function jcfd_esCardHtml(rec){
     if(!jcfd_esApplies(rec) || rec.status === 'Rejected') return '';
@@ -22692,8 +23054,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <label style="display:flex; gap:10px; align-items:center; font-size:14px; font-weight:600; margin:10px 0;${boxDisabled ? ' opacity:.8;' : ''}">
         <input type="checkbox" id="jcfd_esCheck" ${required ? 'checked' : ''} ${boxDisabled ? 'disabled' : ''} onchange="jcfd_toggleEnhancedSecurity(this.checked)"> Enhanced Security Required</label>`;
     if(required){
+      const reasonList = jcfd_esReasonList(rec);
+      const chips = reasonList.map(t => `<span class="badge badge-amber" style="font-size:11.5px; margin:2px 6px 2px 0;">${acctEscapeHtml(t)}</span>`).join('');
       const why = es.auto
-        ? `Flagged automatically: ${acctEscapeHtml(String(es.patrons != null ? Number(es.patrons).toLocaleString() : (jcfd_expectedPatronsForApp(rec) || '')))} patrons expected${es.threshold ? ' (threshold ' + acctEscapeHtml(Number(es.threshold).toLocaleString()) + ')' : ''}.`
+        ? `Flagged automatically${reasonList.length > 1 ? ' for ' + reasonList.length + ' reasons' : ''}:${chips ? ' <span style="display:inline-block;">' + chips + '</span>' : ''}`
         : `Flagged by ${acctEscapeHtml(es.flaggedBy || 'an officer')}${es.flaggedAt ? ' on ' + acctEscapeHtml(String(es.flaggedAt).slice(0, 10)) : ''}.`;
       if(!visit){
         h += `<div class="status-banner warn" style="margin-top:6px;">${shield}<span>${why} The promoter must visit Divisional HQ before a permit can be issued. The applicant is notified by email and at the top of the JCF section of their Main Menu.</span></div>`;
@@ -22848,6 +23212,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const rules = jcfd_normalizeSlaRules(settings);
     document.getElementById('jcfd_slaAssignmentToggle').checked = rules.assignment.enabled;
     document.getElementById('jcfd_slaAssignmentHours').value = rules.assignment.targetHours;
+    document.getElementById('jcfd_slaStationToggle').checked = rules.station.enabled;
+    document.getElementById('jcfd_slaStationHours').value = rules.station.targetHours;
     document.getElementById('jcfd_slaReviewToggle').checked = rules.review.enabled;
     document.getElementById('jcfd_slaReviewDays').value = rules.review.targetDays;
     document.getElementById('jcfd_slaDecisionToggle').checked = rules.decision.enabled;
@@ -22855,7 +23221,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const esCfg = settings.enhancedSecurity || {};
     document.getElementById('jcfd_esToggle').checked = !!esCfg.enabled;
     document.getElementById('jcfd_esPatrons').value = esCfg.patronThreshold || '';
+    document.getElementById('jcfd_esArtistsToggle').checked = !!esCfg.artistsEnabled;
+    document.getElementById('jcfd_esVenuesToggle').checked = !!esCfg.venuesEnabled;
     jcfd_renderEsPreview();
+    jcfd_renderEsVenues();
     document.getElementById('jcfd_settingsAutoRejectToggle').checked = !!settings.autoRejectOnMuniReject;
     const signMethodEl = document.getElementById('jcfd_settingsSignMethod');
     if(signMethodEl) signMethodEl.value = settings.permitSignatureMethod === 'upload' ? 'upload' : 'stamp';
@@ -22887,10 +23256,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     };
     const slaRules = {
       assignment: { enabled: document.getElementById('jcfd_slaAssignmentToggle').checked, targetHours: readInt('jcfd_slaAssignmentHours', JCFD_DEFAULT_SLA_RULES.assignment.targetHours) },
+      station: { enabled: document.getElementById('jcfd_slaStationToggle').checked, targetHours: readInt('jcfd_slaStationHours', JCFD_DEFAULT_SLA_RULES.station.targetHours) },
       review: { enabled: document.getElementById('jcfd_slaReviewToggle').checked, targetDays: readInt('jcfd_slaReviewDays', JCFD_DEFAULT_SLA_RULES.review.targetDays) },
       decision: { enabled: document.getElementById('jcfd_slaDecisionToggle').checked, targetDays: readInt('jcfd_slaDecisionDays', JCFD_DEFAULT_SLA_RULES.decision.targetDays) }
     };
     document.getElementById('jcfd_slaAssignmentHours').value = slaRules.assignment.targetHours;
+    document.getElementById('jcfd_slaStationHours').value = slaRules.station.targetHours;
     document.getElementById('jcfd_slaReviewDays').value = slaRules.review.targetDays;
     document.getElementById('jcfd_slaDecisionDays').value = slaRules.decision.targetDays;
     // Enhanced Security: a patron figure is required to switch it on.
@@ -22899,10 +23270,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(esOn && !(esFigure >= 1)){
       document.getElementById('jcfd_esToggle').checked = false;
       jcfd_renderEsPreview();
-      jcfd_showToast('Enter a patron figure (1 or more) before switching Enhanced Security on.');
+      jcfd_showToast('Enter a patron figure (1 or more) before switching on the large-events rule.');
       return;
     }
-    const enhancedSecurity = { enabled: esOn, patronThreshold: (esFigure >= 1) ? esFigure : null };
+    const enhancedSecurity = { enabled: esOn, patronThreshold: (esFigure >= 1) ? esFigure : null,
+      artistsEnabled: document.getElementById('jcfd_esArtistsToggle').checked, venuesEnabled: document.getElementById('jcfd_esVenuesToggle').checked };
     document.getElementById('jcfd_esPatrons').value = enhancedSecurity.patronThreshold || '';
     jcfd_renderEsPreview();
     const autoRejectOnMuniReject = document.getElementById('jcfd_settingsAutoRejectToggle').checked;
@@ -22917,6 +23289,37 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   }
   window.jcfd_saveSettings = jcfd_saveSettings;
 
+  // Has the assigned station reported back? True once it has posted a comment
+  // on this application (rec.stationRespondedAt, stamped when it comments). Older
+  // comments carry no timestamp, so a comment by the assigned officer also
+  // counts -- that avoids raising breaches for work already done.
+  // One-line status for the Assignment card: when the station's report is due
+  // (or when it reported). Empty when the Station SLA is off or nothing is assigned.
+  async function jcfd_stationSlaNote(rec){
+    try{
+      if(!rec || !rec.assignedOfficerId || !jcfdCurrentBranch || !window.storage) return '';
+      const r = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:settings`, true);
+      const rules = jcfd_normalizeSlaRules((r && r.value) ? JSON.parse(r.value) : {});
+      if(!rules.station.enabled) return '';
+      if(rec.status === 'Approved' || rec.status === 'Rejected') return '';
+      const fmt = d => d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      if(jcfd_stationResponded(rec)){
+        const at = rec.stationRespondedAt ? ' on ' + acctEscapeHtml(fmt(new Date(rec.stationRespondedAt))) : '';
+        return `<p class="record-sub" style="margin:2px 0 10px;"><span class="badge badge-green">Station reported</span>${at}</p>`;
+      }
+      if(!rec.assignedAt) return '';
+      const due = new Date(new Date(rec.assignedAt).getTime() + rules.station.targetHours * 3600000);
+      if(isNaN(due.getTime())) return '';
+      const late = Date.now() > due.getTime();
+      return `<p class="record-sub" style="margin:2px 0 10px;"><span class="badge ${late ? 'badge-red' : 'badge-amber'}">${late ? 'Station report overdue' : 'Station report due'}</span> ${late ? 'was due' : 'by'} ${acctEscapeHtml(fmt(due))} (${rules.station.targetHours} hr from assignment)</p>`;
+    } catch(e){ return ''; }
+  }
+  function jcfd_stationResponded(rec){
+    if(!rec || !rec.assignedOfficerId) return false;
+    if(rec.stationRespondedAt) return true;
+    return (rec.comments || []).some(c => (c.byId != null && c.byId === rec.assignedOfficerId) ||
+      (c.byId == null && c.by === rec.assignedOfficerName && c.role === JCFD_ROLE_OFFICER));
+  }
   function jcfd_computeSlaBreaches(rules, apps){
     const HOUR_MS = 3600000, DAY_MS = 86400000;
     const now = new Date();
@@ -22947,6 +23350,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       const rec = a.rec;
       evalStage(a, 'assignment', rules.assignment, rec.submittedAt, 'hours',
         'Assign an officer', 'Supervisor', !rec.assignedOfficerId);
+      evalStage(a, 'station', rules.station, rec.assignedAt, 'hours',
+        'Station reports back', 'Officer/Station', !!rec.assignedOfficerId && !jcfd_stationResponded(rec));
       evalStage(a, 'review', rules.review, rec.assignedAt, 'days',
         'Complete checklist & recommend', 'Officer/Supervisor', !!rec.assignedOfficerId && !rec.recommendedAt);
       evalStage(a, 'decision', rules.decision, rec.recommendedAt, 'days',
@@ -49332,7 +49737,7 @@ async function submitJcfApp(){
   // Enhanced Security: a large event must be visited in person at Divisional HQ
   // before a permit can be issued. Flagged here for the confirmation screen and
   // the email; the database sets the same flag itself on save.
-  const enhancedFlag = watchlistHit ? null : await window.atdEnhancedSecurityFlag(record.muniId, record.eventOverview && record.eventOverview.patronsExpected);
+  const enhancedFlag = watchlistHit ? null : await window.atdEnhancedSecurityFlag(record.muniId, record.eventOverview && record.eventOverview.patronsExpected, (record.artists || []).length, record.venueInfo && record.venueInfo.venueName);
   if(enhancedFlag) record.enhancedSecurity = enhancedFlag;
 
   try{
