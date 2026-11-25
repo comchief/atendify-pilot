@@ -13784,7 +13784,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div id="admin_reqFields_jfb"></div>
 
           <h3 style="margin:24px 0 10px;">Fire Safety Certificate Fee</h3>
-          <div class="field-hint" style="margin:0 0 10px;">The flat fee an applicant pays on the Payment step before submitting a Fire Safety Certificate application.</div>
+          <div class="field-hint" style="margin:0 0 10px;">The default fee an applicant pays on the Payment step of a Fire Safety Certificate application. A JFB division can set its own fee under Settings → Bank &amp; Fees; this amount applies only to a division that has not.</div>
           <div class="field-group" style="max-width:220px;">
             <label for="admin_jfbFlatFee">Fee amount (JMD)</label>
             <input type="number" id="admin_jfbFlatFee" min="0" step="1">
@@ -15889,6 +15889,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div style="border:1px solid var(--border); border-radius:10px; padding:18px; margin-bottom:18px; text-align:center;">
           <div class="col-desc" style="margin-bottom:6px;">Amount due</div>
           <div id="jfbF_paymentAmountDisplay" style="font-size:28px; font-weight:700;">—</div>
+          <div id="jfbF_paymentFeeNote" class="col-desc" style="margin-top:4px;"></div>
         </div>
         <p class="col-desc" style="margin-bottom:14px;">Select the payment channel you will use to pay this fee. Once your application is submitted, you'll be able to complete payment and upload your proof of payment from your Places of Amusement Main Menu.</p>
 
@@ -17406,7 +17407,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
       <div class="nav-item hidden" data-page="settings" id="jfbd_navSettings" onclick="jfbd_goPage('settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        SLA Policy
+        SLA &amp; Integration
+      </div>
+      <div class="nav-item hidden" data-page="bankFees" id="jfbd_navBankFees" onclick="jfbd_goPage('bankFees')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="21" x2="21" y2="21"/><path d="M5 21V10M9 21V10M15 21V10M19 21V10"/><path d="M2 10l10-6 10 6z"/></svg>
+        Bank &amp; Fees
       </div>
       <div class="nav-item hidden" data-page="reports" id="jfbd_navReports" onclick="jfbd_goPage('reports')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -17833,6 +17838,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           </div>
           <p style="font-size:13px; color:var(--text-muted); margin:0;">When on, if the Municipal Corporation rejects the linked Places of Amusement application, this JFB Fire Safety Certificate application is automatically marked Rejected as well.</p>
         </div>
+      </div>
+
+      <!-- ===== BANK & FEES PAGE (JFB) ===== -->
+      <div class="page hidden" id="jfbd_page-bankFees">
+        <div style="margin-bottom:20px;">
+          <p style="font-size:13.5px; color:var(--text-muted); margin:0;">Where applicants send payment to this division, and what they pay. Only the Assistant Commissioner can change these.</p>
+        </div>
         <div class="panel">
           <div class="panel-head"><h2 style="font-size:18px;">Bank Transfer Details</h2></div>
           <p style="font-size:13px; color:var(--text-muted); margin:-6px 0 18px;">Shown to an applicant on the Fire Safety Certificate application's Payment step whenever they select "Bank Transfer" as their payment channel for this division.</p>
@@ -17861,13 +17873,29 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <input type="text" id="jfbd_bankTransitCode" placeholder="Transit/routing code" onchange="jfbd_saveSettings()">
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h2 style="font-size:18px;">Application Fees</h2></div>
+          <p style="font-size:13px; color:var(--text-muted); margin:-6px 0 18px;">The fee an applicant pays this division on the Payment step of the Fire Safety Certificate application. Leave a field blank to charge the platform default instead.</p>
+          <div class="field-row">
+            <div class="field-group">
+              <label for="jfbd_feeSpecial">Special Event application fee (JMD)</label>
+              <input type="number" id="jfbd_feeSpecial" min="0" step="0.01" placeholder="Platform default" onchange="jfbd_saveSettings()">
+            </div>
+            <div class="field-group">
+              <label for="jfbd_feeAnnual">Annual application fee (JMD)</label>
+              <input type="number" id="jfbd_feeAnnual" min="0" step="0.01" placeholder="Platform default" onchange="jfbd_saveSettings()">
+            </div>
+          </div>
+          <div id="jfbd_feeSummary" class="readback-row" style="margin-top:4px;"></div>
+          <p style="font-size:12.5px; color:var(--text-muted); margin:10px 0 0;">A fee is fixed on an application when it is submitted, so changing it here does not change what an applicant has already been shown. Annual filings are not yet offered to applicants on the Fire Safety Certificate form; that fee is stored for when they are.</p>
+        </div>
       </div>
 
       <!-- ===== SLA BREACHES PAGE (JFB) ===== -->
       <div class="page hidden" id="jfbd_page-slaBreaches">
         <div class="panel">
           <div class="panel-head"><h2>SLA Breaches</h2></div>
-          <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Open applications (not yet Approved or Rejected) that have missed one of the review-pipeline stage targets — set under Settings → SLA Policy. An application can appear more than once if it has missed more than one stage.</p>
+          <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Open applications (not yet Approved or Rejected) that have missed one of the review-pipeline stage targets — set under Settings → SLA & Integration. An application can appear more than once if it has missed more than one stage.</p>
         </div>
         <div class="stat-grid" id="jfbd_slaSummaryCards"></div>
         <div class="panel">
@@ -17989,7 +18017,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 <div class="modal-overlay hidden" id="jfbd_enhancedMonitoringModal">
   <div class="modal-box modal-wide">
     <h3>Enhanced Monitoring Required</h3>
-    <p class="modal-sub">This bills the applicant an additional cost on top of the flat Fire Safety Certificate fee. It does not block approval.</p>
+    <p class="modal-sub">This bills the applicant an additional cost on top of the Fire Safety Certificate fee. It does not block approval.</p>
     <div class="field-group">
       <label for="jfbd_enhancedMonitoringAmount">Additional cost (JMD)</label>
       <input type="number" id="jfbd_enhancedMonitoringAmount" min="0" step="1" placeholder="e.g. 5000">
@@ -27239,6 +27267,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jfbd_sidebarUserRole').textContent = user.role;
     document.getElementById('jfbd_navUsers').classList.toggle('hidden', user.role !== JFBD_ROLE_CHIEF);
     document.getElementById('jfbd_navSettings').classList.toggle('hidden', user.role !== JFBD_ROLE_CHIEF);
+    document.getElementById('jfbd_navBankFees').classList.toggle('hidden', user.role !== JFBD_ROLE_CHIEF);
     document.getElementById('jfbd_navArchive').classList.toggle('hidden', user.role !== JFBD_ROLE_CHIEF);
     await jfbd_loadRolePermissions();
     jfbd_applyNavPermissions();
@@ -27435,7 +27464,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jfbd_showToast("You don't have permission to view this page.");
       page = 'dashboard';
     }
-    if((page === 'users' || page === 'settings' || page === 'archive') && !(jfbdCurrentUser && jfbdCurrentUser.role === JFBD_ROLE_CHIEF)){
+    if((page === 'users' || page === 'settings' || page === 'bankFees' || page === 'archive') && !(jfbdCurrentUser && jfbdCurrentUser.role === JFBD_ROLE_CHIEF)){
       jfbd_showToast("You don't have permission to view this page.");
       page = 'dashboard';
     }
@@ -27443,7 +27472,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const el = document.getElementById('jfbd_page-' + page);
     if(el) el.classList.remove('hidden');
     document.querySelectorAll('#shell-jfbd .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-    const titles = { dashboard:'Dashboard', applications:'Applications', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches' };
+    const titles = { dashboard:'Dashboard', applications:'Applications', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA & Integration', bankFees:'Bank & Fees', archive:'Archive', slaBreaches:'SLA Breaches' };
     document.getElementById('jfbd_topbarTitle').textContent = titles[page] || 'Dashboard';
     if(page === 'dashboard') jfbd_renderDashboard();
     if(page === 'applications') jfbd_renderApplications();
@@ -27454,7 +27483,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(page === 'reports') jfbd_renderReports();
     if(page === 'eventsCalendar') jfbd_goEventsCalendarPage();
     if(page === 'profile') jfbd_renderProfile();
-    if(page === 'settings') jfbd_loadSettings();
+    if(page === 'settings' || page === 'bankFees') jfbd_loadSettings();
     if(page === 'archive') jfbd_renderArchiveYears();
     if(page === 'slaBreaches') jfbd_renderSlaBreaches();
     window.scrollTo({top:0, behavior:'smooth'});
@@ -28968,6 +28997,25 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           html += `<p class="no-permission-note" style="margin-top:8px;">${acctEscapeHtml(rec.assignedOfficerName)} completes Event Venue Satisfactory and Inspection Completed.</p>`;
         }
         if(cl.updatedBy) html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
+
+        // Payment & monitoring: the Superintendent confirms the applicant's fee
+        // has been paid (opens the proof of payment to approve) and can request
+        // enhanced monitoring, which bills the applicant an additional cost. An
+        // officer/station sees both but cannot act on them.
+        const canPay = jfbd_canVerifyPayments();
+        const pay = rec.payment || {};
+        const feeReceived = !!auto.applicationFeeReceived;
+        const proofOnFile = !!pay.receiptFileName;
+        html += `<div class="section-title" style="margin:18px 0 8px; font-size:14px;">Payment &amp; monitoring</div>`;
+        html += `<label class="checkbox-row" style="cursor:default;"><input type="checkbox" disabled ${feeReceived ? 'checked' : ''}><span>Application Fee Received${pay.amountDisplay ? ' <span class="cell-sub">(' + acctEscapeHtml(pay.amountDisplay) + ')</span>' : ''}<span class="cell-sub" style="display:block;">${
+          feeReceived ? 'Payment confirmed.' :
+          proofOnFile ? 'Proof of payment uploaded. Review it and confirm the payment.' :
+          'Waiting for the applicant\'s proof of payment.'}</span></span></label>`;
+        if(canPay && !feeReceived && proofOnFile){
+          html += `<div style="margin:4px 0 6px 26px;"><button class="btn btn-primary btn-sm" onclick="jfbd_openDocModal('paymentReceipt')">Confirm payment received</button></div>`;
+        }
+        const enhancedOn = !!cl.enhancedMonitoringRequired;
+        html += `<label class="checkbox-row"><input type="checkbox" ${enhancedOn ? 'checked' : ''} ${canPay ? '' : 'disabled'} onchange="jfbd_toggleEnhancedMonitoring(this.checked)"><span>Enhanced Monitoring Required <span class="cell-sub" style="display:block;">${canPay ? 'Ticking this asks you for an additional cost and a reason, and bills the applicant. It does not block approval.' : 'A Superintendent requests enhanced monitoring.'}</span></span></label>`;
       }
       html += `</div>`;
     }
@@ -30110,13 +30158,32 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jfbd_bankAccountName').value = bank.accountName || '';
     document.getElementById('jfbd_bankAccountNumber').value = bank.accountNumber || '';
     document.getElementById('jfbd_bankTransitCode').value = bank.transitCode || '';
+    const fees = settings.fees || {};
+    jfbdLoadedFees = { specialEvent: (typeof fees.specialEvent === 'number') ? fees.specialEvent : null, annual: (typeof fees.annual === 'number') ? fees.annual : null };
+    document.getElementById('jfbd_feeSpecial').value = jfbdLoadedFees.specialEvent == null ? '' : jfbdLoadedFees.specialEvent;
+    document.getElementById('jfbd_feeAnnual').value = jfbdLoadedFees.annual == null ? '' : jfbdLoadedFees.annual;
+    jfbd_renderFeeSummary();
   }
   window.jfbd_loadSettings = jfbd_loadSettings;
+
+
+  // What this division's applicants are charged right now, spelled out so the
+  // Assistant Commissioner can see the effect of a blank field (platform default).
+  let jfbdLoadedFees = { specialEvent: null, annual: null };
+  async function jfbd_renderFeeSummary(){
+    const el = document.getElementById('jfbd_feeSummary');
+    if(!el) return;
+    const platform = window.fetchJfbFlatFee ? await window.fetchJfbFlatFee() : 5000;
+    const money = n => 'J$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const sp = jfbdLoadedFees.specialEvent, an = jfbdLoadedFees.annual;
+    el.textContent = 'Applicants are charged: Special Event ' + (sp == null ? money(platform) + ' (platform default)' : money(sp)) +
+      ' · Annual ' + (an == null ? money(platform) + ' (platform default)' : money(an));
+  }
 
   async function jfbd_saveSettings(){
     if(!window.storage || !jfbdCurrentBranch) return;
     if(!jfbdCurrentUser || jfbdCurrentUser.role !== JFBD_ROLE_CHIEF){
-      jfbd_showToast('Only the Assistant Commissioner can change SLA Policy.');
+      jfbd_showToast('Only the Assistant Commissioner can change these settings.');
       return;
     }
     const readInt = (id, fallback) => {
@@ -30140,9 +30207,42 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       accountNumber: document.getElementById('jfbd_bankAccountNumber').value.trim(),
       transitCode: document.getElementById('jfbd_bankTransitCode').value.trim()
     };
+    // Fees: blank = use the platform default; otherwise a non-negative amount.
+    const readFee = id => {
+      const el = document.getElementById(id);
+      const raw = (el.value || '').trim();
+      if(raw === '') return { ok: true, value: null };
+      const n = Number(raw);
+      if(isNaN(n) || n < 0){ return { ok: false }; }
+      return { ok: true, value: Math.round(n * 100) / 100 };
+    };
+    const fs = readFee('jfbd_feeSpecial'), fa = readFee('jfbd_feeAnnual');
+    if(!fs.ok || !fa.ok){
+      jfbd_showToast('A fee must be a number of zero or more. Leave it blank to use the platform default.');
+      return;
+    }
+    const fees = { specialEvent: fs.value, annual: fa.value };
+    const feesChanged = fees.specialEvent !== jfbdLoadedFees.specialEvent || fees.annual !== jfbdLoadedFees.annual;
+    if(feesChanged){ fees.updatedBy = jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')'; fees.updatedAt = new Date().toISOString(); }
+    else {
+      // keep the original stamp when the fees themselves did not change
+      try{ const prev = await window.storage.get(`jfbBranch:${jfbdCurrentBranch.id}:settings`, true); const pf = prev && prev.value ? (JSON.parse(prev.value).fees || {}) : {}; if(pf.updatedBy){ fees.updatedBy = pf.updatedBy; fees.updatedAt = pf.updatedAt; } }catch(e){}
+    }
     try{
-      await window.storage.set(`jfbBranch:${jfbdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject, bankDetails }), true);
-      jfbd_showToast('Settings saved.');
+      await window.storage.set(`jfbBranch:${jfbdCurrentBranch.id}:settings`, JSON.stringify({ slaRules, autoRejectOnMuniReject, bankDetails, fees }), true);
+      if(feesChanged){
+        const before = jfbdLoadedFees;
+        jfbdLoadedFees = { specialEvent: fees.specialEvent, annual: fees.annual };
+        jfbd_renderFeeSummary();
+        if(window.atdLogAudit){
+          try{ await window.atdLogAudit({ portal: 'jfb', actor: jfbdCurrentUser.email, actorRole: jfbdCurrentUser.role, action: 'settings.fees',
+            details: `Changed application fees: Special Event ${before.specialEvent == null ? 'platform default' : before.specialEvent} -> ${fees.specialEvent == null ? 'platform default' : fees.specialEvent}; Annual ${before.annual == null ? 'platform default' : before.annual} -> ${fees.annual == null ? 'platform default' : fees.annual}.`,
+            muniId: jfbdCurrentBranch.id }); }catch(e){}
+        }
+        jfbd_showToast('Fees saved.');
+      } else {
+        jfbd_showToast('Settings saved.');
+      }
     } catch(err){
       jfbd_showToast('Could not save settings right now.');
     }
@@ -30575,7 +30675,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // billed/paid; that request stands on its own and is resolved via
   // jfbd_confirmDocumentAddPay(), not by unticking this box).
   async function jfbd_toggleEnhancedMonitoring(checked){
-    if(!jfbd_hasPerm('checklist')){
+    // Requesting enhanced monitoring bills the applicant, so it sits with the
+    // Superintendent and Assistant Commissioner, never an officer/station.
+    if(!jfbd_canVerifyPayments()){
       jfbd_showToast("You don't have permission to complete this checklist.");
       jfbd_renderApplicationDetail();
       return;
@@ -30603,6 +30705,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jfbd_closeEnhancedMonitoringModal = jfbd_closeEnhancedMonitoringModal;
 
   async function jfbd_confirmEnhancedMonitoring(){
+    if(!jfbd_canVerifyPayments()){
+      jfbd_showToast("You don't have permission to request enhanced monitoring.");
+      return;
+    }
     const amount = parseFloat(document.getElementById('jfbd_enhancedMonitoringAmount').value) || 0;
     const reason = document.getElementById('jfbd_enhancedMonitoringReason').value.trim();
     if(!amount || !reason){
@@ -59870,10 +59976,38 @@ function jfb_formatCurrency(amount){
   return 'J$' + Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// The fee this applicant pays is the one their own Fire Division set under
+// Settings -> Bank & Fees (jfbBranch:<id>:settings.fees.specialEvent), found
+// the same way the bank details are (the division covering the linked POA
+// application's municipality). A division that has not set a fee -- or a
+// standalone filing with no linked POA to find a division from -- is charged
+// the admin's platform flat fee instead, so no applicant sees a blank or zero.
+let jfbFeeState = { amount: null, source: 'platform', divisionName: '' };
+async function jfb_resolveApplicationFee(){
+  const platform = await fetchJfbFlatFee();
+  try{
+    if(poaData && poaData.muniId != null && window.atdFindJfbBranchForMuniId && window.storage){
+      const branch = await window.atdFindJfbBranchForMuniId(poaData.muniId);
+      if(branch){
+        const result = await window.storage.get(`jfbBranch:${branch.id}:settings`, true);
+        const settings = (result && result.value) ? JSON.parse(result.value) : {};
+        const fee = settings.fees && settings.fees.specialEvent;
+        if(typeof fee === 'number' && !isNaN(fee) && fee >= 0){
+          return { amount: fee, source: 'division', divisionName: branch.name || '' };
+        }
+      }
+    }
+  } catch(err){ /* fall through to the platform default */ }
+  return { amount: platform, source: 'platform', divisionName: '' };
+}
+window.jfb_resolveApplicationFee = jfb_resolveApplicationFee;
+
 async function jfb_renderPaymentStep(){
-  const amount = await fetchJfbFlatFee();
+  jfbFeeState = await jfb_resolveApplicationFee();
   const el = document.getElementById('jfbF_paymentAmountDisplay');
-  if(el) el.textContent = jfb_formatCurrency(amount);
+  if(el) el.textContent = jfb_formatCurrency(jfbFeeState.amount);
+  const note = document.getElementById('jfbF_paymentFeeNote');
+  if(note) note.textContent = jfbFeeState.source === 'division' && jfbFeeState.divisionName ? 'Fee set by ' + jfbFeeState.divisionName : '';
   jfb_renderBankDetails();
 }
 
@@ -60437,6 +60571,8 @@ async function submitJfbApp(){
     // payment.status/receiptFileName in place once the applicant pays.
     payment: {
       amountDisplay: (document.getElementById('jfbF_paymentAmountDisplay') && document.getElementById('jfbF_paymentAmountDisplay').textContent) || '',
+      amount: (jfbFeeState && typeof jfbFeeState.amount === 'number') ? jfbFeeState.amount : null,
+      feeSource: (jfbFeeState && jfbFeeState.source) || 'platform',
       channel: jfb_val('jfbF_paymentChannel'),
       status: 'Pending Payment',
       receiptFileName: '',
