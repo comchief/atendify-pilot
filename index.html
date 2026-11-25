@@ -11049,6 +11049,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             <input type="text" id="bankAccountNumber" placeholder="Account number">
           </div>
         </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label for="bankAccountType">Account type</label>
+            <select id="bankAccountType"><option value="">Select account type</option><option>Savings</option><option>Current</option><option>Chequing</option><option>Other</option></select>
+          </div>
+          <div class="field-group"></div>
+        </div>
         <div class="btn-row" id="bankDetailsActions">
           <button class="btn btn-primary" onclick="saveBankDetails()">Save bank details</button>
         </div>
@@ -13449,6 +13456,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div class="field-group"><label for="admin_bank_branch">Branch</label><input type="text" id="admin_bank_branch" maxlength="120" autocomplete="off"></div>
         <div class="field-group"><label for="admin_bank_accname">Account name</label><input type="text" id="admin_bank_accname" maxlength="160" autocomplete="off"></div>
         <div class="field-group"><label for="admin_bank_accnum">Account number</label><input type="text" id="admin_bank_accnum" maxlength="60" autocomplete="off"></div>
+        <div class="field-group"><label for="admin_bank_acctype">Account type</label><select id="admin_bank_acctype"><option value="">Select account type</option><option>Savings</option><option>Current</option><option>Chequing</option><option>Other</option></select></div>
         <div class="btn-row" style="justify-content:flex-start;">
           <button class="btn btn-primary" type="button" id="admin_bank_saveBtn" onclick="admin_saveBankInfo()">Save bank details</button>
         </div>
@@ -30178,7 +30186,8 @@ function poa_bankInfoHtml(info){
   return `
       Bank: <strong>${poa_escapeHtml(info.bankName || 'N/A')}</strong><br>
       Account Name: <strong>${poa_escapeHtml(info.accountName || 'N/A')}</strong><br>
-      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>
+      Account Number: <strong>${poa_escapeHtml(info.accountNumber || 'N/A')}</strong><br>${info.accountType ? `
+      Account Type: <strong>${poa_escapeHtml(info.accountType)}</strong><br>` : ''}
       Branch: <strong>${poa_escapeHtml(info.branch || 'N/A')}</strong>`;
 }
 async function loadAtendifyBankInfoInto(targetId){
@@ -33144,6 +33153,7 @@ async function loadBankDetails(){
       document.getElementById('bankBranch').value = info.branch || '';
       document.getElementById('bankAccountName').value = info.accountName || '';
       document.getElementById('bankAccountNumber').value = info.accountNumber || '';
+      document.getElementById('bankAccountType').value = info.accountType || '';
     }
   } catch(err){
     // no bank details saved yet — leave fields blank
@@ -33156,7 +33166,8 @@ async function saveBankDetails(){
     bankName: document.getElementById('bankName').value.trim(),
     branch: document.getElementById('bankBranch').value.trim(),
     accountName: document.getElementById('bankAccountName').value.trim(),
-    accountNumber: document.getElementById('bankAccountNumber').value.trim()
+    accountNumber: document.getElementById('bankAccountNumber').value.trim(),
+    accountType: document.getElementById('bankAccountType').value
   };
   try{
     await window.storage.set(`municipality:${currentUser.muniId}:bankInfo`, JSON.stringify(info), true);
@@ -47352,6 +47363,7 @@ async function admin_renderBankInfo(){
     document.getElementById('admin_bank_branch').value = info.branch || '';
     document.getElementById('admin_bank_accname').value = info.accountName || '';
     document.getElementById('admin_bank_accnum').value = info.accountNumber || '';
+    document.getElementById('admin_bank_acctype').value = info.accountType || '';
     if(status) status.textContent = info.accountNumber ? '' : 'Nothing saved yet: applicants currently see "Atendify has not published its bank account details yet".';
   }catch(e){
     if(status) status.textContent = 'Could not load the saved bank details.';
@@ -47365,7 +47377,8 @@ async function admin_saveBankInfo(){
     bankName: document.getElementById('admin_bank_name').value.trim(),
     branch: document.getElementById('admin_bank_branch').value.trim(),
     accountName: document.getElementById('admin_bank_accname').value.trim(),
-    accountNumber: document.getElementById('admin_bank_accnum').value.trim()
+    accountNumber: document.getElementById('admin_bank_accnum').value.trim(),
+    accountType: document.getElementById('admin_bank_acctype').value
   };
   if(!info.bankName || !info.accountName || !info.accountNumber){
     admin_showToast('Enter the bank name, account name and account number.');
