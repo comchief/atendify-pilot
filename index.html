@@ -10130,7 +10130,7 @@
 
             <div id="mmFireDocSection" class="hidden" style="margin-top:32px;">
               <div class="detail-section-title" style="font-size:19px;">Fire Safety Certificate Application Documents</div>
-              <p class="col-desc" style="margin-bottom:24px;">Photo ID for your Fire Safety Certificate application. If the JFB rejects it, re-upload it here.</p>
+              <p class="col-desc" style="margin-bottom:24px;">Upload your Venue Layout/Outline/Floor Plan and Venue Coordination Plan here if you did not attach them to your application. If one does not apply to your event, tick "Not applicable to me" and a JFB officer will accept or reject that. If the JFB rejects a document, re-upload it here.</p>
               <div class="mm-doc-grid" id="mmFireDocGrid"></div>
             </div>
 
@@ -15724,10 +15724,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     <div class="grid">
       <div>
         <div class="col-title">Required Documents &amp; Declaration</div>
-        <div class="col-desc">Upload the documents below, then read and sign the declaration.</div>
+        <div class="col-desc">Upload the documents below if you have them, then read and sign the declaration. You can also add them later from the Fire Safety tab of your Main Menu.</div>
       </div>
       <div>
         <div class="section-title">Required Documents</div>
+        <div class="info-banner" style="display:block; margin:0 0 14px; font-size:13.5px;">You do not have to upload these now. If you continue without them, they appear in the Fire Safety section of your Main Menu so you can upload them later. The Jamaica Fire Brigade needs both before a certificate can be issued. If a document does not apply to your event, tick the box under it; an officer will accept or reject that.</div>
 
         <div style="display:flex; gap:16px; flex-wrap:wrap;">
           <div style="flex:1; min-width:220px;">
@@ -15739,6 +15740,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               </div>
               <input type="file" id="jfbF_venueLayoutFile" accept="image/*,.pdf" style="display:none;" onchange="jfbVenueLayoutFileChosen(this)">
             </div>
+            <label class="consent-checkbox-row" for="jfbF_venueLayoutNA" style="margin-top:8px; font-size:13px;">
+              <input type="checkbox" id="jfbF_venueLayoutNA" onchange="jfb_toggleDocNA('venueLayout', this)">
+              <span>Not applicable to me</span>
+            </label>
           </div>
 
           <div style="flex:1; min-width:220px;">
@@ -15750,6 +15755,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
               </div>
               <input type="file" id="jfbF_venueCoordFile" accept="image/*,.pdf" style="display:none;" onchange="jfbVenueCoordFileChosen(this)">
             </div>
+            <label class="consent-checkbox-row" for="jfbF_venueCoordNA" style="margin-top:8px; font-size:13px;">
+              <input type="checkbox" id="jfbF_venueCoordNA" onchange="jfb_toggleDocNA('venueCoord', this)">
+              <span>Not applicable to me</span>
+            </label>
           </div>
         </div>
 
@@ -28352,8 +28361,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // application has no requirement, upload, or review association with
     // JAMMS/JCAP at all.
     html += jfbd_detailRowDocViewOnly('Photo ID', eo.photoIdFileName, eo.photoIdStatus, 'photoId');
-    html += jfbd_detailRowDoc('Venue Layout/Outline/Floor Plan', vi.venueLayoutFileName, vi.venueLayoutStatus, 'venueLayout');
-    html += jfbd_detailRowDoc('Venue Coordination Plan', vi.venueCoordFileName, vi.venueCoordStatus, 'venueCoord');
+    html += jfbd_detailRowDoc('Venue Layout/Outline/Floor Plan', vi.venueLayoutFileName, vi.venueLayoutStatus, 'venueLayout', jfbd_docIsNa(vi, 'venueLayout'));
+    html += jfbd_detailRowDoc('Venue Coordination Plan', vi.venueCoordFileName, vi.venueCoordStatus, 'venueCoord', jfbd_docIsNa(vi, 'venueCoord'));
     html += jfbd_detailRowAction('Signature on file', rec.signature && rec.signature.value ? 'Yes' : 'No', 'signature', !!(rec.signature && rec.signature.value));
     html += `</div>`;
 
@@ -28384,12 +28393,23 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // filing uploaded before officer document review existed and never
   // explicitly given a status) instead of a bare filename, and labels the
   // action button "Review" rather than "View" to match.
-  function jfbd_detailRowDoc(label, fileName, status, kind){
+  // The applicant can tick "Not applicable to me" on the Venue Layout/Outline/
+  // Floor Plan and Venue Coordination Plan instead of uploading them. Such a
+  // document has no file but a status ('Not Applicable' while it awaits this
+  // review, 'Approved' once accepted) and a *NotApplicable flag; a rejected
+  // claim clears the flag and sets *NotApplicableRejected so the applicant is
+  // told their claim was refused and must upload.
+  function jfbd_docIsNa(section, kind){
+    return !!(section && section[kind + 'NotApplicable'] && !section[kind + 'FileName']);
+  }
+  function jfbd_detailRowDoc(label, fileName, status, kind, isNa){
     const hasFile = !!fileName;
-    const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
-    const badge = hasFile ? ` <span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jfbd_openDocModal('${kind}')">Review</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
+    const naClaim = !hasFile && !!isNa;
+    const effectiveStatus = hasFile ? (status || 'Submitted') : (naClaim ? (status || 'Not Applicable') : 'Not Uploaded');
+    const badge = (hasFile || naClaim) ? ` <span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
+    const btn = (hasFile || naClaim) ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jfbd_openDocModal('${kind}')">Review</button>` : '';
+    const shown = fileName || (naClaim ? 'Marked not applicable by the applicant' : 'Not uploaded');
+    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(shown)}${badge}${btn}</div></div>`;
   }
 
   // Like jfbd_detailRowDoc above, but for a document the MUNICIPALITY (not
@@ -30436,7 +30456,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   let jfbdActiveDocDataUrl = '', jfbdActiveDocFileName = '';
 
   function jfbd_docStatusBadgeClass(status){
-    return { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red' }[status] || 'badge-gray';
+    return { 'Not Uploaded': 'badge-gray', 'Submitted': 'badge-blue', 'Approved': 'badge-green', 'Rejected': 'badge-red', 'Not Applicable': 'badge-amber' }[status] || 'badge-gray';
   }
 
   async function jfbd_openDocModal(kind){
@@ -30474,6 +30494,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 
     let dataUrl = '', fileName = '', title = '';
     let status = 'Not Uploaded', officerNote = '';
+    let naClaim = false;
     // subElOverride/previewHtmlOverride let a kind fully control its own
     // subtitle/preview (used by the typed-signature case below, which has
     // no dataUrl to preview) while still falling through to the shared
@@ -30544,11 +30565,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           fileName = (rec.briefings && rec.briefings.eventFlyerFileName) || '';
         } else if(kind === 'venueLayout'){
           fileName = (rec.venueInfo && rec.venueInfo.venueLayoutFileName) || '';
-          status = (rec.venueInfo && rec.venueInfo.venueLayoutStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+          naClaim = !fileName && jfbd_docIsNa(rec.venueInfo, 'venueLayout');
+          status = (rec.venueInfo && rec.venueInfo.venueLayoutStatus) || (fileName ? 'Submitted' : (naClaim ? 'Not Applicable' : 'Not Uploaded'));
           officerNote = (rec.venueInfo && rec.venueInfo.venueLayoutOfficerNote) || '';
         } else if(kind === 'venueCoord'){
           fileName = (rec.venueInfo && rec.venueInfo.venueCoordFileName) || '';
-          status = (rec.venueInfo && rec.venueInfo.venueCoordStatus) || (fileName ? 'Submitted' : 'Not Uploaded');
+          naClaim = !fileName && jfbd_docIsNa(rec.venueInfo, 'venueCoord');
+          status = (rec.venueInfo && rec.venueInfo.venueCoordStatus) || (fileName ? 'Submitted' : (naClaim ? 'Not Applicable' : 'Not Uploaded'));
           officerNote = (rec.venueInfo && rec.venueInfo.venueCoordOfficerNote) || '';
         } else {
           fileName = (rec.payment && rec.payment.receiptFileName) || '';
@@ -30628,7 +30651,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // (including rejecting a document that never actually uploaded)
       // regardless of whether the preview itself loaded.
       if(canReviewDoc){
-        actions.innerHTML = `
+        actions.innerHTML = naClaim ? `
+          <button class="btn btn-success btn-sm" onclick="jfbd_approveDoc()">✔ Accept as not applicable</button>
+          <button class="btn btn-danger btn-sm" onclick="jfbd_rejectDoc()">✖ Reject &amp; require upload</button>
+          <button class="btn btn-sm" onclick="jfbd_saveDocNote()">Save note only</button>` : `
           <button class="btn btn-success btn-sm" onclick="jfbd_approveDoc()">✔ Approve document</button>
           <button class="btn btn-danger btn-sm" onclick="jfbd_rejectDoc()">✖ Reject &amp; require re-upload</button>
           <button class="btn btn-sm" onclick="jfbd_saveDocNote()">Save note only</button>` + downloadBtnHtml;
@@ -30647,7 +30673,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       return;
     }
     if(!dataUrl){
-      box.innerHTML = '<div class="doc-preview-placeholder">Not uploaded.</div>';
+      box.innerHTML = naClaim
+        ? '<div class="doc-preview-placeholder">The applicant ticked "Not applicable to me" for this document instead of uploading it. Accept it if it genuinely does not apply to this event, or reject it with a note and the applicant will be asked to upload it.</div>'
+        : (status === 'Approved' && rec.venueInfo && ((kind === 'venueLayout' && rec.venueInfo.venueLayoutNotApplicable) || (kind === 'venueCoord' && rec.venueInfo.venueCoordNotApplicable)))
+          ? '<div class="doc-preview-placeholder">Accepted as not applicable. No file is required.</div>'
+          : '<div class="doc-preview-placeholder">Not uploaded.</div>';
       return;
     }
     const mime = jfbd_guessMime(dataUrl);
@@ -30700,6 +30730,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!rec) return;
     const note = document.getElementById('jfbd_docNoteInput').value.trim();
     const isOtherLicense = kind.indexOf('otherLicense_') === 0;
+    const jfbdActiveDocWasNa = (kind === 'venueLayout' || kind === 'venueCoord') && !!(rec.venueInfo && rec.venueInfo[kind + 'NotApplicable']);
     const label = JFBD_DOC_REVIEW_LABELS[kind] || (isOtherLicense ? (JFBD_OTHER_LICENSE_LABELS[kind.slice('otherLicense_'.length)] || kind) : kind);
 
     if(kind === 'noiseNotice'){
@@ -30730,6 +30761,15 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       rec.venueInfo = rec.venueInfo || {};
       rec.venueInfo[statusKey] = newStatus;
       rec.venueInfo[noteKey] = note;
+      // Rejecting a "not applicable" claim withdraws the claim (so the applicant
+      // sees the document as rejected and uploads it) and records that it was the
+      // claim, not a file, that was refused. Accepting keeps the flag so the
+      // document stays recorded as "approved: not applicable".
+      const naKey = kind === 'venueLayout' ? 'venueLayoutNotApplicable' : 'venueCoordNotApplicable';
+      if(newStatus === 'Rejected' && rec.venueInfo[naKey]){
+        rec.venueInfo[naKey] = false;
+        rec.venueInfo[naKey + 'Rejected'] = true;
+      }
       await jfbd_saveActiveApp(rec);
     }
 
@@ -30744,7 +30784,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       await jfbd_saveActiveApp(rec);
     }
 
-    jfbd_showToast(`${label} ${newStatus.toLowerCase()}${newStatus === 'Rejected' ? ' — the applicant will need to re-upload.' : '.'}`);
+    jfbd_showToast(`${label} ${newStatus === 'Approved' && (jfbdActiveDocWasNa) ? 'accepted as not applicable' : newStatus.toLowerCase()}${newStatus === 'Rejected' ? ' — the applicant will need to upload it.' : '.'}`);
     jfbd_closeDocModal();
     jfbd_renderApplicationDetail();
 
@@ -38290,27 +38330,45 @@ window.mmNoiseDocFileChosen = mmNoiseDocFileChosen;
 // and trigger this grid's re-upload affordance; it's kept only so an
 // already-rejected pre-existing filing still shows correctly.)
 const MM_FIRE_DOC_KINDS = [
-  { kind: 'photoId', label: 'Photo ID' }
+  { kind: 'photoId', label: 'Photo ID' },
+  { kind: 'venueLayout', label: 'Venue Layout/Outline/Floor Plan' },
+  { kind: 'venueCoord', label: 'Venue Coordination Plan' }
 ];
+// Where each document's file name / review status / officer note live on the
+// filing, and the key its file is stored under in jfbApplicationFiles:<n>.
+function mmFireDocFields(kind){
+  if(kind === 'photoId') return { section: 'eventOverview', name: 'photoIdFileName', status: 'photoIdStatus', note: 'photoIdOfficerNote', data: 'photoIdFileData', na: null };
+  if(kind === 'venueLayout') return { section: 'venueInfo', name: 'venueLayoutFileName', status: 'venueLayoutStatus', note: 'venueLayoutOfficerNote', data: 'venueLayoutFileData', na: 'venueLayoutNotApplicable' };
+  return { section: 'venueInfo', name: 'venueCoordFileName', status: 'venueCoordStatus', note: 'venueCoordOfficerNote', data: 'venueCoordFileData', na: 'venueCoordNotApplicable' };
+}
 function renderMmFireDocuments(){
   const jfbApp = currentLinkedJfbApp;
   const grid = document.getElementById('mmFireDocGrid');
   if(!grid || !jfbApp) return;
-  const eo = jfbApp.eventOverview || {}, vi = jfbApp.venueInfo || {};
 
   grid.innerHTML = MM_FIRE_DOC_KINDS.map(({ kind, label }, i) => {
-    const fileName = kind === 'photoId' ? eo.photoIdFileName : vi.permissionLetterFileName;
-    const officerNote = kind === 'photoId' ? eo.photoIdOfficerNote : vi.permissionLetterOfficerNote;
-    const rawStatus = kind === 'photoId' ? eo.photoIdStatus : vi.permissionLetterStatus;
+    const f = mmFireDocFields(kind);
+    const sec = jfbApp[f.section] || {};
+    const fileName = sec[f.name];
+    const officerNote = sec[f.note];
+    const rawStatus = sec[f.status];
+    const isVenueDoc = kind !== 'photoId';
     const status = rawStatus || (fileName ? 'Submitted' : 'Not Uploaded');
-    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : status === 'Submitted' ? 'pending' : '';
+    const stateClass = status === 'Approved' ? 'uploaded' : status === 'Rejected' ? 'rejected' : (status === 'Submitted' || status === 'Not Applicable') ? 'pending' : '';
     const icon = status === 'Rejected'
       ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
-      : fileName
+      : (fileName || status === 'Not Applicable' || (status === 'Approved' && sec[f.na]))
         ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
         : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M12 4l-4 4M12 4l4 4"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>';
-    const statusText = { 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending JFB review (locked)', 'Approved': 'Approved by JFB (locked)', 'Rejected': 'Rejected by JFB — please re-upload' }[status] || status;
-    const canUpload = status === 'Rejected';
+    const approvedNa = status === 'Approved' && !!sec[f.na];
+    const statusText = status === 'Not Applicable' ? 'Marked not applicable: pending JFB review'
+      : approvedNa ? 'Not applicable: accepted by JFB (locked)'
+      : ({ 'Not Uploaded': 'Click to upload', 'Submitted': 'Uploaded — pending JFB review (locked)', 'Approved': 'Approved by JFB (locked)', 'Rejected': 'Rejected by JFB — please re-upload' }[status] || status);
+    // Photo ID keeps its old rule (re-upload only after a rejection); the two venue
+    // documents can be uploaded any time until they are submitted or accepted.
+    const canUpload = status === 'Rejected' || (isVenueDoc && status === 'Not Uploaded');
+    const canMarkNa = isVenueDoc && (status === 'Not Uploaded' || status === 'Rejected');
+    const rejectedNa = status === 'Rejected' && sec[f.na + 'Rejected'];
 
     return `
       <div class="mm-doc-item">
@@ -38319,7 +38377,9 @@ function renderMmFireDocuments(){
         </div>
         <div class="mm-doc-label">${poa_escapeHtml(label)} *</div>
         <div class="mm-doc-status">${poa_escapeHtml(statusText)}</div>
-        ${status === 'Rejected' && officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(officerNote)}"</div>` : ''}
+        ${status === 'Rejected' && officerNote ? `<div class="mm-doc-rejection-note">"${poa_escapeHtml(officerNote)}"${rejectedNa ? ' (your "not applicable" was not accepted)' : ''}</div>` : ''}
+        ${canMarkNa ? `<label style="display:flex; gap:6px; align-items:center; justify-content:center; font-size:12.5px; margin-top:6px; cursor:pointer;"><input type="checkbox" onchange='mmFireDocNaToggled(${JSON.stringify(kind)}, ${JSON.stringify(label)}, this)'> Not applicable to me</label>` : ''}
+        ${status === 'Not Applicable' ? `<button type="button" class="btn btn-sm" style="margin-top:6px;" onclick='mmFireDocUndoNa(${JSON.stringify(kind)}, ${JSON.stringify(label)})'>Undo, I will upload it</button>` : ''}
         <input type="file" id="mmFireDocFile${i}" accept="image/*,.pdf" style="display:none;" onchange='mmFireDocFileChosen(${JSON.stringify(kind)}, ${JSON.stringify(label)}, this)'>
       </div>
     `;
@@ -38349,11 +38409,8 @@ async function mmFireDocFileChosen(kind, label, input){
     poa_showToast(`Could not upload "${file.name}" for ${label} — the file may be too large or in an unsupported format. Please try a smaller file (under 3MB) and try again.`);
     return;
   }
-  const section = kind === 'photoId' ? 'eventOverview' : 'venueInfo';
-  const fileNameKey = kind === 'photoId' ? 'photoIdFileName' : 'permissionLetterFileName';
-  const statusKey = kind === 'photoId' ? 'photoIdStatus' : 'permissionLetterStatus';
-  const noteKey = kind === 'photoId' ? 'photoIdOfficerNote' : 'permissionLetterOfficerNote';
-  const fileDataKey = kind === 'photoId' ? 'photoIdFileData' : 'permissionLetterFileData';
+  const f = mmFireDocFields(kind);
+  const section = f.section, fileNameKey = f.name, statusKey = f.status, noteKey = f.note, fileDataKey = f.data;
   const wasRejected = jfbApp[section] && jfbApp[section][statusKey] === 'Rejected';
 
   try{
@@ -38361,6 +38418,7 @@ async function mmFireDocFileChosen(kind, label, input){
     jfbApp[section][fileNameKey] = file.name;
     jfbApp[section][statusKey] = 'Submitted';
     jfbApp[section][noteKey] = '';
+    if(f.na){ jfbApp[section][f.na] = false; delete jfbApp[section][f.na + 'Rejected']; }
     await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
 
     let files = {};
@@ -38380,13 +38438,74 @@ async function mmFireDocFileChosen(kind, label, input){
   await poa_refreshLinkedJfbApp();
   renderMmFireDocuments();
   poa_showToast(`${label} uploaded and submitted.`);
-  if(wasRejected && window.atdFindJfbBranchForMuniId && window.atdNotify){
+  if(window.atdFindJfbBranchForMuniId && window.atdNotify){
     window.atdFindJfbBranchForMuniId(jfbApp.muniId).then(branch => {
-      if(branch) window.atdNotify(branch.id, 'checklist', 'document_reuploaded', `${label} was re-uploaded for ${jfbApp.jfbAppNumber} after being rejected.`, jfbApp.jfbAppNumber);
+      if(branch) window.atdNotify(branch.id, 'checklist', 'document_reuploaded', `${label} was ${wasRejected ? 're-uploaded after being rejected' : 'uploaded'} for ${jfbApp.jfbAppNumber}.`, jfbApp.jfbAppNumber);
     });
   }
 }
 window.mmFireDocFileChosen = mmFireDocFileChosen;
+
+// "Not applicable to me" on a Venue Layout/Outline/Floor Plan or Venue
+// Coordination Plan that was not uploaded with the application. Same rule as the
+// Places of Amusement documents: it is not accepted automatically. The document
+// takes status 'Not Applicable' and a JFB officer accepts or rejects it.
+async function mmFireDocNaToggled(kind, label, checkbox){
+  if(!checkbox.checked) return;
+  const jfbApp = currentLinkedJfbApp;
+  if(!jfbApp || !jfbApp.jfbAppNumber || !window.storage){
+    checkbox.checked = false;
+    poa_showToast('Could not reach your Fire Safety Certificate application — please try again.');
+    return;
+  }
+  const confirmed = await window.atdConfirm(`Mark "${label}" as Not Applicable?\n\nYou are confirming this document does not apply to your event. A JFB officer will review this and may reject it, in which case you will be asked to upload it.`);
+  if(!confirmed){ checkbox.checked = false; return; }
+  const f = mmFireDocFields(kind);
+  try{
+    jfbApp[f.section] = jfbApp[f.section] || {};
+    jfbApp[f.section][f.status] = 'Not Applicable';
+    jfbApp[f.section][f.note] = '';
+    jfbApp[f.section][f.na] = true;
+    delete jfbApp[f.section][f.na + 'Rejected'];
+    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
+  } catch(e){
+    checkbox.checked = false;
+    poa_showToast('Could not save this — please try again.');
+    return;
+  }
+  await poa_refreshLinkedJfbApp();
+  renderMmFireDocuments();
+  poa_showToast(`${label} marked Not Applicable — pending JFB review.`);
+  if(window.atdFindJfbBranchForMuniId && window.atdNotify){
+    window.atdFindJfbBranchForMuniId(jfbApp.muniId).then(branch => {
+      if(branch) window.atdNotify(branch.id, 'checklist', 'document_not_applicable', `${label} was marked Not Applicable for ${jfbApp.jfbAppNumber}. Please accept or reject.`, jfbApp.jfbAppNumber);
+    });
+  }
+}
+window.mmFireDocNaToggled = mmFireDocNaToggled;
+
+// Takes back a "Not applicable" claim that an officer has not decided yet, so the
+// document can be uploaded instead.
+async function mmFireDocUndoNa(kind, label){
+  const jfbApp = currentLinkedJfbApp;
+  if(!jfbApp || !jfbApp.jfbAppNumber || !window.storage) return;
+  const f = mmFireDocFields(kind);
+  const sec = jfbApp[f.section] || {};
+  if(sec[f.status] !== 'Not Applicable') return;
+  try{
+    delete sec[f.status];
+    sec[f.na] = false;
+    jfbApp[f.section] = sec;
+    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
+  } catch(e){
+    poa_showToast('Could not save this — please try again.');
+    return;
+  }
+  await poa_refreshLinkedJfbApp();
+  renderMmFireDocuments();
+  poa_showToast(`${label} is no longer marked Not Applicable. You can upload it now.`);
+}
+window.mmFireDocUndoNa = mmFireDocUndoNa;
 
 function printDoc(html){
   document.getElementById('printArea').innerHTML = html;
@@ -59074,14 +59193,10 @@ async function jfbContinueFromStep2(){
   jfb_goStep(3);
 }
 function jfbContinueFromStep3(){
-  if(!venueLayoutFileData){
-    jfb_showToast('Please upload the Venue Layout/Outline/Floor Plan before continuing.');
-    return;
-  }
-  if(!venueCoordFileData){
-    jfb_showToast('Please upload the Venue Coordination Plan before continuing.');
-    return;
-  }
+  // The Venue Layout/Outline/Floor Plan and Venue Coordination Plan are no
+  // longer required to move forward: an applicant may leave either one for
+  // later (it then shows in the Fire Safety section of their Main Menu), or
+  // tick "Not applicable to me" for an officer to accept or reject.
   if(!document.getElementById('jfb_declarationCheck').checked){
     jfb_showToast('Please read and check the declaration before continuing.');
     return;
@@ -59339,6 +59454,7 @@ async function jfbVenueLayoutFileChosen(input){
   }
   venueLayoutFileName = file.name;
   venueLayoutFileData = fileData;
+  const naL = document.getElementById('jfbF_venueLayoutNA'); if(naL && naL.checked){ naL.checked = false; jfb_toggleDocNA('venueLayout', naL); }
   renderVenueLayoutPreview();
 }
 function renderVenueLayoutPreview(){
@@ -59365,6 +59481,7 @@ async function jfbVenueCoordFileChosen(input){
   }
   venueCoordFileName = file.name;
   venueCoordFileData = fileData;
+  const naC = document.getElementById('jfbF_venueCoordNA'); if(naC && naC.checked){ naC.checked = false; jfb_toggleDocNA('venueCoord', naC); }
   renderVenueCoordPreview();
 }
 function renderVenueCoordPreview(){
@@ -59377,6 +59494,30 @@ function renderVenueCoordPreview(){
   }
 }
 window.jfbVenueCoordFileChosen = jfbVenueCoordFileChosen;
+
+// "Not applicable to me" under a Step 3 document: the applicant says this
+// document does not apply to their event. It is not accepted automatically:
+// the filing carries status 'Not Applicable' and a JFB officer accepts or
+// rejects it (a rejection sends it back to the applicant to upload).
+// Ticking it clears any file chosen for that document; choosing a file
+// un-ticks it.
+function jfb_docNaChecked(kind){
+  const el = document.getElementById(kind === 'venueLayout' ? 'jfbF_venueLayoutNA' : 'jfbF_venueCoordNA');
+  return !!(el && el.checked);
+}
+function jfb_toggleDocNA(kind, cb){
+  const isLayout = kind === 'venueLayout';
+  const box = document.getElementById(isLayout ? 'jfbF_venueLayoutBox' : 'jfbF_venueCoordBox');
+  if(cb.checked){
+    if(isLayout){ venueLayoutFileName = ''; venueLayoutFileData = null; renderVenueLayoutPreview(); }
+    else { venueCoordFileName = ''; venueCoordFileData = null; renderVenueCoordPreview(); }
+    const fileInput = document.getElementById(isLayout ? 'jfbF_venueLayoutFile' : 'jfbF_venueCoordFile');
+    if(fileInput) fileInput.value = '';
+  }
+  if(box){ box.style.opacity = cb.checked ? '.45' : ''; box.style.pointerEvents = cb.checked ? 'none' : ''; }
+}
+window.jfb_toggleDocNA = jfb_toggleDocNA;
+window.jfb_docNaChecked = jfb_docNaChecked;
 
 // ==================== Step 4: Payment ====================
 // Simplified flat-fee payment: the JFB fee amount is a single platform-wide
@@ -59582,10 +59723,16 @@ function hasSignature(){
 // renderPhotoIdPreview()/renderFlyerPreview()) — so no async file read is
 // needed here, unlike poa_previewUpload().
 function jfb_uploadRowHtml(label, kind, hasFile){
+  const isVenueDoc = kind === 'venueLayout' || kind === 'venueCoord';
+  const isNa = isVenueDoc && !hasFile && jfb_docNaChecked(kind);
   return `<div class="review-row"><div class="rr-label">${jfb_escapeHtml(label)}</div><div class="rr-value">` +
     (hasFile
       ? `<button class="btn btn-sm" type="button" onclick="jfb_previewUpload('${kind}')">View</button>`
-      : `<span class="review-empty" style="margin:0;">Not uploaded</span>`) +
+      : isNa
+        ? `<span class="badge badge-amber">Not applicable: pending officer review</span>`
+        : isVenueDoc
+          ? `<span class="review-empty" style="margin:0;">Not uploaded yet (upload later from your Main Menu)</span>`
+          : `<span class="review-empty" style="margin:0;">Not uploaded</span>`) +
     `</div></div>`;
 }
 function jfb_previewUpload(kind){
@@ -59689,8 +59836,8 @@ function jfb_goReview(){
   const sigSummary = sig.type === 'text' ? sig.value : (sig.value ? `${sig.type === 'draw' ? 'Drawn' : 'Uploaded'} signature captured` : 'Not provided');
 
   const docsAndDeclaration = [
-    ['Venue Layout/Outline/Floor Plan', venueLayoutFileName || 'Not uploaded'],
-    ['Venue Coordination Plan', venueCoordFileName || 'Not uploaded'],
+    ['Venue Layout/Outline/Floor Plan', venueLayoutFileName || (jfb_docNaChecked('venueLayout') ? 'Marked not applicable (pending officer review)' : 'Not uploaded yet (upload later from your Main Menu)')],
+    ['Venue Coordination Plan', venueCoordFileName || (jfb_docNaChecked('venueCoord') ? 'Marked not applicable (pending officer review)' : 'Not uploaded yet (upload later from your Main Menu)')],
     ['Declaration acknowledged', document.getElementById('jfb_declarationCheck').checked ? 'Yes' : 'No'],
     ['Signature', sigSummary]
   ];
@@ -59750,16 +59897,8 @@ async function submitJfbApp(){
     errorBox.classList.remove('hidden');
     return;
   }
-  if(!venueLayoutFileData){
-    errorBox.textContent = 'Please upload the Venue Layout/Outline/Floor Plan before submitting.';
-    errorBox.classList.remove('hidden');
-    return;
-  }
-  if(!venueCoordFileData){
-    errorBox.textContent = 'Please upload the Venue Coordination Plan before submitting.';
-    errorBox.classList.remove('hidden');
-    return;
-  }
+  // Venue Layout/Outline/Floor Plan and Venue Coordination Plan: not required
+  // to submit (upload later from the Main Menu, or mark Not Applicable).
   if(!jfb_val('jfbF_paymentChannel')){
     errorBox.textContent = 'Please select a payment channel before submitting.';
     errorBox.classList.remove('hidden');
@@ -59952,7 +60091,12 @@ async function submitJfbApp(){
       // them, same as every other reviewable document's status fallback
       // (see jfbd_detailRowDoc/renderMmFireDocuments's own rawStatus
       // fallback of "Not Uploaded" for an absent status).
-      venueLayoutFileName, venueCoordFileName
+      venueLayoutFileName, venueCoordFileName,
+      // An applicant who ticked "Not applicable to me" for a document has no
+      // file; the document carries status 'Not Applicable' until an officer
+      // accepts (-> Approved) or rejects (-> Rejected, upload required) it.
+      ...((!venueLayoutFileData && jfb_docNaChecked('venueLayout')) ? { venueLayoutStatus: 'Not Applicable', venueLayoutNotApplicable: true } : {}),
+      ...((!venueCoordFileData && jfb_docNaChecked('venueCoord')) ? { venueCoordStatus: 'Not Applicable', venueCoordNotApplicable: true } : {})
     },
     // DJs/Sound Systems are no longer collected on this Fire Safety
     // Certificate filing (Entertainment Details was removed — see the JFB
