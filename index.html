@@ -17471,8 +17471,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <div id="jfbd_dashboardNotices"></div>
         <div class="stat-grid" id="jfbd_statGrid"></div>
         <div class="panel" style="margin-top:20px;">
-          <div class="panel-head"><h2>Recently Commented</h2></div>
-          <p style="font-size:12.5px; color:var(--text-muted); margin:-8px 0 12px;">Only applications commented on in the last 7 days.</p>
+          <div class="panel-head"><h2>Recently Inspected</h2></div>
+          <p style="font-size:12.5px; color:var(--text-muted); margin:-8px 0 12px;">Only applications whose inspection was completed in the last 7 days.</p>
           <div style="overflow-x:auto;">
             <table>
               <thead><tr><th>App #</th><th>Event Name</th><th>Event Date</th><th>Status</th></tr></thead>
@@ -27911,6 +27911,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // jfbd_hasPerm() regardless of key (see jfbd_hasPerm's own short-
       // circuit), so Chiefs always see every notification too.
       .filter(({ rec }) => !rec.targetPermission || jfbd_hasPerm(rec.targetPermission))
+      // A notice addressed to one person (e.g. "inspection completed" goes
+      // to the Superintendent who made the assignment) is hidden from
+      // everyone else.
+      .filter(({ rec }) => !rec.targetEmail || (jfbdCurrentUser.email && String(jfbdCurrentUser.email).toLowerCase() === String(rec.targetEmail).toLowerCase()))
       .map(({ key, rec }) => ({
         key, id: rec.id, type: rec.type, message: rec.message, appNumber: rec.appNumber,
         createdAt: rec.createdAt,
@@ -28027,34 +28031,44 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     }
   });
 
-  // Only an application with a comment posted in the last 7 days belongs
-  // here -- otherwise this table just accumulated every commented
-  // application ever, forever, which stopped being a useful "needs a look"
-  // list once a jurisdiction had any history. A malformed/missing comment
-  // date is treated as NOT recent (excluded) rather than crashing the sort.
-  function jfbd_hasRecentComment(rec){
-    const comments = rec.comments || [];
-    if(!comments.length) return false;
+  // Recently Inspected: an application belongs here once its assigned
+  // officer/station ticked "Inspection Completed", for 7 days after that.
+  // The completion time is stamped when the box is ticked
+  // (officialChecklist.inspectionCompletedAt). An inspection ticked before
+  // that stamp existed falls back to the checklist's last-updated date.
+  // A missing/malformed date is treated as NOT recent rather than crashing.
+  function jfbd_inspectionDate(rec){
+    const cl = (rec && rec.officialChecklist) || {};
+    if(!cl.inspectionCompleted) return null;
+    const raw = cl.inspectionCompletedAt || cl.updatedDate;
+    if(!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function jfbd_hasRecentInspection(rec){
+    const d = jfbd_inspectionDate(rec);
+    if(!d) return false;
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    return comments.some(c => c && c.date && new Date(c.date) >= oneWeekAgo);
+    return d >= oneWeekAgo;
   }
 
   function jfbd_renderCommentedTable(visible){
     const body = document.getElementById('jfbd_commentedBody');
     if(!body) return;
-    const commented = visible.filter(a => jfbd_hasRecentComment(a.rec));
-    if(!commented.length){
-      body.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No applications commented on in the last 7 days.</td></tr>`;
+    const inspected = visible.filter(a => jfbd_hasRecentInspection(a.rec))
+      .sort((x, y) => jfbd_inspectionDate(y.rec) - jfbd_inspectionDate(x.rec));
+    if(!inspected.length){
+      body.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:20px;">No applications inspected in the last 7 days.</td></tr>`;
       return;
     }
-    body.innerHTML = commented.map(a => {
+    body.innerHTML = inspected.map(a => {
       const eo = a.rec.eventOverview || {};
       return `<tr>
         <td>${acctEscapeHtml(a.rec.jfbAppNumber)}</td>
         <td>${acctEscapeHtml(eo.eventName || 'N/A')}</td>
         <td>${acctEscapeHtml(eo.dateOfEvent || 'N/A')}</td>
-        <td><span class="badge badge-green">Commented</span></td>
+        <td><span class="badge badge-green">Inspected</span></td>
       </tr>`;
     }).join('');
   }
@@ -28474,7 +28488,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const naClaim = !hasFile && !!isNa;
     const effectiveStatus = hasFile ? (status || 'Submitted') : (naClaim ? (status || 'Not Applicable') : 'Not Uploaded');
     const badge = (hasFile || naClaim) ? `<span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = (hasFile || naClaim) ? `<button class="btn btn-sm" onclick="jfbd_openDocModal('${kind}')">Review</button>` : '';
+    const btnLabel = (kind === 'paymentReceipt' && !jfbd_canVerifyPayments()) ? 'View' : 'Review';
+    const btn = (hasFile || naClaim) ? `<button class="btn btn-sm" onclick="jfbd_openDocModal('${kind}')">${btnLabel}</button>` : '';
     const shown = fileName || (naClaim ? 'Marked not applicable by the applicant' : 'Not uploaded');
     return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
       `<div class="doc-main"><div class="doc-line wrap-line"><span class="doc-name wrap-name">${acctEscapeHtml(shown)}</span>${badge}</div></div>` +
@@ -28926,6 +28941,14 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="btn btn-primary btn-sm" onclick="jfbd_assignOfficer()">${rec.assignedOfficerId ? 'Reassign' : 'Assign'}</button>
           <p class="col-desc" style="margin-top:8px;">Once assigned, that officer/station is required to carry out the inspection.</p>`;
       }
+      if(canManage && cl.inspectionCompleted){
+        if(cl.inspectionReviewedAt){
+          html += `<div class="status-banner good" style="margin-top:10px;">Inspection completed${cl.inspectionCompletedBy ? ' by ' + acctEscapeHtml(cl.inspectionCompletedBy) : ''}. Reviewed by ${acctEscapeHtml(cl.inspectionReviewedBy || '')} on ${acctEscapeHtml(String(cl.inspectionReviewedAt).slice(0,10))}.</div>`;
+        } else {
+          html += `<div class="status-banner warn" style="margin-top:10px; flex-direction:column; align-items:flex-start;"><span>Inspection completed${cl.inspectionCompletedBy ? ' by ' + acctEscapeHtml(cl.inspectionCompletedBy) : ''}${cl.inspectionCompletedAt ? ' on ' + acctEscapeHtml(String(cl.inspectionCompletedAt).slice(0,10)) : ''}. Awaiting your review.</span>
+            <button class="btn btn-primary btn-sm" onclick="jfbd_markInspectionReviewed()">Mark Inspection Completed</button></div>`;
+        }
+      }
       if(isOfficer && jfbdAssignedToMe){
         html += `<div class="status-banner warn" style="margin-top:10px;">This inspection is assigned to you. Review the venue documents and fire safety answers, then complete the checklist below.</div>`;
       } else if(isOfficer){
@@ -29018,7 +29041,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // billing/documenting an additional payment is an Official Use action.
     {
       const addPayRequests = rec.additionalPaymentRequests || [];
-      const canDocumentAddPay = jfbd_hasPerm('checklist');
+      const canDocumentAddPay = jfbd_canVerifyPayments();
       if(addPayRequests.length){
         const addPayBadgeClass = { Pending: 'badge-gray', Submitted: 'badge-blue', Documented: 'badge-green' };
         html += `<div class="official-card"><h4>Additional Payment Requests</h4>
@@ -29915,6 +29938,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // A Superintendent can SEE who is flagged (the Watch List card and the Watch
   // List tab) but cannot flag, unflag, clear or reactivate anyone -- that stays
   // with the Assistant Commissioner, whatever the role matrix says.
+  // Proof of payment (and billing/documenting extra payments) is verified by a
+  // Superintendent or the Assistant Commissioner; a District Officer/Station
+  // account, including the one assigned to inspect, can only look at it.
+  function jfbd_canVerifyPayments(){
+    return !!jfbdCurrentUser && jfbdCurrentUser.role !== JFBD_ROLE_OFFICER && jfbd_hasPerm('checklist');
+  }
   function jfbd_canFlagWatchlist(){
     return jfbd_hasPerm('watchlist') && !!jfbdCurrentUser && jfbdCurrentUser.role !== JFBD_ROLE_SUPERVISOR;
   }
@@ -30421,6 +30450,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     rec.assignedOfficerName = officer ? officer.name : '';
     rec.assignedAt = officer ? new Date().toISOString() : '';
     rec.assignedBy = officer ? (jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')') : '';
+    rec.assignedByEmail = officer ? String(jfbdCurrentUser.email || '').toLowerCase() : '';
+    // A new/changed assignment starts a fresh inspection cycle.
+    if(rec.officialChecklist){ delete rec.officialChecklist.inspectionReviewedAt; delete rec.officialChecklist.inspectionReviewedBy; }
     // 'Submitted' -> 'Assigned' on a fresh assignment, back again if cleared
     // before any review; never clobber 'Under Review' or a final decision.
     if(officer && rec.status === 'Submitted') rec.status = 'Assigned';
@@ -30453,14 +30485,82 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const rec = await jfbd_getActiveApp();
     if(!rec) return;
     rec.officialChecklist = rec.officialChecklist || {};
+    const wasInspected = !!rec.officialChecklist.inspectionCompleted;
     rec.officialChecklist[key] = !!checked;
     rec.officialChecklist.updatedBy = jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')';
     rec.officialChecklist.updatedDate = new Date().toISOString().slice(0,10);
+    let justInspected = false;
+    if(key === 'inspectionCompleted'){
+      if(checked && !wasInspected){
+        rec.officialChecklist.inspectionCompletedAt = new Date().toISOString();
+        rec.officialChecklist.inspectionCompletedBy = jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')';
+        delete rec.officialChecklist.inspectionReviewedAt;
+        delete rec.officialChecklist.inspectionReviewedBy;
+        justInspected = true;
+      } else if(!checked){
+        delete rec.officialChecklist.inspectionCompletedAt;
+        delete rec.officialChecklist.inspectionCompletedBy;
+        delete rec.officialChecklist.inspectionReviewedAt;
+        delete rec.officialChecklist.inspectionReviewedBy;
+      }
+    }
     await jfbd_saveActiveApp(rec);
+    if(justInspected) await jfbd_notifyInspectionCompleted(rec);
     jfbd_showToast('Checklist updated.');
     jfbd_renderApplicationDetail();
   }
   window.jfbd_toggleChecklistItem = jfbd_toggleChecklistItem;
+
+  // Tell whoever made the assignment that the inspection is done and is
+  // waiting for their review. The assigning person's e-mail is stored on the
+  // application at assignment time (assignedByEmail). For an assignment made
+  // before that was recorded, match the stored "Name (Role)" text against the
+  // branch's staff; failing that, every Superintendent in the branch is told.
+  function jfbd_inspectionNoticeRecipients(rec){
+    if(rec.assignedByEmail) return [String(rec.assignedByEmail).toLowerCase()];
+    const staff = (jfbdStaffUsers || []).filter(u => jfbdCurrentBranch && u.agencyId === jfbdCurrentBranch.id && u.email && u.status === 'Active');
+    const exact = staff.filter(u => (u.name + ' (' + u.role + ')') === rec.assignedBy);
+    if(exact.length) return exact.map(u => String(u.email).toLowerCase());
+    return staff.filter(u => u.role === JFBD_ROLE_SUPERVISOR).map(u => String(u.email).toLowerCase());
+  }
+  async function jfbd_notifyInspectionCompleted(rec){
+    if(!window.atdNotify || !jfbdCurrentBranch) return;
+    const who = (rec.officialChecklist && rec.officialChecklist.inspectionCompletedBy) || rec.assignedOfficerName || 'The assigned officer';
+    const eventName = (rec.eventOverview && rec.eventOverview.eventName) ? ' (' + rec.eventOverview.eventName + ')' : '';
+    const msg = `Inspection completed on ${rec.jfbAppNumber}${eventName} by ${who}. It is awaiting your review.`;
+    const me = String((jfbdCurrentUser && jfbdCurrentUser.email) || '').toLowerCase();
+    const targets = [...new Set(jfbd_inspectionNoticeRecipients(rec))].filter(e => e && e !== me);
+    for(const email of targets){
+      await window.atdNotify(jfbdCurrentBranch.id, null, 'inspection_completed', msg, rec.jfbAppNumber, email);
+    }
+    if(window.atdLogAudit){
+      try{ await window.atdLogAudit({ portal: 'jfb', actor: jfbdCurrentUser.email, actorRole: jfbdCurrentUser.role, action: 'inspection.completed',
+        details: `Inspection completed on ${rec.jfbAppNumber}; awaiting review by ${rec.assignedBy || 'the assigning Superintendent'}.`,
+        muniId: jfbdCurrentBranch.id }); }catch(e){}
+    }
+  }
+
+  // The Superintendent (or Assistant Commissioner) who received the
+  // "awaiting your review" notice clears it here once they have looked over
+  // the completed inspection.
+  async function jfbd_markInspectionReviewed(){
+    if(!jfbdCurrentUser || !(jfbdCurrentUser.role === JFBD_ROLE_CHIEF || jfbdCurrentUser.role === JFBD_ROLE_SUPERVISOR)){
+      jfbd_showToast('Only a Superintendent or the Assistant Commissioner can review an inspection.');
+      return;
+    }
+    const rec = await jfbd_getActiveApp();
+    if(!rec || !rec.officialChecklist || !rec.officialChecklist.inspectionCompleted) return;
+    rec.officialChecklist.inspectionReviewedAt = new Date().toISOString();
+    rec.officialChecklist.inspectionReviewedBy = jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')';
+    await jfbd_saveActiveApp(rec);
+    if(window.atdLogAudit){
+      try{ await window.atdLogAudit({ portal: 'jfb', actor: jfbdCurrentUser.email, actorRole: jfbdCurrentUser.role, action: 'inspection.reviewed',
+        details: `Reviewed the completed inspection on ${rec.jfbAppNumber}.`, muniId: jfbdCurrentBranch ? jfbdCurrentBranch.id : null }); }catch(e){}
+    }
+    jfbd_showToast('Inspection marked as reviewed.');
+    jfbd_renderApplicationDetail();
+  }
+  window.jfbd_markInspectionReviewed = jfbd_markInspectionReviewed;
 
   // ==================== Enhanced Monitoring Required -> Additional Payment ====================
   // Checking "Enhanced Monitoring Required" opens a modal for the officer to
@@ -30549,7 +30649,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // request/receipt flow) rather than inline receipt/notes inputs.
   let jfbdDocumentAddPayIdx = null;
   async function jfbd_openDocumentAddPayModal(idx){
-    if(!jfbd_hasPerm('checklist')){
+    if(!jfbd_canVerifyPayments()){
       jfbd_showToast("You don't have permission to document this payment.");
       return;
     }
@@ -30819,8 +30919,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(JFBD_REVIEWABLE_DOC_KINDS.includes(kind)){
       document.getElementById('jfbd_docStatusRow').innerHTML = `<span class="badge ${jfbd_docStatusBadgeClass(status)}">${status}</span>` +
         (status === 'Rejected' && officerNote ? `<div class="readback-row">Previous note: ${acctEscapeHtml(officerNote)}</div>` : '');
-      const canReviewDoc = jfbd_hasPerm('checklist');
-      document.getElementById('jfbd_docNoteGroup').classList.remove('hidden');
+      const paymentReadOnly = kind === 'paymentReceipt' && !jfbd_canVerifyPayments();
+      const canReviewDoc = jfbd_hasPerm('checklist') && !paymentReadOnly;
+      if(!paymentReadOnly) document.getElementById('jfbd_docNoteGroup').classList.remove('hidden');
       document.getElementById('jfbd_docNoteInput').value = officerNote || '';
       const actions = document.getElementById('jfbd_docModalActions');
       // Approve/Reject show whenever the officer has permission — NOT gated
@@ -30839,6 +30940,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <button class="btn btn-success btn-sm" onclick="jfbd_approveDoc()">✔ Approve document</button>
           <button class="btn btn-danger btn-sm" onclick="jfbd_rejectDoc()">✖ Reject &amp; require re-upload</button>
           <button class="btn btn-sm" onclick="jfbd_saveDocNote()">Save note only</button>` + downloadBtnHtml;
+      } else if(paymentReadOnly){
+        actions.innerHTML = `<p class="no-permission-note">Proof of payment is read-only for you. A Superintendent or the Assistant Commissioner verifies it.</p>` + downloadBtnHtml;
       } else {
         actions.innerHTML = `<p class="no-permission-note">You don't have permission to review documents.</p>` + downloadBtnHtml;
       }
@@ -30907,6 +31010,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   async function jfbd_updateDocStatus(newStatus){
     const kind = jfbdActiveDocKind;
     if(!kind) return;
+    if(kind === 'paymentReceipt' && !jfbd_canVerifyPayments()){
+      jfbd_showToast('Proof of payment is verified by a Superintendent or the Assistant Commissioner.');
+      return;
+    }
     const rec = await jfbd_getActiveApp();
     if(!rec) return;
     const note = document.getElementById('jfbd_docNoteInput').value.trim();
