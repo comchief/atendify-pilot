@@ -1656,6 +1656,14 @@
   .doc-row .doc-actions{ display:flex; align-items:center; justify-content:flex-end; gap:8px; flex:0 0 auto; }
   .doc-row .doc-actions .btn{ min-width:92px; justify-content:center; text-align:center; white-space:nowrap; margin:0; }
   .doc-row .doc-actions .badge{ white-space:nowrap; }
+  /* Rows whose left side is an answer (not a file name): let long answers wrap
+     under the status tag instead of being cut off with an ellipsis. */
+  .doc-row .doc-line.wrap-line{ flex-wrap:wrap; row-gap:4px; }
+  .doc-row .doc-name.wrap-name{ white-space:normal; overflow:visible; text-overflow:clip; }
+  /* Compact review buttons for the answer rows so the answer keeps most of the width. */
+  .doc-row .doc-line.wrap-line ~ * , .doc-row .doc-main:has(.wrap-line) + .doc-actions .btn{ min-width:78px; padding:5px 10px; font-size:12.5px; }
+  .doc-row .doc-main:has(.wrap-line){ flex:1 1 0; min-width:150px; }
+  .detail-row.doc-row .dr-label{ padding-right:12px; }
   @media (max-width: 700px){
     .detail-row.doc-row .dr-value{ flex-direction:column; align-items:flex-start; }
     .doc-row .doc-actions{ justify-content:flex-start; flex-wrap:wrap; }
@@ -8507,6 +8515,26 @@
   // same class of bug: without a staff_invites row, a real signup for this
   // email defaults to a public 'poa' account instead of 'jfbd', and
   // jfbd_attemptLogin's `profile.role !== 'jfbd'` check throws).
+  // Filings saved by an earlier build stored the form's own field names
+  // (eventOverview.jfbF_eventType, venueInfo.jfbF_venueAddress, ...) where every
+  // reader (officer detail, lists, dashboard, Main Menu, Municipal view) expects
+  // the plain names (eventType, venueAddress, ...), so the reviewing officer saw
+  // blanks. New filings are saved with the plain names; this copies the old
+  // prefixed values onto the plain names when reading an older filing.
+  window.atdJfbNormalize = function(rec){
+    if(!rec || typeof rec !== 'object') return rec;
+    ['eventOverview', 'venueInfo'].forEach(function(sec){
+      var o = rec[sec];
+      if(!o || typeof o !== 'object') return;
+      Object.keys(o).forEach(function(k){
+        if(k.indexOf('jfbF_') !== 0) return;
+        var plain = k.slice(5);
+        if(plain && (o[plain] === undefined || o[plain] === null || o[plain] === '')) o[plain] = o[k];
+      });
+    });
+    return rec;
+  };
+
   window.atdProvisionJfbdChief = async function(agencyRecord){
     const existing = await window.atdLoadJfbdUsers();
     const newId = existing.length ? Math.max.apply(null, existing.map(u => u.id)) + 1 : 1;
@@ -27449,7 +27477,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         try{
           const r = await window.storage.get(key, true);
           if(r && r.value){
-            const rec = JSON.parse(r.value);
+            const rec = window.atdJfbNormalize(JSON.parse(r.value));
             // String(...) coercion — see jfbd_jurisdictionMuniId(); a
             // record's muniId can come back as a JSON string (e.g. seeded
             // via SQL, where it's derived from a Postgres text column) even
@@ -28184,7 +28212,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(!jfbdActiveAppKey || !window.storage) return null;
     try{
       const r = await window.storage.get(jfbdActiveAppKey, true);
-      return r && r.value ? JSON.parse(r.value) : null;
+      return r && r.value ? window.atdJfbNormalize(JSON.parse(r.value)) : null;
     } catch(e){ return null; }
   }
   async function jfbd_saveActiveApp(rec){
@@ -28438,10 +28466,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const hasFile = !!fileName;
     const naClaim = !hasFile && !!isNa;
     const effectiveStatus = hasFile ? (status || 'Submitted') : (naClaim ? (status || 'Not Applicable') : 'Not Uploaded');
-    const badge = (hasFile || naClaim) ? ` <span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = (hasFile || naClaim) ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jfbd_openDocModal('${kind}')">Review</button>` : '';
+    const badge = (hasFile || naClaim) ? `<span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
+    const btn = (hasFile || naClaim) ? `<button class="btn btn-sm" onclick="jfbd_openDocModal('${kind}')">Review</button>` : '';
     const shown = fileName || (naClaim ? 'Marked not applicable by the applicant' : 'Not uploaded');
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(shown)}${badge}${btn}</div></div>`;
+    return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+      `<div class="doc-main"><div class="doc-line wrap-line"><span class="doc-name wrap-name">${acctEscapeHtml(shown)}</span>${badge}</div></div>` +
+      `<div class="doc-actions">${btn}</div></div></div>`;
   }
 
   // Like jfbd_detailRowDoc above, but for a document the MUNICIPALITY (not
@@ -28456,9 +28486,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   function jfbd_detailRowDocViewOnly(label, fileName, status, kind){
     const hasFile = !!fileName;
     const effectiveStatus = hasFile ? (status || 'Submitted') : 'Not Uploaded';
-    const badge = hasFile ? ` <span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jfbd_openDocModal('${kind}')">View</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(fileName || 'Not uploaded')}${badge}${btn}</div></div>`;
+    const badge = hasFile ? `<span class="badge ${jfbd_docStatusBadgeClass(effectiveStatus)}">${effectiveStatus}</span>` : '';
+    const btn = hasFile ? `<button class="btn btn-sm" onclick="jfbd_openDocModal('${kind}')">View</button>` : '';
+    return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+      `<div class="doc-main"><div class="doc-line wrap-line"><span class="doc-name wrap-name">${acctEscapeHtml(fileName || 'Not uploaded')}</span>${badge}</div></div>` +
+      `<div class="doc-actions">${btn}</div></div></div>`;
   }
 
   // Annual variant of jfbd_renderSubmissionColumn — reads the
@@ -28600,8 +28632,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // Same as jfbd_detailRow() but with a "View" button in the value cell that
   // opens jfbd_docModal for the given kind ('photoId' | 'flyer' | 'signature').
   function jfbd_detailRowAction(label, valueText, kind, hasFile){
-    const btn = hasFile ? ` <button class="btn btn-sm" style="margin-left:8px;" onclick="jfbd_openDocModal('${kind}')">View</button>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}${btn}</div></div>`;
+    const btn = hasFile ? `<button class="btn btn-sm" onclick="jfbd_openDocModal('${kind}')">View</button>` : '';
+    return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+      `<div class="doc-main"><div class="doc-line wrap-line"><span class="doc-name wrap-name">${acctEscapeHtml(valueText == null || valueText === '' ? '—' : String(valueText))}</span></div></div>` +
+      `<div class="doc-actions">${btn}</div></div></div>`;
   }
 
   // Fire Safety Details — per-answer Confirm/Reject (added per instruction so
@@ -28618,14 +28652,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const item = (vi.fireSafetyReview && vi.fireSafetyReview[key]) || {};
     const status = item.status || '';
     const badge = status
-      ? ` <span class="badge ${status === 'Confirmed' ? 'badge-green' : 'badge-red'}">${status}</span>`
-      : ` <span class="badge badge-gray">Not reviewed</span>`;
+      ? `<span class="badge ${status === 'Confirmed' ? 'badge-green' : 'badge-red'}">${status}</span>`
+      : `<span class="badge badge-gray">Not reviewed</span>`;
     const canReview = jfbd_hasPerm('checklist');
-    const actions = canReview ? `<div style="margin-top:6px;">
-        <button class="btn btn-sm ${status === 'Confirmed' ? 'btn-success' : ''}" onclick="jfbd_reviewFireSafetyItem('${key}','Confirmed')">✔ Confirm</button>
-        <button class="btn btn-sm ${status === 'Rejected' ? 'btn-danger' : ''}" onclick="jfbd_reviewFireSafetyItem('${key}','Rejected')" style="margin-left:6px;">✖ Reject</button>
-      </div>` : '';
-    return `<div class="detail-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">${acctEscapeHtml(value == null || value === '' ? '—' : String(value))}${badge}${actions}</div></div>`;
+    const actions = canReview
+      ? `<button class="btn btn-sm ${status === 'Confirmed' ? 'btn-success' : ''}" onclick="jfbd_reviewFireSafetyItem('${key}','Confirmed')">✔ Confirm</button>` +
+        `<button class="btn btn-sm ${status === 'Rejected' ? 'btn-danger' : ''}" onclick="jfbd_reviewFireSafetyItem('${key}','Rejected')">✖ Reject</button>`
+      : '';
+    // Same row pattern as the document rows (see .doc-row): answer + status tag on
+    // the left, the two review buttons aligned in one column on the right.
+    return `<div class="detail-row doc-row"><div class="dr-label">${acctEscapeHtml(label)}</div><div class="dr-value">` +
+      `<div class="doc-main"><div class="doc-line wrap-line"><span class="doc-name wrap-name">${acctEscapeHtml(value == null || value === '' ? '—' : String(value))}</span>${badge}</div></div>` +
+      `<div class="doc-actions">${actions}</div></div></div>`;
   }
 
   // Records this officer's Confirm/Reject decision on one Fire Safety
@@ -36229,7 +36267,7 @@ async function poa_findLinkedJfbApplication(poaAppNumber){
   if(currentAppRecord && currentAppRecord.trackingCode && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.trackLinkedJfbApplication){
     try{
       const rpcRec = await window.ATDBackend.trackLinkedJfbApplication(poaAppNumber, currentAppRecord.trackingCode);
-      if(rpcRec && rpcRec.poaAppNumber === poaAppNumber) return rpcRec;
+      if(rpcRec && rpcRec.poaAppNumber === poaAppNumber) return window.atdJfbNormalize ? window.atdJfbNormalize(rpcRec) : rpcRec;
     } catch(err){ /* fall through to the plain read below */ }
   }
   if(!window.storage) return null;
@@ -36237,7 +36275,7 @@ async function poa_findLinkedJfbApplication(poaAppNumber){
     const result = await window.storage.get(`jfbApplication:${poaAppNumber}`, true);
     if(result && result.value){
       const rec = JSON.parse(result.value);
-      if(rec.poaAppNumber === poaAppNumber) return rec;
+      if(rec.poaAppNumber === poaAppNumber) return window.atdJfbNormalize ? window.atdJfbNormalize(rec) : rec;
     }
   } catch(err){ /* no linked Fire Safety Certificate application available */ }
   return null;
@@ -46005,7 +46043,7 @@ async function muni_findLinkedJfbApplication(poaAppNumber){
     const result = await window.storage.get(`jfbApplication:${poaAppNumber}`, true);
     if(result && result.value){
       const rec = JSON.parse(result.value);
-      if(rec.poaAppNumber === poaAppNumber) return rec;
+      if(rec.poaAppNumber === poaAppNumber) return window.atdJfbNormalize ? window.atdJfbNormalize(rec) : rec;
     }
   } catch(err){ /* no linked JFB application available */ }
   return null;
@@ -60076,18 +60114,18 @@ async function submitJfbApp(){
     permitGenerated: false,
     permit: null,
     eventOverview: {
-      jfbF_eventType: jfbRadioVal('jfbF_eventType'),
-      jfbF_dateOfApplication: jfb_val('jfbF_dateOfApplication'),
-      jfbF_dateOfEvent: jfb_val('jfbF_dateOfEvent'),
+      eventType: jfbRadioVal('jfbF_eventType'),
+      dateOfApplication: jfb_val('jfbF_dateOfApplication'),
+      dateOfEvent: jfb_val('jfbF_dateOfEvent'),
       eventName: jfb_val('jfbEventName'),
-      jfbF_promoterName: jfb_val('jfbF_promoterName'),
-      jfbF_aliases: jfb_val('jfbF_aliases'),
-      jfbF_dateOfBirth: jfb_val('jfbF_dateOfBirth'),
-      jfbF_ageOfPromoter: jfb_val('jfbF_ageOfPromoter'),
+      promoterName: jfb_val('jfbF_promoterName'),
+      aliases: jfb_val('jfbF_aliases'),
+      dateOfBirth: jfb_val('jfbF_dateOfBirth'),
+      ageOfPromoter: jfb_val('jfbF_ageOfPromoter'),
       phoneNumber: jfb_val('jfbF_promoterPhone'),
       trn: jfb_val('jfbF_promoterTrn'),
       addr1: jfb_val('jfbF_promoterAddr1'), addr2: jfb_val('jfbF_promoterAddr2'), district: jfb_val('jfbF_promoterDistrict'), parish: jfb_val('jfbF_promoterParish'),
-      jfbF_patronsExpected: jfb_val('jfbF_patronsExpected'),
+      patronsExpected: jfb_val('jfbF_patronsExpected'),
       // photoIdFileData intentionally NOT embedded here — see the note
       // above the storage.set() calls below.
       photoIdFileName,
@@ -60100,10 +60138,10 @@ async function submitJfbApp(){
     },
     venueInfo: {
       venueName: jfb_val('jfb_venueName'),
-      jfbF_venueAddress: jfb_val('jfbF_venueAddress'),
-      jfbF_venueOwner: jfb_val('jfbF_venueOwner'),
-      jfbF_ownerContact: jfb_val('jfbF_ownerContact'),
-      jfbF_ownerAddress: jfb_val('jfbF_ownerAddress'),
+      venueAddress: jfb_val('jfbF_venueAddress'),
+      venueOwner: jfb_val('jfbF_venueOwner'),
+      ownerContact: jfb_val('jfbF_ownerContact'),
+      ownerAddress: jfb_val('jfbF_ownerAddress'),
       // Whichever checklist applied (fire protection equipment for an
       // Indoor event, hazardous substances/materials for an Outdoor one —
       // see jfb_renderFireSafetySection()) — only one is ever visible at a
