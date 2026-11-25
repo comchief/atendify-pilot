@@ -37997,28 +37997,54 @@ function renderMmFire(){
   const vi = jfbApp.venueInfo || {};
   const fs = jfbApp.fireSafety || {};
 
+  // The filing stores the form's own field names (jfbF_eventType,
+  // jfbF_promoterName, jfbF_venueAddress, ...); older plain names are kept as
+  // fallbacks so earlier filings still show their values.
+  const pick = (o, ...keys) => { for(const k of keys){ if(o && o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k]; } return ''; };
+  const list = a => (Array.isArray(a) && a.length) ? a.join(', ') : '';
+  const promoterAddress = [eo.addr1, eo.addr2, eo.district, eo.parish].filter(Boolean).join(', ');
+
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Event Overview</div>`;
-  html += mmDetailRow('Type of event', eo.eventType);
-  html += mmDetailRow('Date of event', eo.dateOfEvent);
-  html += mmDetailRow('Promoter', eo.promoterName);
+  html += mmDetailRow('Event name', pick(eo, 'eventName'));
+  html += mmDetailRow('Type of event', pick(eo, 'jfbF_eventType', 'eventType'));
+  html += mmDetailRow('Date of event', pick(eo, 'jfbF_dateOfEvent', 'dateOfEvent'));
+  html += mmDetailRow('Promoter', pick(eo, 'jfbF_promoterName', 'promoterName'));
   html += mmDetailRow('Promoter phone', eo.phoneNumber);
   html += mmDetailRow('Promoter TRN', eo.trn);
-  html += mmDetailRow('Expected patrons', eo.patronsExpected);
+  html += mmDetailRow('Promoter address', promoterAddress);
+  html += mmDetailRow('Expected patrons', pick(eo, 'jfbF_patronsExpected', 'patronsExpected'));
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Venue Information</div>`;
   html += mmDetailRow('Venue name', vi.venueName);
-  html += mmDetailRow('Address', vi.venueAddress || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
-  html += mmDetailRow("Venue's owner", vi.venueOwner);
-  html += mmDetailRow('Owner contact', vi.ownerContact);
+  html += mmDetailRow('Address', pick(vi, 'jfbF_venueAddress', 'venueAddress') || [vi.venueAddr1, vi.venueAddr2, vi.venueDistrict, vi.venueParish].filter(Boolean).join(', '));
+  html += mmDetailRow("Venue's owner", pick(vi, 'jfbF_venueOwner', 'venueOwner'));
+  html += mmDetailRow('Owner contact', pick(vi, 'jfbF_ownerContact', 'ownerContact'));
+  html += mmDetailRow('Venue status', vi.venueStatus);
+  if(vi.annualFireCertification){
+    html += mmDetailRow('Annual fire certification', vi.annualFireCertification + (vi.fireCertificateFromVenueDatabase ? ' (from the venue database)' : ''));
+    if(vi.fireCertificateNumber || vi.fireCertificateExpiry){
+      html += mmDetailRow('Fire certificate', [vi.fireCertificateNumber ? 'No. ' + vi.fireCertificateNumber : '', vi.fireCertificateExpiry ? 'Expires ' + vi.fireCertificateExpiry : ''].filter(Boolean).join(' · '));
+    }
+  }
   html += `</div>`;
 
+  // Fire Safety Details: the answers actually collected on the form. (This
+  // section used to read occupantLoad/exitCount/... fields the form never
+  // collected, so it always showed N/A.)
+  const equip = list(vi.fireEquipment) || (vi.fireEquipment === undefined ? list(vi.fireEquipmentOrHazmat) : '');
+  const haz = list(vi.hazardousMaterials);
+  const yn = (v, detail) => v ? (v + (v === 'Yes' && detail ? ': ' + detail : '')) : '';
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Fire Safety Details</div>`;
-  html += mmDetailRow('Occupant load / maximum capacity', fs.occupantLoad);
-  html += mmDetailRow('Means of egress (number of exits)', fs.exitCount);
-  html += mmDetailRow('Portable fire extinguishers on site', fs.extinguishers);
-  html += mmDetailRow('Fire alarm / detection system', fs.alarmSystem);
-  html += mmDetailRow('Emergency lighting', fs.emergencyLighting);
+  if(equip || vi.fireEquipment) html += mmDetailRow('Fire protection equipment at venue', equip || 'None selected');
+  if(haz || vi.hazardousMaterials) html += mmDetailRow('Hazardous substances/materials at venue', haz || 'None selected');
+  html += mmDetailRow('Fireworks at this event', yn(vi.fireworks, [vi.fireworksCompany, vi.fireworksTime, vi.fireworksDuration].filter(Boolean).join(' · ')));
+  html += mmDetailRow('Open fire for cooking/other purposes', yn(vi.openFire, vi.openFireDesc));
+  html += mmDetailRow('Multi-story building (exceeding 2 floors)', yn(vi.multiStory, vi.multiStoryFloors ? vi.multiStoryFloors + ' floors' : ''));
+  if(vi.groundFloorOnly) html += mmDetailRow('Ground floor only', vi.groundFloorOnly);
+  if(vi.parkingLocation) html += mmDetailRow('Parking location', vi.parkingLocation);
+  html += mmDetailRow('Multiple exits', vi.multipleExits);
+  html += mmDetailRow('Fire truck access', vi.fireTruckAccess);
   html += `</div>`;
 
   html += `<div class="mm-summary-section"><div class="mm-summary-section-title">Decision</div>`;
