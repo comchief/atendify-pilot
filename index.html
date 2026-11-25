@@ -17584,7 +17584,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
                 <option>Active</option>
                 <option>Cleared</option>
               </select>
-              <button class="btn btn-primary" onclick="jfbd_openWatchlistAddModal()">+ Flag someone</button>
+              <button class="btn btn-primary" id="jfbd_watchlistFlagBtn" onclick="jfbd_openWatchlistAddModal()">+ Flag someone</button>
             </div>
           </div>
           <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 18px;">Flags recorded by your division. Cross-checked by TRN against the Municipal Corporation's and the JCF's own watchlists.</p>
@@ -28830,6 +28830,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     // which would have permanently locked every Officer/Station account out
     // of every application now that nothing ever sets assignedOfficerId.
     const isOfficer = jfbdCurrentUser.role === JFBD_ROLE_OFFICER;
+    jfbdAssignedToMe = !!(rec.assignedOfficerId && rec.assignedOfficerId === jfbdCurrentUser.id);
 
     // Keep the reference number visible in the sticky topbar too, so it
     // stays on screen even after the officer scrolls down into the
@@ -28900,18 +28901,57 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += `<div class="official-card"><div class="status-banner bad">This application was rejected${rec.finalDecision ? ': ' + acctEscapeHtml(rec.finalDecision) : ''}. Use "Reopen for Review" below to make further changes.</div></div>`;
     } else {
 
-    // Assignment card removed per instruction — every application in the
-    // division's jurisdiction is directly visible/actionable to any signed-in
-    // JFB staff member (subject to the Role Permissions matrix below), rather
-    // than being dispatched to a named officer first. jfbd_assignOfficer()/
-    // rec.assignedOfficerId/rec.assignedOfficerName are kept as dead fields
-    // elsewhere in this file (status-stepper fallback math, SLA rule labels)
-    // for backward compatibility with already-issued applications that still
-    // carry them, but nothing writes them anymore.
+    // Assignment card (Special Event filings). A Superintendent -- or the Assistant
+    // Commissioner -- assigns an officer/station, and that officer is then required
+    // to carry out the inspection. Superintendent and officer/station accounts see
+    // the inspection checklist here: Venue Documents Confirmed, Venue & Fire Safety
+    // Details Confirmed (both fill in as the documents and fire safety answers are
+    // confirmed), Event Venue Satisfactory and Inspection Completed (ticked by the
+    // assigned officer). The Assistant Commissioner has the full Official Use
+    // Checklist card below instead.
+    if(!isAnnualFiling){
+      const cl = rec.officialChecklist || {};
+      const auto = autoChecklist;
+      const isChiefUser = jfbdCurrentUser.role === JFBD_ROLE_CHIEF;
+      const officers = jfbd_branchOfficers();
+      html += `<div class="official-card">
+        <h4>Assignment</h4>
+        <p class="col-desc">Assigned to: <strong>${acctEscapeHtml(rec.assignedOfficerName || 'Unassigned')}</strong>${rec.assignedAt ? ' <span class="cell-sub">since ' + acctEscapeHtml(String(rec.assignedAt).slice(0,10)) + (rec.assignedBy ? ' by ' + acctEscapeHtml(rec.assignedBy) : '') + '</span>' : ''}</p>`;
+      if(canManage){
+        html += `<div class="field-row"><div class="field-group"><label for="jfbd_assignSelect">Assign to</label>
+            <select id="jfbd_assignSelect" style="width:100%;">
+              <option value="">${officers.length ? 'Select an officer/station' : 'No officer/station accounts yet'}</option>
+              ${officers.map(o => `<option value="${atdH(o.id)}" ${rec.assignedOfficerId===o.id?'selected':''}>${acctEscapeHtml(o.name)}</option>`).join('')}
+            </select></div></div>
+          <button class="btn btn-primary btn-sm" onclick="jfbd_assignOfficer()">${rec.assignedOfficerId ? 'Reassign' : 'Assign'}</button>
+          <p class="col-desc" style="margin-top:8px;">Once assigned, that officer/station is required to carry out the inspection.</p>`;
+      }
+      if(isOfficer && jfbdAssignedToMe){
+        html += `<div class="status-banner warn" style="margin-top:10px;">This inspection is assigned to you. Review the venue documents and fire safety answers, then complete the checklist below.</div>`;
+      } else if(isOfficer){
+        html += `<p class="no-permission-note" style="margin-top:8px;">This application is ${rec.assignedOfficerName ? 'assigned to ' + acctEscapeHtml(rec.assignedOfficerName) : 'not assigned yet'}. Only the assigned officer/station completes the inspection.</p>`;
+      }
+      if(!isChiefUser){
+        const autoRowA = (checked, label, sub) => `<label class="checkbox-row" style="cursor:default;"><input type="checkbox" disabled ${checked ? 'checked' : ''}><span>${acctEscapeHtml(label)} <span class="cell-sub" style="display:block;">${acctEscapeHtml(sub)}</span></span></label>`;
+        const canTick = isOfficer && jfbdAssignedToMe;
+        html += `<div class="section-title" style="margin:16px 0 8px; font-size:14px;">Inspection checklist</div>`;
+        html += autoRowA(auto.venueDocumentsConfirmed, 'Venue Documents Confirmed', 'Fills in once both the Venue Layout/Outline/Floor Plan and the Venue Coordination Plan are approved (or accepted as not applicable).');
+        html += autoRowA(auto.venueFireSafetyDetailsConfirmed, 'Venue & Fire Safety Details Confirmed', 'Fills in once every answer on the Fire Safety Details panel has been Confirmed.');
+        html += `<label class="checkbox-row"><input type="checkbox" ${cl.eventVenueSatisfactory ? 'checked' : ''} ${canTick ? '' : 'disabled'} onchange="jfbd_toggleChecklistItem('eventVenueSatisfactory', this.checked)"> Event Venue Satisfactory</label>`;
+        html += `<label class="checkbox-row"><input type="checkbox" ${cl.inspectionCompleted ? 'checked' : ''} ${canTick ? '' : 'disabled'} onchange="jfbd_toggleChecklistItem('inspectionCompleted', this.checked)"> Inspection Completed</label>`;
+        if(!rec.assignedOfficerId){
+          html += `<p class="no-permission-note" style="margin-top:8px;">Assign an officer/station to carry out the inspection.</p>`;
+        } else if(!canTick){
+          html += `<p class="no-permission-note" style="margin-top:8px;">${acctEscapeHtml(rec.assignedOfficerName)} completes Event Venue Satisfactory and Inspection Completed.</p>`;
+        }
+        if(cl.updatedBy) html += `<div class="readback-row">Last updated by ${acctEscapeHtml(cl.updatedBy)} on ${acctEscapeHtml(cl.updatedDate || '')}</div>`;
+      }
+      html += `</div>`;
+    }
 
     // Official Use Checklist card — must be checked by a Superintendent
     // (or a Chief, who always has full access).
-    {
+    if(isAnnualFiling || jfbdCurrentUser.role === JFBD_ROLE_CHIEF){
       const cl = rec.officialChecklist || {};
       const canCheck = jfbd_hasPerm('checklist');
       html += `<div class="official-card">
@@ -29067,11 +29107,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
             ${flagNotes.join('')}</div>
             <div class="action-btn-row">
               ${jfbEntry ? `<button class="btn btn-sm" onclick='jfbd_openWatchlistViewModal(${JSON.stringify(subj.trn)})'>View JFB file</button>` : ''}
-              ${jfbd_hasPerm('watchlist') && jfbEntry && jfbEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jfbd_unflagFromCard(${JSON.stringify(subj.trn)})'>Unflag</button>` : ''}
-              ${jfbd_hasPerm('watchlist') && (!jfbEntry || jfbEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jfbd_openWatchlistAddModal(${JSON.stringify({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
+              ${jfbd_canFlagWatchlist() && jfbEntry && jfbEntry.status === 'Active' ? `<button class="btn btn-sm" onclick='jfbd_unflagFromCard(${JSON.stringify(subj.trn)})'>Unflag</button>` : ''}
+              ${jfbd_canFlagWatchlist() && (!jfbEntry || jfbEntry.status !== 'Active') ? `<button class="btn btn-danger btn-sm" onclick='jfbd_openWatchlistAddModal(${JSON.stringify({fullName:subj.name, type:subj.type, trn:subj.trn})})'>Flag</button>` : ''}
             </div></div>`;
         }
-        if(!jfbd_hasPerm('watchlist')){
+        if(jfbdCurrentUser.role === JFBD_ROLE_SUPERVISOR){
+          html += `<p class="no-permission-note" style="margin-top:8px;">You can see who is flagged here. Flagging and unflagging is handled by the Assistant Commissioner.</p>`;
+        } else if(!jfbd_hasPerm('watchlist')){
           html += `<p class="no-permission-note" style="margin-top:8px;">You don't have permission to manage the JFB Watch List.</p>`;
         }
       }
@@ -29855,12 +29897,27 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   };
   let jfbdRolePermissions = JSON.parse(JSON.stringify(JFBD_ROLE_PERMISSION_DEFAULTS));
 
+  // True while the application on screen is assigned to the signed-in
+  // officer/station: the officer carrying out the inspection can then review
+  // that application's venue documents and fire safety answers and complete
+  // the inspection checklist, whatever the role matrix says for the role in
+  // general. Set each time an application detail renders.
+  let jfbdAssignedToMe = false;
+
   function jfbd_hasPerm(key){
     if(!jfbdCurrentUser) return false;
     if(jfbdCurrentUser.role === JFBD_ROLE_CHIEF) return true;
+    if(key === 'checklist' && jfbdAssignedToMe) return true;
     return !!(jfbdRolePermissions && jfbdRolePermissions[jfbdCurrentUser.role] && jfbdRolePermissions[jfbdCurrentUser.role][key]);
   }
   window.jfbd_hasPerm = jfbd_hasPerm;
+
+  // A Superintendent can SEE who is flagged (the Watch List card and the Watch
+  // List tab) but cannot flag, unflag, clear or reactivate anyone -- that stays
+  // with the Assistant Commissioner, whatever the role matrix says.
+  function jfbd_canFlagWatchlist(){
+    return jfbd_hasPerm('watchlist') && !!jfbdCurrentUser && jfbdCurrentUser.role !== JFBD_ROLE_SUPERVISOR;
+  }
 
   async function jfbd_loadRolePermissions(){
     jfbdRolePermissions = JSON.parse(JSON.stringify(JFBD_ROLE_PERMISSION_DEFAULTS));
@@ -29921,6 +29978,8 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const slaBreachesNav = document.getElementById('jfbd_navSlaBreaches');
     if(slaBreachesNav) slaBreachesNav.classList.toggle('hidden', !jfbd_hasPerm('slaBreaches'));
     if(watchNav) watchNav.classList.toggle('hidden', !jfbd_hasPerm('watchlist'));
+    const watchFlagBtn = document.getElementById('jfbd_watchlistFlagBtn');
+    if(watchFlagBtn) watchFlagBtn.classList.toggle('hidden', !jfbd_canFlagWatchlist());
     if(permitsNav) permitsNav.classList.toggle('hidden', !jfbd_hasPerm('permits'));
     if(sigNav) sigNav.classList.toggle('hidden', !jfbd_hasPerm('signatures'));
     if(reportsNav) reportsNav.classList.toggle('hidden', !jfbd_hasPerm('reports'));
@@ -30339,8 +30398,53 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     return 'Submitted';
   }
 
+  // ==================== Assignment ====================
+  // A Superintendent (or the Assistant Commissioner) assigns an officer/station
+  // to carry out the inspection of this application. The assigned officer then
+  // completes the inspection checklist on the Assignment card.
+  function jfbd_branchOfficers(){
+    return (jfbdStaffUsers || []).filter(u => jfbdCurrentBranch && u.agencyId === jfbdCurrentBranch.id && u.role === JFBD_ROLE_OFFICER && u.status === 'Active');
+  }
+  async function jfbd_assignOfficer(){
+    if(!jfbdCurrentUser || !(jfbdCurrentUser.role === JFBD_ROLE_CHIEF || jfbdCurrentUser.role === JFBD_ROLE_SUPERVISOR)){
+      jfbd_showToast('Only a Superintendent or the Assistant Commissioner can assign an officer.');
+      return;
+    }
+    const rec = await jfbd_getActiveApp();
+    if(!rec) return;
+    const sel = document.getElementById('jfbd_assignSelect');
+    const officerId = sel ? parseInt(sel.value, 10) : NaN;
+    const officer = jfbd_branchOfficers().find(u => u.id === officerId) || null;
+    if(!officer && sel && sel.value){ jfbd_showToast('That officer could not be found.'); return; }
+    const previous = rec.assignedOfficerName || '';
+    rec.assignedOfficerId = officer ? officer.id : null;
+    rec.assignedOfficerName = officer ? officer.name : '';
+    rec.assignedAt = officer ? new Date().toISOString() : '';
+    rec.assignedBy = officer ? (jfbdCurrentUser.name + ' (' + jfbdCurrentUser.role + ')') : '';
+    // 'Submitted' -> 'Assigned' on a fresh assignment, back again if cleared
+    // before any review; never clobber 'Under Review' or a final decision.
+    if(officer && rec.status === 'Submitted') rec.status = 'Assigned';
+    else if(!officer && rec.status === 'Assigned') rec.status = 'Submitted';
+    await jfbd_saveActiveApp(rec);
+    if(window.atdLogAudit){
+      await window.atdLogAudit({ portal: 'jfb', actor: jfbdCurrentUser.email, actorRole: jfbdCurrentUser.role, action: officer ? 'application.assign' : 'application.unassign',
+        details: officer ? `Assigned ${rec.jfbAppNumber} to ${officer.name} for inspection${previous ? ' (was ' + previous + ')' : ''}.` : `Cleared the assignment on ${rec.jfbAppNumber}.`,
+        muniId: jfbdCurrentBranch ? jfbdCurrentBranch.id : null });
+    }
+    jfbd_showToast(officer ? `Assigned to ${officer.name}. They are required to carry out the inspection.` : 'Assignment cleared.');
+    jfbd_renderApplicationDetail();
+  }
+  window.jfbd_assignOfficer = jfbd_assignOfficer;
+
   // ==================== Official Use Checklist ====================
   async function jfbd_toggleChecklistItem(key, checked){
+    // The inspection items belong to the officer/station the Superintendent
+    // assigned; a Superintendent does not tick them on that officer's behalf.
+    if(jfbdCurrentUser && jfbdCurrentUser.role === JFBD_ROLE_SUPERVISOR && (key === 'eventVenueSatisfactory' || key === 'inspectionCompleted')){
+      jfbd_showToast('The assigned officer/station carries out the inspection and completes this item.');
+      jfbd_renderApplicationDetail();
+      return;
+    }
     if(!jfbd_hasPerm('checklist')){
       jfbd_showToast("You don't have permission to complete this checklist.");
       jfbd_renderApplicationDetail();
@@ -31191,7 +31295,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jfbd_openJcfOnlyWatchlistViewModal = jfbd_openJcfOnlyWatchlistViewModal;
 
   function jfbd_openWatchlistAddModal(prefill){
-    if(!jfbd_hasPerm('watchlist')){
+    if(!jfbd_canFlagWatchlist()){
       jfbd_showToast("You don't have permission to manage the JFB Watch List.");
       return;
     }
@@ -31208,6 +31312,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   window.jfbd_closeWatchlistAddModal = jfbd_closeWatchlistAddModal;
 
   async function jfbd_saveWatchlistEntry(){
+    if(!jfbd_canFlagWatchlist()){ jfbd_showToast("You don't have permission to flag people on the JFB Watch List."); return; }
     const fullName = document.getElementById('jfbd_wlFullName').value.trim();
     const type = document.getElementById('jfbd_wlType').value;
     const trn = jfbd_normalizeTrn(document.getElementById('jfbd_wlTrn').value.trim());
@@ -31283,9 +31388,9 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jfbd_watchlistViewBody').innerHTML = html;
 
     const actions = document.getElementById('jfbd_watchlistViewActions');
-    if(jfbd_hasPerm('watchlist') && w.status === 'Active'){
+    if(jfbd_canFlagWatchlist() && w.status === 'Active'){
       actions.innerHTML = `<button class="btn btn-sm" onclick="jfbd_clearWatchlistFlag()">Clear flag</button>`;
-    } else if(jfbd_hasPerm('watchlist') && w.status === 'Cleared'){
+    } else if(jfbd_canFlagWatchlist() && w.status === 'Cleared'){
       actions.innerHTML = `<button class="btn btn-danger btn-sm" onclick="jfbd_reactivateWatchlistFlag()">Reactivate flag</button>`;
     } else {
       actions.innerHTML = '';
@@ -31305,6 +31410,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
   // card, so both go through the exact same confirm/persist/refresh steps.
   async function jfbd_clearWatchlistFlagForEntry(w){
     if(!w) return false;
+    if(!jfbd_canFlagWatchlist()){ jfbd_showToast("You don't have permission to clear flags on the JFB Watch List."); return false; }
     if(!(await window.atdConfirm(`Clear the JFB flag on ${w.fullName}?`))) return false;
     w.status = 'Cleared';
     w.clearedBy = jfbdCurrentUser.name;
