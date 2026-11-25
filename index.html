@@ -6406,6 +6406,38 @@
       if (res.error) { window.atdShowDebugError('trackLinkedJfbApplication(' + poaAppNumber + ')', res.error); return null; }
       return res.data || null;
     },
+    // The write-side counterpart to trackLinkedJfbApplication() above. After a
+    // Fire Safety Certificate is filed, the applicant's later document saves
+    // (upload / "not applicable" / proof of payment, from the Main Menu Fire
+    // Safety tab) re-save a jfbApplication:<n> row that a guest applicant has
+    // no UPDATE grant on -- the plain storage.set() path for that prefix is
+    // insert-only for a caller with no session, so it failed with a duplicate
+    // key. This goes through atd_save_tracked_jfb_document() (SECURITY
+    // DEFINER, see backend/jfb_applicant_document_saves.sql), which checks the
+    // tracking code server-side and changes only the one document asked for,
+    // only when its current status allows it. Returns true / false, or null
+    // when the function is not installed yet (caller then tries the old path).
+    saveTrackedJfbDocument: async function (poaAppNumber, trackingCode, kind, action, fileName, fileData) {
+      if (!client) return null;
+      try {
+        var res = await atdWithClockSkewRetry(function () {
+          return client.rpc('atd_save_tracked_jfb_document', {
+            p_poa_app_number: poaAppNumber, p_tracking_code: trackingCode, p_kind: kind, p_action: action,
+            p_file_name: fileName || null, p_file_data: fileData || null
+          });
+        });
+        if (res.error) {
+          var code = String(res.error.code || ''), msg = String(res.error.message || '');
+          window.atdShowDebugError('saveTrackedJfbDocument(' + poaAppNumber + ',' + kind + ')', res.error);
+          if (code === 'PGRST202' || code === '42883' || /could not find the function|does not exist/i.test(msg)) return null;
+          return false;
+        }
+        return res.data === true;
+      } catch (e) {
+        window.atdShowDebugError('saveTrackedJfbDocument(' + poaAppNumber + ',' + kind + ')', e);
+        return false;
+      }
+    },
     // The write-side counterpart to trackApplication() above (Fix #26): a
     // guest applicant's very first save of their new application succeeds
     // (a plain INSERT, see isWriteOnceAnonPrefix in set() below), but every
@@ -38155,24 +38187,7 @@ async function mmFirePaymentFileChosen(input){
     return;
   }
 
-  try{
-    jfbApp.payment = jfbApp.payment || {};
-    jfbApp.payment.receiptFileName = file.name;
-    jfbApp.payment.status = 'Submitted';
-    jfbApp.payment.officerNote = '';
-    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
-
-    // Same companion-blob read-modify-write pattern as mmFireDocFileChosen
-    // above -- the receipt image itself lives in jfbApplicationFiles, not
-    // on the main record.
-    let files = {};
-    try{
-      const r = await window.storage.get(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, true);
-      files = (r && r.value) ? JSON.parse(r.value) : {};
-    } catch(e){ /* start fresh if unreadable */ }
-    files.paymentReceiptFileData = fileData;
-    await window.storage.set(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, JSON.stringify(files), true);
-  } catch(e){
+  if(!(await mmFireSaveDocument(jfbApp, 'paymentReceipt', 'upload', file.name, fileData))){
     input.value = '';
     poa_showToast('Could not save your upload — please try again.');
     return;
@@ -38337,6 +38352,7 @@ const MM_FIRE_DOC_KINDS = [
 // Where each document's file name / review status / officer note live on the
 // filing, and the key its file is stored under in jfbApplicationFiles:<n>.
 function mmFireDocFields(kind){
+  if(kind === 'paymentReceipt') return { section: 'payment', name: 'receiptFileName', status: 'status', note: 'officerNote', data: 'paymentReceiptFileData', na: null };
   if(kind === 'photoId') return { section: 'eventOverview', name: 'photoIdFileName', status: 'photoIdStatus', note: 'photoIdOfficerNote', data: 'photoIdFileData', na: null };
   if(kind === 'venueLayout') return { section: 'venueInfo', name: 'venueLayoutFileName', status: 'venueLayoutStatus', note: 'venueLayoutOfficerNote', data: 'venueLayoutFileData', na: 'venueLayoutNotApplicable' };
   return { section: 'venueInfo', name: 'venueCoordFileName', status: 'venueCoordStatus', note: 'venueCoordOfficerNote', data: 'venueCoordFileData', na: 'venueCoordNotApplicable' };
@@ -38387,6 +38403,48 @@ function renderMmFireDocuments(){
 }
 window.renderMmFireDocuments = renderMmFireDocuments;
 
+// One place that saves an applicant's change to a Fire Safety document
+// (action: 'upload' | 'not_applicable' | 'undo_not_applicable'). With the real
+// backend it goes through the tracking-code-checked server function, which
+// works for a guest as well as a signed-in applicant. Where that function is
+// not installed yet, or there is no backend (local mode), it falls back to the
+// direct record write used before. Returns true when saved.
+async function mmFireSaveDocument(jfbApp, kind, action, fileName, fileData){
+  const backend = window.ATDBackend;
+  if(backend && backend.isConfigured() && backend.saveTrackedJfbDocument && currentAppRecord && currentAppRecord.trackingCode){
+    const r = await backend.saveTrackedJfbDocument(currentAppRecord.appNumber, currentAppRecord.trackingCode, kind, action, fileName, fileData);
+    if(r === true) return true;
+    if(r === false) return false;
+    // r === null: server function not installed -> fall through to the direct write
+  }
+  const f = mmFireDocFields(kind);
+  try{
+    jfbApp[f.section] = jfbApp[f.section] || {};
+    const sec = jfbApp[f.section];
+    if(action === 'upload'){
+      sec[f.name] = fileName; sec[f.status] = 'Submitted'; sec[f.note] = '';
+      if(f.na){ sec[f.na] = false; delete sec[f.na + 'Rejected']; }
+    } else if(action === 'not_applicable'){
+      sec[f.status] = 'Not Applicable'; sec[f.note] = ''; sec[f.na] = true; delete sec[f.na + 'Rejected'];
+    } else if(action === 'undo_not_applicable'){
+      delete sec[f.status]; sec[f.na] = false;
+    } else return false;
+    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
+    if(action === 'upload' && fileData){
+      let files = {};
+      try{
+        const r = await window.storage.get(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, true);
+        files = (r && r.value) ? JSON.parse(r.value) : {};
+      } catch(e){ /* start fresh if unreadable */ }
+      files[f.data] = fileData;
+      await window.storage.set(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, JSON.stringify(files), true);
+    }
+    return true;
+  } catch(e){
+    return false;
+  }
+}
+
 async function mmFireDocFileChosen(kind, label, input){
   if(!input.files || !input.files[0]) return;
   const file = input.files[0];
@@ -38410,25 +38468,9 @@ async function mmFireDocFileChosen(kind, label, input){
     return;
   }
   const f = mmFireDocFields(kind);
-  const section = f.section, fileNameKey = f.name, statusKey = f.status, noteKey = f.note, fileDataKey = f.data;
-  const wasRejected = jfbApp[section] && jfbApp[section][statusKey] === 'Rejected';
-
-  try{
-    jfbApp[section] = jfbApp[section] || {};
-    jfbApp[section][fileNameKey] = file.name;
-    jfbApp[section][statusKey] = 'Submitted';
-    jfbApp[section][noteKey] = '';
-    if(f.na){ jfbApp[section][f.na] = false; delete jfbApp[section][f.na + 'Rejected']; }
-    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
-
-    let files = {};
-    try{
-      const r = await window.storage.get(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, true);
-      files = (r && r.value) ? JSON.parse(r.value) : {};
-    } catch(e){ /* start fresh if unreadable */ }
-    files[fileDataKey] = fileData;
-    await window.storage.set(`jfbApplicationFiles:${jfbApp.jfbAppNumber}`, JSON.stringify(files), true);
-  } catch(e){
+  const wasRejected = jfbApp[f.section] && jfbApp[f.section][f.status] === 'Rejected';
+  const saved = await mmFireSaveDocument(jfbApp, kind, 'upload', file.name, fileData);
+  if(!saved){
     input.value = '';
     poa_showToast('Could not save your upload — please try again.');
     return;
@@ -38460,15 +38502,7 @@ async function mmFireDocNaToggled(kind, label, checkbox){
   }
   const confirmed = await window.atdConfirm(`Mark "${label}" as Not Applicable?\n\nYou are confirming this document does not apply to your event. A JFB officer will review this and may reject it, in which case you will be asked to upload it.`);
   if(!confirmed){ checkbox.checked = false; return; }
-  const f = mmFireDocFields(kind);
-  try{
-    jfbApp[f.section] = jfbApp[f.section] || {};
-    jfbApp[f.section][f.status] = 'Not Applicable';
-    jfbApp[f.section][f.note] = '';
-    jfbApp[f.section][f.na] = true;
-    delete jfbApp[f.section][f.na + 'Rejected'];
-    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
-  } catch(e){
+  if(!(await mmFireSaveDocument(jfbApp, kind, 'not_applicable'))){
     checkbox.checked = false;
     poa_showToast('Could not save this — please try again.');
     return;
@@ -38492,12 +38526,7 @@ async function mmFireDocUndoNa(kind, label){
   const f = mmFireDocFields(kind);
   const sec = jfbApp[f.section] || {};
   if(sec[f.status] !== 'Not Applicable') return;
-  try{
-    delete sec[f.status];
-    sec[f.na] = false;
-    jfbApp[f.section] = sec;
-    await window.storage.set(`jfbApplication:${jfbApp.jfbAppNumber}`, JSON.stringify(jfbApp), true);
-  } catch(e){
+  if(!(await mmFireSaveDocument(jfbApp, kind, 'undo_not_applicable'))){
     poa_showToast('Could not save this — please try again.');
     return;
   }
