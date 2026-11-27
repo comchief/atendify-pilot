@@ -60716,11 +60716,16 @@ window.jfbUpdateWordCount = jfbUpdateWordCount;
       profile = await window.ATDBackend.getProfile();
       window.atdDebugLog('atdBootstrapSessionRestore: getProfile() returned ' + (profile ? ('a profile with role=' + JSON.stringify(profile.role)) : 'null') + '.');
       if(profile){
-        if(profile.role === 'muni' && window.muni_tryRestoreSession){
+        // Staff sessions are only resumed on their own door: Municipal/JCF
+        // staff on /portal, Admin/Accountant on /admin. A staff member who
+        // simply types the site address (or follows a public link) gets the
+        // public landing page, not their dashboard — their sign-in is still
+        // there for the next time they open /portal or /admin.
+        if(profile.role === 'muni' && window.ATD_IS_PORTAL_ROUTE && window.muni_tryRestoreSession){
           restored = await window.muni_tryRestoreSession(profile);
-        } else if(profile.role === 'jcfd' && window.jcfd_tryRestoreSession){
+        } else if(profile.role === 'jcfd' && window.ATD_IS_PORTAL_ROUTE && window.jcfd_tryRestoreSession){
           restored = await window.jcfd_tryRestoreSession(profile);
-        } else if((profile.role === 'admin' || profile.role === 'accountant') && window.admin_tryRestoreSession){
+        } else if((profile.role === 'admin' || profile.role === 'accountant') && window.ATD_IS_ADMIN_ROUTE && window.admin_tryRestoreSession){
           restored = await window.admin_tryRestoreSession(profile);
         }
       }
