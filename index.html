@@ -5912,6 +5912,18 @@
       return res.data;
     },
 
+    // Active police stations the Police Chief set up for the JCF division covering a
+    // municipality (backend/jcf_stations.sql): [{id, name}], or null when the
+    // database function is not there yet.
+    jcfStations: async function (muniNumber) {
+      if (!client) return null;
+      var res = await atdWithClockSkewRetry(function () {
+        return client.rpc('atd_jcf_stations', { p_muni_number: String(muniNumber == null ? '' : muniNumber) });
+      });
+      if (res.error || !Array.isArray(res.data)) { if (res.error) window.atdShowDebugError('jcfStations(' + muniNumber + ')', res.error); return null; }
+      return res.data;
+    },
+
     // Enhanced Security decision for one filing (backend/security_enhanced_security_rules.sql):
     // {required, reasons:[{type:'patrons'|'artists'|'venue', ...}], threshold}. The database makes
     // the same decision itself when the filing is saved; this lets the screen react at once.
@@ -8215,6 +8227,33 @@
       return agencies.find(a => a.type === 'JCF' && a.linkedMuniId === muniAgency.id) || null;
     } catch(err){
       return null;
+    }
+  };
+
+  // Active police stations for the JCF division covering `muniId` (a municipality
+  // number), as [{id, name}] sorted by name -- what the JCF application
+  // form's "Local police station" dropdown offers. The Police Chief keeps the list
+  // under Settings -> Stations in the JCF portal (jcfBranch:<id>:stations). The
+  // database function (backend/jcf_stations.sql) is the way an applicant reads it;
+  // a direct read is the local-preview fallback (and what a signed-in staff account
+  // would be allowed to do).
+  window.atdLoadJcfStations = async function(muniId){
+    if(muniId == null) return [];
+    const clean = list => (Array.isArray(list) ? list : [])
+      .filter(x => x && x.name && x.active !== false)
+      .map(x => ({ id: String(x.id), name: String(x.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    try{
+      if(window.ATDBackend && window.ATDBackend.isConfigured && window.ATDBackend.isConfigured() && window.ATDBackend.jcfStations){
+        const viaDb = await window.ATDBackend.jcfStations(muniId);
+        if(Array.isArray(viaDb)) return clean(viaDb);
+      }
+      const branch = await window.atdFindJcfBranchForMuniId(muniId);
+      if(!branch || !window.storage) return [];
+      const r = await window.storage.get(`jcfBranch:${branch.id}:stations`, true);
+      return (r && r.value) ? clean(JSON.parse(r.value).stations) : [];
+    } catch(err){
+      return [];
     }
   };
 
@@ -14527,6 +14566,12 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <input type="number" id="patronsExpected" min="0" readonly>
         </div>
 
+        <div class="field-group" id="jcfPoliceStationGroup">
+          <label for="jcfPoliceStation">Local Police Station <span class="required-mark" id="jcfPoliceStationReq">*</span></label>
+          <select id="jcfPoliceStation" aria-required="true"><option value="">Select your local police station</option></select>
+          <div class="field-hint" id="jcfPoliceStationHint" style="font-size:12.5px; color:var(--text-muted); margin-top:4px;"></div>
+        </div>
+
         <div class="section-title">Has promoter ever breached the Noise Abatement Act?</div>
         <div class="radio-cards-row">
           <label class="radio-card"><input type="radio" name="promoterBreached" value="Yes" onchange="toggleBreachReason('promoter')"><div class="rc-title">Yes</div></label>
@@ -16285,6 +16330,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         SLA Policy
       </div>
+      <div class="nav-item hidden" data-page="stations" id="jcfd_navStations" onclick="jcfd_goPage('stations')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Stations
+      </div>
       <div class="nav-item hidden" data-page="reports" id="jcfd_navReports" onclick="jcfd_goPage('reports')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Reports
@@ -17026,6 +17075,19 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       </div>
 
       <!-- ===== ENHANCED SECURITY VENUES PAGE (JCF) ===== -->
+      <div class="page hidden" id="jcfd_page-stations">
+        <div class="panel">
+          <div class="panel-head"><h2>Police Stations</h2><span id="jcfd_stationCount" style="font-size:13px; color:var(--text-muted);"></span></div>
+          <p style="font-size:13.5px; color:var(--text-muted); margin:-8px 0 16px;">The stations listed here are what an applicant in your parish chooses from in the <strong>Local Police Station</strong> dropdown on the JCF application form. Only the Police Chief can change this list. A station set to Inactive stops appearing on new applications; applications already submitted keep the station their applicant chose.</p>
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:6px;">
+            <div class="field-group" style="margin:0; flex:1 1 320px;"><label for="jcfd_stationName">Station name <span style="color:var(--red)">*</span></label><input type="text" id="jcfd_stationName" maxlength="120" placeholder="e.g. Half Way Tree Police Station" onkeydown="if(event.key==='Enter') jcfd_addStation()"></div>
+            <button class="btn btn-primary" onclick="jcfd_addStation()">+ Add station</button>
+          </div>
+          <div id="jcfd_stationError" class="hidden" style="color:var(--red); font-size:13px; margin:6px 0;"></div>
+          <div id="jcfd_stationsHost"></div>
+        </div>
+      </div>
+
       <div class="page hidden" id="jcfd_page-esVenues">
         <div class="panel">
           <div class="panel-head"><h2>Enhanced Security — Listed Venues</h2><span id="jcfd_esVenueCount_p" style="font-size:13px; color:var(--text-muted);"></span></div>
@@ -17073,6 +17135,34 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </div>
 
 <!-- ===== JCF Add Staff Modal ===== -->
+<div class="modal-overlay hidden" id="jcfd_editUserModal">
+  <div class="modal-box">
+    <h3>Edit staff account</h3>
+    <p class="modal-sub">Change this person's details. To pause or remove the account, use Suspend or Delete on the list.</p>
+    <div class="field-group">
+      <label for="jcfd_editUserName">Full name</label>
+      <input type="text" id="jcfd_editUserName">
+    </div>
+    <div class="field-group">
+      <label for="jcfd_editUserEmail">Email</label>
+      <input type="email" id="jcfd_editUserEmail" placeholder="name@jcf.gov.jm">
+      <div id="jcfd_editUserEmailNote" class="field-hint" style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">Changing the email moves this account to the new address. They sign in with the new email; a login created under the old one will no longer match this account.</div>
+    </div>
+    <div class="field-group">
+      <label for="jcfd_editUserRole">Role</label>
+      <select id="jcfd_editUserRole">
+        <option>Police Supervisor</option>
+        <option>Police Officer/Station</option>
+      </select>
+      <div id="jcfd_editUserChiefNote" class="field-hint hidden" style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">The Police Chief's email and role can't be changed here, so the division always has a Chief.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="jcfd_closeEditUserModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="jcfd_saveEditUser()">Save changes</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="jcfd_userModal">
   <div class="modal-box">
     <h3>Add staff account</h3>
@@ -20292,6 +20382,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     document.getElementById('jcfd_sidebarUserRole').textContent = user.role;
     document.getElementById('jcfd_navUsers').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
     document.getElementById('jcfd_navSettings').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
+    document.getElementById('jcfd_navStations').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
     document.getElementById('jcfd_navArchive').classList.toggle('hidden', user.role !== JCFD_ROLE_CHIEF);
     await jcfd_loadRolePermissions();
     jcfd_applyNavPermissions();
@@ -20490,7 +20581,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       jcfd_showToast("You don't have permission to view this page.");
       page = 'dashboard';
     }
-    if((page === 'users' || page === 'settings' || page === 'archive') && !(jcfdCurrentUser && jcfdCurrentUser.role === JCFD_ROLE_CHIEF)){
+    if((page === 'users' || page === 'settings' || page === 'stations' || page === 'archive') && !(jcfdCurrentUser && jcfdCurrentUser.role === JCFD_ROLE_CHIEF)){
       jcfd_showToast("You don't have permission to view this page.");
       page = 'dashboard';
     }
@@ -20498,7 +20589,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const el = document.getElementById('jcfd_page-' + page);
     if(el) el.classList.remove('hidden');
     document.querySelectorAll('#shell-jcfd .nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-    const titles = { dashboard:'Dashboard', applications:'Applications', manualEntry:'New Manual Application', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', slaBreaches:'SLA Breaches', esVenues:'Enhanced Security Venues' };
+    const titles = { dashboard:'Dashboard', applications:'Applications', manualEntry:'New Manual Application', appdetail:'Application Details', watchlist:'Watch List', permits:'Issued Permits', signatures:'Permits & Signatures', users:'Users & Roles', reports:'Reports', eventsCalendar:'Events Calendar', profile:'Profile', settings:'SLA Policy', archive:'Archive', stations:'Stations', slaBreaches:'SLA Breaches', esVenues:'Enhanced Security Venues' };
     document.getElementById('jcfd_topbarTitle').textContent = titles[page] || 'Dashboard';
     if(page === 'dashboard') jcfd_renderDashboard();
     if(page === 'applications') jcfd_renderApplications();
@@ -20510,6 +20601,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(page === 'eventsCalendar') jcfd_goEventsCalendarPage();
     if(page === 'profile') jcfd_renderProfile();
     if(page === 'settings') jcfd_loadSettings();
+    if(page === 'stations') jcfd_renderStations();
     if(page === 'archive') jcfd_renderArchiveYears();
     if(page === 'slaBreaches') jcfd_renderSlaBreaches();
     if(page === 'esVenues') jcfd_renderEsVenues();
@@ -22583,6 +22675,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       html += jcfd_detailRow(`Day ${d.day}`, `${d.eventName || eo.eventName || 'Event'} · ${d.date || 'date not set'} · ${[d.venueName, d.venueAddr].filter(Boolean).join(' — ') || 'Same venue as Day 1'} · ${d.eventType || 'event type not set'} · ${d.patrons ? d.patrons + ' patrons' : 'patrons not set'}`);
     });
     html += jcfd_detailRow('Number of patrons expected', eo.patronsExpected);
+    if(eo.policeStation) html += jcfd_detailRow('Local police station', eo.policeStation);
     html += jcfd_detailRow('Promoter previously breached the Noise Abatement Act', eo.promoterBreachedNoiseAct);
     if(eo.promoterBreachedNoiseAct === 'Yes'){
       html += jcfd_detailRow('Breach details', eo.promoterBreachReason);
@@ -22932,6 +23025,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
         R('Type of event', eo.eventType), R('Event name', eo.eventName), R('Date of application', eo.dateOfApplication),
         R('Date of event', eo.dateOfEvent), ...dayRows,
         R('Number of patrons expected', eo.patronsExpected),
+        ...(eo.policeStation ? [R('Local police station', eo.policeStation)] : []),
         R('Promoter previously breached the Noise Abatement Act', eo.promoterBreachedNoiseAct),
         ...(eo.promoterBreachedNoiseAct === 'Yes' ? [R('Breach details', eo.promoterBreachReason)] : [])
       ]);
@@ -24463,6 +24557,7 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       <td>${acctEscapeHtml(u.role)}</td>
       <td>${acctEscapeHtml(u.email)}</td>
       <td class="row-actions">
+        <button class="btn btn-sm" onclick="jcfd_openEditUserModal(${u.id})">Edit</button>
         ${u.role !== JCFD_ROLE_CHIEF ? `<button class="btn btn-sm" onclick="jcfd_toggleUserStatus(${u.id})">${u.status==='Active'?'Suspend':'Reactivate'}</button> <button class="btn btn-sm" onclick="jcfd_deleteUser(${u.id})" ${u.id === (jcfdCurrentUser && jcfdCurrentUser.id) ? 'disabled' : ''}>Delete</button>` : ''}
       </td>
     </tr>`).join('');
@@ -24497,6 +24592,69 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     jcfd_renderUsers();
   }
   window.jcfd_deleteUser = jcfd_deleteUser;
+
+
+  // ---- Edit a staff account (Police Chief) ----
+  // Changes the portal record: name, email and (for a Supervisor / Officer-Station) role.
+  // The Police Chief's own record can have its name changed but keeps its email and role,
+  // so the division can never be left without a Chief. Status (suspend/reactivate) and
+  // delete stay their own buttons.
+  function jcfd_openEditUserModal(id){
+    const u = jcfdStaffUsers.find(x => x.id === id);
+    if(!u) return;
+    jcfdEditingUserId = id;
+    const isChief = u.role === JCFD_ROLE_CHIEF;
+    document.getElementById('jcfd_editUserName').value = u.name || '';
+    document.getElementById('jcfd_editUserEmail').value = u.email || '';
+    document.getElementById('jcfd_editUserEmail').disabled = isChief;
+    const roleSel = document.getElementById('jcfd_editUserRole');
+    roleSel.value = isChief ? JCFD_ROLE_SUPERVISOR : u.role;
+    roleSel.disabled = isChief;
+    document.getElementById('jcfd_editUserChiefNote').classList.toggle('hidden', !isChief);
+    document.getElementById('jcfd_editUserEmailNote').classList.toggle('hidden', isChief);
+    document.getElementById('jcfd_editUserModal').classList.remove('hidden');
+  }
+  window.jcfd_openEditUserModal = jcfd_openEditUserModal;
+  function jcfd_closeEditUserModal(){ document.getElementById('jcfd_editUserModal').classList.add('hidden'); jcfdEditingUserId = null; }
+  window.jcfd_closeEditUserModal = jcfd_closeEditUserModal;
+
+  async function jcfd_saveEditUser(){
+    if(!jcfdCurrentUser || jcfdCurrentUser.role !== JCFD_ROLE_CHIEF){ jcfd_showToast('Only the Police Chief can edit staff accounts.'); return; }
+    const u = jcfdStaffUsers.find(x => x.id === jcfdEditingUserId);
+    if(!u){ jcfd_closeEditUserModal(); return; }
+    const isChief = u.role === JCFD_ROLE_CHIEF;
+    const name = document.getElementById('jcfd_editUserName').value.trim().replace(/\s+/g, ' ');
+    const email = isChief ? u.email : document.getElementById('jcfd_editUserEmail').value.trim().toLowerCase();
+    const role = isChief ? u.role : document.getElementById('jcfd_editUserRole').value;
+    if(!name || !email){ jcfd_showToast('Please enter a name and email.'); return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ jcfd_showToast('Please enter a valid email address.'); return; }
+    if(role !== JCFD_ROLE_SUPERVISOR && role !== JCFD_ROLE_OFFICER && !isChief){ jcfd_showToast('Choose a role.'); return; }
+    if(jcfdStaffUsers.some(x => x.id !== u.id && String(x.email || '').toLowerCase() === email)){
+      jcfd_showToast('Another staff account already uses that email.');
+      return;
+    }
+    const before = { name: u.name, email: u.email, role: u.role };
+    if(before.name === name && before.email === email && before.role === role){ jcfd_closeEditUserModal(); jcfd_showToast('No changes to save.'); return; }
+    const updated = Object.assign({}, u, { name, email, role });
+    try{ await window.atdSaveJcfdUser(updated); }
+    catch(e){ jcfd_showToast('Could not save the changes right now. Please try again.'); return; }
+    Object.assign(u, updated);
+    // A new email address has to be pre-authorized for the real backend the same way a new
+    // staff account is (see jcfd_saveUser), so that person can sign up with it.
+    if(before.email !== email && window.ATDBackend && window.ATDBackend.isConfigured() && window.ATDBackend.inviteStaff){
+      window.ATDBackend.inviteStaff({ email, role: 'jcfd', jcf_branch_id: String(jcfdCurrentBranch.id), display_name: name }).catch(()=>{});
+    }
+    const changes = [];
+    if(before.name !== name) changes.push(`name "${before.name}" -> "${name}"`);
+    if(before.email !== email) changes.push(`email ${before.email} -> ${email}`);
+    if(before.role !== role) changes.push(`role ${before.role} -> ${role}`);
+    if(window.atdLogAudit) await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action: 'user.edit', details: `Edited staff account ${before.email}: ${changes.join('; ')}.`, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null });
+    if(jcfdCurrentUser.id === u.id) jcfdCurrentUser.name = name;
+    jcfd_closeEditUserModal();
+    jcfd_renderUsers();
+    jcfd_showToast('Staff account updated.');
+  }
+  window.jcfd_saveEditUser = jcfd_saveEditUser;
 
   function jcfd_openUserModal(){
     document.getElementById('jcfd_userName').value = '';
@@ -24754,6 +24912,128 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       ? `<strong>Preview:</strong> an event is flagged if ${parts.join(', <em>or</em> ')}. If more than one rule matches, all reasons are shown to the officer. An officer can still tick the box by hand on any application.`
       : '<strong>Preview:</strong> all rules are off — no event is flagged automatically. An officer can still tick the box by hand on any application.';
   }
+
+  // ==================== Police Stations (Settings -> Stations) ====================
+  // jcfBranch:<id>:stations = {stations:[{id, name, active, addedBy, addedAt}]}
+  // Offered to applicants as the "Local Police Station" dropdown on the JCF
+  // application form (see window.atdLoadJcfStations / backend/jcf_stations.sql).
+  let jcfdStations = [];
+  let jcfdStationEditId = null;
+  function jcfd_stationNorm(t){ return String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  async function jcfd_loadStations(){
+    jcfdStations = [];
+    if(!window.storage || !jcfdCurrentBranch) return;
+    try{
+      const r = await window.storage.get(`jcfBranch:${jcfdCurrentBranch.id}:stations`, true);
+      if(r && r.value) jcfdStations = (JSON.parse(r.value).stations || []).filter(x => x && x.name);
+    } catch(e){ /* empty list */ }
+  }
+  async function jcfd_saveStations(list){
+    await window.storage.set(`jcfBranch:${jcfdCurrentBranch.id}:stations`, JSON.stringify({ stations: list }), true);
+    jcfdStations = list;
+  }
+  function jcfd_isChiefUser(){ return !!jcfdCurrentUser && jcfdCurrentUser.role === JCFD_ROLE_CHIEF; }
+  async function jcfd_stationAudit(action, details){
+    if(!window.atdLogAudit) return;
+    try{ await window.atdLogAudit({ portal: 'jcf', actor: jcfdCurrentUser.email, actorRole: jcfdCurrentUser.role, action, details, muniId: jcfdCurrentBranch ? jcfdCurrentBranch.id : null }); }catch(e){}
+  }
+  function jcfd_stationsHtml(){
+    if(!jcfdStations.length){
+      return '<p style="font-size:13px; color:var(--text-muted); margin:12px 0 0;">No stations added yet. Until you add some, the Local Police Station dropdown on the application form shows no choices.</p>';
+    }
+    const rows = jcfdStations.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))).map(st => {
+      const active = st.active !== false;
+      const id = acctEscapeHtml(String(st.id));
+      if(jcfdStationEditId === String(st.id)){
+        return `<tr><td><input type="text" id="jcfd_stationEditName" maxlength="120" value="${acctEscapeHtml(st.name)}" style="width:100%;" onkeydown="if(event.key==='Enter') jcfd_saveStationEdit('${id}')"></td>
+          <td><span class="badge ${active ? 'badge-green' : 'badge-gray'}">${active ? 'Active' : 'Inactive'}</span></td>
+          <td style="white-space:nowrap;"><button class="btn btn-primary btn-sm" onclick="jcfd_saveStationEdit('${id}')">Save</button> <button class="btn btn-sm" onclick="jcfd_cancelStationEdit()">Cancel</button></td></tr>`;
+      }
+      return `<tr><td style="font-weight:700;">${acctEscapeHtml(st.name)}</td>
+        <td><span class="badge ${active ? 'badge-green' : 'badge-gray'}">${active ? 'Active' : 'Inactive'}</span></td>
+        <td style="white-space:nowrap;"><button class="btn btn-sm" onclick="jcfd_editStation('${id}')">Edit</button>
+          <button class="btn btn-sm" onclick="jcfd_toggleStation('${id}')">${active ? 'Set inactive' : 'Set active'}</button>
+          <button class="btn btn-sm" style="color:var(--red);" onclick="jcfd_removeStation('${id}')">Remove</button></td></tr>`;
+    }).join('');
+    return `<div style="overflow-x:auto; margin-top:10px;"><table><thead><tr><th>Station</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  async function jcfd_renderStations(){
+    await jcfd_loadStations();
+    const host = document.getElementById('jcfd_stationsHost');
+    if(host) host.innerHTML = jcfd_stationsHtml();
+    const active = jcfdStations.filter(x => x.active !== false).length;
+    const c = document.getElementById('jcfd_stationCount');
+    if(c) c.textContent = jcfdStations.length + (jcfdStations.length === 1 ? ' station' : ' stations') + (jcfdStations.length ? ' · ' + active + ' active' : '');
+  }
+  async function jcfd_addStation(){
+    const err = document.getElementById('jcfd_stationError');
+    const fail = m => { if(err){ err.textContent = m; err.classList.remove('hidden'); } };
+    if(err) err.classList.add('hidden');
+    if(!jcfd_isChiefUser()){ jcfd_showToast('Only the Police Chief can change the station list.'); return; }
+    const name = (document.getElementById('jcfd_stationName').value || '').trim().replace(/\s+/g, ' ');
+    if(!name) return fail('Enter the station name.');
+    if(!jcfd_stationNorm(name)) return fail('The station name needs at least one letter or number.');
+    await jcfd_loadStations();
+    if(jcfdStations.some(x => jcfd_stationNorm(x.name) === jcfd_stationNorm(name))) return fail('That station is already on the list.');
+    const entry = { id: 'stn_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, active: true,
+      addedBy: jcfdCurrentUser.name || jcfdCurrentUser.email, addedAt: new Date().toISOString() };
+    try{ await jcfd_saveStations(jcfdStations.concat([entry])); }
+    catch(e){ return fail('Could not save the station list right now. Please try again.'); }
+    document.getElementById('jcfd_stationName').value = '';
+    await jcfd_stationAudit('stations.added', `Added police station "${name}".`);
+    await jcfd_renderStations();
+    jcfd_showToast('Station added.');
+  }
+  function jcfd_editStation(id){ jcfdStationEditId = String(id); jcfd_renderStations(); }
+  function jcfd_cancelStationEdit(){ jcfdStationEditId = null; jcfd_renderStations(); }
+  async function jcfd_saveStationEdit(id){
+    if(!jcfd_isChiefUser()){ jcfd_showToast('Only the Police Chief can change the station list.'); return; }
+    const name = (document.getElementById('jcfd_stationEditName').value || '').trim().replace(/\s+/g, ' ');
+    if(!name || !jcfd_stationNorm(name)){ jcfd_showToast('Enter the station name.'); return; }
+    await jcfd_loadStations();
+    const st = jcfdStations.find(x => String(x.id) === String(id));
+    if(!st){ jcfdStationEditId = null; return jcfd_renderStations(); }
+    if(jcfdStations.some(x => x !== st && jcfd_stationNorm(x.name) === jcfd_stationNorm(name))){ jcfd_showToast('Another station already has that name.'); return; }
+    const before = st.name;
+    const updated = jcfdStations.map(x => x === st ? Object.assign({}, x, { name }) : x);
+    try{ await jcfd_saveStations(updated); } catch(e){ jcfd_showToast('Could not save the station list right now.'); return; }
+    jcfdStationEditId = null;
+    await jcfd_stationAudit('stations.edited', before === name ? `Updated police station "${name}".` : `Renamed police station "${before}" to "${name}".`);
+    await jcfd_renderStations();
+    jcfd_showToast('Station updated.');
+  }
+  async function jcfd_toggleStation(id){
+    if(!jcfd_isChiefUser()){ jcfd_showToast('Only the Police Chief can change the station list.'); return; }
+    await jcfd_loadStations();
+    const st = jcfdStations.find(x => String(x.id) === String(id));
+    if(!st) return jcfd_renderStations();
+    const nowActive = st.active === false;
+    try{ await jcfd_saveStations(jcfdStations.map(x => x === st ? Object.assign({}, x, { active: nowActive }) : x)); }
+    catch(e){ jcfd_showToast('Could not save the station list right now.'); return; }
+    await jcfd_stationAudit(nowActive ? 'stations.activated' : 'stations.deactivated', `${nowActive ? 'Set active' : 'Set inactive'}: police station "${st.name}".`);
+    await jcfd_renderStations();
+  }
+  async function jcfd_removeStation(id){
+    if(!jcfd_isChiefUser()){ jcfd_showToast('Only the Police Chief can change the station list.'); return; }
+    await jcfd_loadStations();
+    const st = jcfdStations.find(x => String(x.id) === String(id));
+    if(!st) return jcfd_renderStations();
+    const go = window.atdConfirm ? await window.atdConfirm(`Remove "${st.name}" from the station list? Applications that already chose it keep it. To just hide it from new applications, set it to Inactive instead.`) : true;
+    if(!go) return;
+    try{ await jcfd_saveStations(jcfdStations.filter(x => x !== st)); }
+    catch(e){ jcfd_showToast('Could not save the station list right now.'); return; }
+    await jcfd_stationAudit('stations.removed', `Removed police station "${st.name}".`);
+    await jcfd_renderStations();
+    jcfd_showToast('Station removed.');
+  }
+  window.jcfd_renderStations = jcfd_renderStations;
+  window.jcfd_addStation = jcfd_addStation;
+  window.jcfd_editStation = jcfd_editStation;
+  window.jcfd_cancelStationEdit = jcfd_cancelStationEdit;
+  window.jcfd_saveStationEdit = jcfd_saveStationEdit;
+  window.jcfd_toggleStation = jcfd_toggleStation;
+  window.jcfd_removeStation = jcfd_removeStation;
+
   // ---- listed venues (jcfBranch:<id>:esVenues = {venues:[{id,name,address,reason,addedBy,addedByRole,addedAt}]}) ----
   // A venue matches on its NAME alone, capitals/spacing/punctuation ignored (same rule as the database).
   function jcfd_esNorm(t){ return String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -31962,7 +32242,13 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       applicantAddress: [eo.addr1, eo.addr2, eo.district, eo.parish].filter(Boolean).join(', ') || 'N/A',
       eventName: eo.eventName || '',
       eventDate: eo.dateOfEvent || '',
+      // Wording of the Fire Certificate letter: the venue it was applied for,
+      // and who signs it (the officer approving and issuing it).
+      venueName: (rec.venueInfo && rec.venueInfo.venueName) || '',
+      venueAddress: (rec.venueInfo && (rec.venueInfo.venueAddress || [rec.venueInfo.venueAddr1, rec.venueInfo.venueAddr2, rec.venueInfo.venueDistrict, rec.venueInfo.venueParish].filter(Boolean).join(', '))) || '',
+      signatoryName: jfbdCurrentUser.name || '',
       divisionName: (jfbdCurrentBranch.parish || '') + ' Divisional Headquarters',
+      divisionTitle: jfbdCurrentBranch.name || '',
       parish: jfbdCurrentBranch.parish || '',
       // Was plain text (`${number} · promoterName`) — not a link anywhere,
       // so scanning it did nothing. Now points at the same public verify
@@ -32086,29 +32372,28 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     if(p && p.permitTypeLabel === 'ANNUAL') return jfbd_buildAnnualPermitDocHtml(p, signatureDataUrl, qrTargetId, crestDataUrl);
     qrTargetId = qrTargetId || 'jfbdPermitQrTarget';
     const divisionName = p.divisionName || 'Divisional Headquarters';
-    const templates = window.ATD_FORM_TEMPLATES_CACHE || window.ATD_DEFAULT_FORM_TEMPLATES;
-    const conditionsHtml = String(templates.jfbPermitConditionsText || '')
-      .split('\n').map(s => s.trim()).filter(Boolean)
-      .map(s => `<li>${acctEscapeHtml(s)}</li>`).join('\n          ');
-    const eventClause = p.eventName
-      ? ` to host event "<strong>${acctEscapeHtml(p.eventName.toUpperCase())}</strong>" on the <strong>${acctEscapeHtml(jfbd_formatLongDate(p.eventDate))}</strong>`
-      : ` for an event on the <strong>${acctEscapeHtml(jfbd_formatLongDate(p.eventDate))}</strong>`;
-
+    // Third header line: the name of the division. New certificates carry it as
+    // divisionTitle; older ones only have "<parish> Divisional Headquarters" in
+    // divisionName, so the division name is recovered from that.
+    const divisionLine = p.divisionTitle || String(divisionName).replace(/\s*Divisional Headquarters\s*$/i, '').trim() || p.parish || '';
+    const venueLocation = [p.venueName, p.venueAddress].filter(Boolean).join(', ');
+    const q = v => '&ldquo;' + acctEscapeHtml(v) + '&rdquo;';
     return `
       <div class="permit-doc">
         <div class="permit-doc-top">
           <img class="pd-logo" src="${JFBD_ATENDIFY_LOGO_B64}" alt="Atendify logo">
           <div class="permit-doc-muniblock">
             ${crestDataUrl ? `<img src="${crestDataUrl}" alt="JFB coat of arms" style="height:72px; width:auto; object-fit:contain; display:block; margin:0 auto 2px;">` : JFBD_CREST_SVG}
-            <div class="permit-doc-muniname">${acctEscapeHtml((divisionName || '').toUpperCase())}</div>
-            <div class="permit-doc-reg" style="margin-top:2px;">NOISE ABATEMENT ACT 1997</div>
+            <div class="permit-doc-muniname">JAMAICA FIRE BRIGADE</div>
+            <div class="permit-doc-reg" style="margin:2px 0 0;">DIVISIONAL HEADQUARTERS</div>
+            <div class="permit-doc-reg" style="margin-top:2px;">${acctEscapeHtml(divisionLine.toUpperCase())}</div>
           </div>
           <div class="permit-doc-qr">
             <div class="qr-box" id="${qrTargetId}"></div>
             <div class="qr-scan-label">SCAN ME</div>
           </div>
         </div>
-        <div class="permit-doc-title-box">NOISE ABATEMENT PERMIT</div>
+        <div class="permit-doc-title-box" style="max-width:none; width:fit-content; font-size:22px; white-space:nowrap; padding:10px 22px;">FIRE CERTIFICATE (SPECIAL EVENT)</div>
 
         <div class="permit-doc-grid">
           <div><div class="pdg-value">${acctEscapeHtml(jfbd_formatLongDate(p.issuedDate))}</div><div class="pdg-label">DATE ISSUED</div></div>
@@ -32119,19 +32404,18 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           <div><div class="pdg-value">${acctEscapeHtml(String(p.expectedPatrons))}</div><div class="pdg-label">EXPECTED PATRONS</div></div>
         </div>
 
-        <p class="permit-doc-body">This Permit is hereby granted by the ${acctEscapeHtml(p.parish || '')} Division of the Jamaica Constabulary, to: <strong>${acctEscapeHtml((p.issuedTo || '').toUpperCase())}</strong> of <strong>${acctEscapeHtml((p.applicantAddress || 'N/A').toUpperCase())}</strong>${eventClause}. <strong style="color:#c0392b;">This event should end at: ${acctEscapeHtml(p.expiresTime12 || '')} EST.</strong></p>
+        <p class="permit-doc-body">Dear ${acctEscapeHtml(p.issuedTo || '')},</p>
 
-        <p class="permit-doc-body">Please be advised that permission is granted providing that the under mentioned instructions are complied with:</p>
-        <ol style="margin:10px 0 14px 22px; padding:0; font-size:12px; line-height:1.6;">
-          ${conditionsHtml}
-        </ol>
+        <p class="permit-doc-body">The Jamaica Fire Brigade is in receipt of your application to host ${q(p.eventName || 'your event')}${venueLocation ? ' at ' + q(venueLocation) : ''} on ${q(jfbd_formatLongDate(p.eventDate))}.</p>
 
-        <p class="permit-doc-body">${acctEscapeHtml(templates.jfbPermitClosingText || '')}</p>
+        <p class="permit-doc-body">Permission is granted on condition that maximum safety precautions are exercised during the event, in keeping with the recommendations of the ${acctEscapeHtml(divisionLine)} Fire Safety, Prevention and Investigation Unit.</p>
+
+        <p class="permit-doc-body">We sincerely hope that this will be a safe and successful event.</p>
 
         <div class="permit-doc-signature">
           ${signatureDataUrl ? `<img src="${signatureDataUrl}" alt="Signature">` : `<div class="sig-line"></div>`}
         </div>
-        <div class="permit-doc-cfo"><strong>Snr. Superintendent of Police</strong><br><strong>i/c ${acctEscapeHtml(p.parish || '')} Division</strong></div>
+        <div class="permit-doc-cfo">${p.signatoryName ? `<strong>${acctEscapeHtml(p.signatoryName)}</strong><br>` : ''}<strong>Superintendent, 2IC Operations<br>${acctEscapeHtml(divisionLine)}</strong></div>
 
         <div class="permit-doc-efile">e-File</div>
       </div>
@@ -55963,6 +56247,42 @@ function jcf_renderMultiDayPanel(){
   panel.classList.remove('hidden');
 }
 
+// ---- Local police station (Event Overview) ----
+// Choices come from the stations the Police Chief set up for the division
+// covering this application's municipality (Settings -> Stations in the JCF
+// portal; see window.atdLoadJcfStations). A chosen value saved in a draft is
+// held in jcfPendingStation until the list has loaded, since a select can only
+// show an option that exists.
+let jcfPendingStation = '';
+async function jcf_loadPoliceStations(){
+  const sel = document.getElementById('jcfPoliceStation');
+  const hint = document.getElementById('jcfPoliceStationHint');
+  const req = document.getElementById('jcfPoliceStationReq');
+  if(!sel) return;
+  const muniId = poaData ? poaData.muniId : null;
+  let stations = [];
+  try{ stations = window.atdLoadJcfStations ? await window.atdLoadJcfStations(muniId) : []; }catch(e){ stations = []; }
+  // Read after the wait: a draft being resumed sets jcfPendingStation while the list loads.
+  const keep = jcfPendingStation || sel.value;
+  sel.innerHTML = '<option value="">' + (stations.length ? 'Select your local police station' : 'No police stations available yet') + '</option>' +
+    stations.map(st => `<option value="${jcf_escapeHtml(st.id)}" data-name="${jcf_escapeHtml(st.name)}">${jcf_escapeHtml(st.name)}</option>`).join('');
+  sel.disabled = !stations.length;
+  if(req) req.classList.toggle('hidden', !stations.length);
+  if(hint) hint.textContent = stations.length ? 'Choose the police station closest to you.' : 'Your division has not listed any police stations yet, so there is nothing to choose.';
+  if(keep && stations.some(st => st.id === keep)) sel.value = keep;
+  jcfPendingStation = '';
+}
+window.jcf_loadPoliceStations = jcf_loadPoliceStations;
+// The chosen station as {id, name}; null when none (or none on offer).
+function jcf_policeStationValue(){
+  const sel = document.getElementById('jcfPoliceStation');
+  if(!sel || !sel.value) return null;
+  const opt = sel.options[sel.selectedIndex];
+  const name = opt ? (opt.getAttribute('data-name') || opt.textContent).trim() : '';
+  return { id: sel.value, name };
+}
+window.jcf_policeStationValue = jcf_policeStationValue;
+
 function prefillFromPoa(){
   const banner = document.getElementById('linkedBanner');
   const bannerText = document.getElementById('linkedBannerText');
@@ -55975,6 +56295,7 @@ function prefillFromPoa(){
 
   document.getElementById('dateOfApplication').value = new Date().toISOString().slice(0,10);
 
+  jcf_loadPoliceStations();
   jcf_renderMultiDayPanel();
   if(!poaData){
     unlinkedBanner.classList.remove('hidden');
@@ -56204,6 +56525,11 @@ function jcf_resumeDraft(data){
   // later into Save and Continue just above, which makes an applicant's
   // draft get saved (and so, potentially resumed) far more often than the
   // old rarely-clicked explicit save link ever did.
+  if(data.jcfPoliceStation){
+    jcfPendingStation = data.jcfPoliceStation;
+    const selNow = document.getElementById('jcfPoliceStation');
+    if(selNow && [...selNow.options].some(o => o.value === jcfPendingStation)){ selNow.value = jcfPendingStation; jcfPendingStation = ''; }
+  }
   jcf_goStep(data.__step || 1);
 }
 window.jcf_resumeDraft = jcf_resumeDraft;
@@ -56219,6 +56545,8 @@ window.jcf_resumeDraft = jcf_resumeDraft;
 // prefill, so a resumed draft refills only what it saved. poaData and
 // jcfAppNumber are the link to the POA application and are left alone.
 function jcf_resetWizard(){
+  jcfPendingStation = '';
+  { const st = document.getElementById('jcfPoliceStation'); if(st) st.value = ''; }
   // In-memory state — Special Event
   djs = []; editingDjIndex = null;
   soundSystems = []; editingSoundIndex = null;
@@ -56500,6 +56828,13 @@ async function continueFromStep1(){
     jcf_showToast('Please enter the name of the event.');
     return;
   }
+  // Required whenever the division has listed stations to choose from.
+  { const stSel = document.getElementById('jcfPoliceStation');
+    if(stSel && !stSel.disabled && stSel.options.length > 1 && !stSel.value){
+      jcf_showToast('Please select your local police station.');
+      stSel.focus();
+      return;
+    } }
   if(!photoIdFileData){
     jcf_showToast('Please upload a Photo ID before continuing.');
     return;
@@ -57312,6 +57647,7 @@ function jcf_goReview(){
     ['Tax Registration Number', jcf_val('promoterTrn')],
     ['Address', [jcf_val('promoterAddr1'), jcf_val('promoterAddr2'), jcf_val('promoterDistrict'), jcf_val('promoterParish')].filter(Boolean).join(', ')],
     ['Number of Patrons expected', jcf_val('patronsExpected')],
+    ['Local Police Station', (jcf_policeStationValue() || {}).name || ''],
     ['Has promoter ever breached Noise Abatement Act?', radioVal('promoterBreached')]
   ];
   if(radioVal('promoterBreached') === 'Yes'){
@@ -57574,6 +57910,11 @@ async function submitJcfApp(){
       trn: jcf_val('promoterTrn'),
       addr1: jcf_val('promoterAddr1'), addr2: jcf_val('promoterAddr2'), district: jcf_val('promoterDistrict'), parish: jcf_val('promoterParish'),
       patronsExpected: jcf_val('patronsExpected'),
+      // Local police station the applicant chose from the division's list
+      // (Settings -> Stations in the JCF portal). Stored by name so the record
+      // still reads correctly if the station is later renamed or removed.
+      policeStation: (jcf_policeStationValue() || {}).name || '',
+      policeStationId: (jcf_policeStationValue() || {}).id || '',
       promoterBreachedNoiseAct: radioVal('promoterBreached'),
       promoterBreachReason: radioVal('promoterBreached') === 'Yes' ? jcf_val('promoterBreachReason') : '',
       // photoIdFileData intentionally NOT embedded here — see the note
@@ -57745,6 +58086,7 @@ async function submitJcfApp(){
 // through (and was visible on the JCF Division dashboard the whole time).
 // Jumping straight to that tab forces mmGoView('noise') to refresh against
 // storage, so the applicant sees their submission immediately.
+window.jcf_goReview = jcf_goReview;
 function jcf_returnToPoaMainMenu(){
   showHub('poa');
   setTimeout(function(){ if(window.mmGoView) window.mmGoView('noise'); }, 50);
